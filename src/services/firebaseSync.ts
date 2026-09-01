@@ -13,18 +13,30 @@ export interface FirebaseCustomConfig {
   syncDocId?: string; // default: "ken-chiko-global-state"
 }
 
-// Read configuration from environment variables (import.meta.env)
+// Built-in Firebase configuration protected by HTTP referrer domain restrictions
+export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
+  projectId: 'gen-lang-client-0027333270',
+  appId: '1:589716285990:web:0b1c0cce13f5f0187154e7',
+  apiKey: 'AIzaSyCDqLWbRYRSsrhzYKdUXvd5DQ6m360yKBk',
+  authDomain: 'gen-lang-client-0027333270.firebaseapp.com',
+  firestoreDatabaseId: 'ai-studio-fae23163-8cc8-4b97-bd81-37d5070e358a',
+  storageBucket: 'gen-lang-client-0027333270.firebasestorage.app',
+  messagingSenderId: '589716285990',
+  syncDocId: 'ken-chiko-global-state',
+};
+
+// Read configuration with priority: LocalStorage > Environment variables > Default protected config
 export function getEnvFirebaseConfig(): FirebaseCustomConfig {
   const env = (import.meta as any).env || {};
-  const projectId = env.VITE_FIREBASE_PROJECT_ID || '';
+  const projectId = env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId;
   return {
-    apiKey: env.VITE_FIREBASE_API_KEY || '',
+    apiKey: env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
     projectId: projectId,
-    appId: env.VITE_FIREBASE_APP_ID || '',
-    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || (projectId ? `${projectId}.firebaseapp.com` : ''),
-    firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || '',
-    storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || (projectId ? `${projectId}.firebasestorage.app` : ''),
-    messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: env.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
+    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
+    firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId,
+    storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
+    messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
     syncDocId: 'ken-chiko-global-state',
   };
 }
@@ -69,7 +81,7 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
     };
 
     if (!activeConfig.apiKey || !activeConfig.projectId) {
-      return { success: false, error: '環境変数 (VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID) または設定画面で設定してください' };
+      return { success: false, error: 'Firebaseの設定情報が見つかりません' };
     }
 
     if (getApps().length > 0) {
