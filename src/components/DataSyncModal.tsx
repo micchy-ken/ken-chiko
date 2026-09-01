@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { NyanCharacter, GameSaveData } from '../types';
 import { exportNyansToCsv, mergeImportedCsv } from '../utils/csvParser';
-import { generateGitHubWorkflowYaml, formatDataForGitHub } from '../utils/githubSync';
+import {
+  generateDeployGitHubPagesYaml,
+  generateFirebaseDeployYaml,
+  generateGitHubWorkflowYaml,
+} from '../utils/githubSync';
 import {
   loadSavedFirebaseConfig,
   saveFirebaseConfig,
   FirebaseCustomConfig,
   syncSaveDataToFirebase,
+  PROVISIONED_FIREBASE_CONFIG,
 } from '../services/firebaseSync';
 import {
   X,
@@ -19,8 +24,9 @@ import {
   Copy,
   Sparkles,
   RefreshCw,
-  Layers,
   Cloud,
+  CheckCircle2,
+  Rocket,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -39,18 +45,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onImportNyans,
   onSaveFirebaseConfig,
 }) => {
-  const [activeTab, setActiveTab] = useState<'csv' | 'github' | 'firebase'>('csv');
+  const [activeTab, setActiveTab] = useState<'csv' | 'github' | 'firebase'>('firebase');
   const [dragActive, setDragActive] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [copiedWorkflow, setCopiedWorkflow] = useState(false);
-  const [copiedJson, setCopiedJson] = useState(false);
+  const [githubWorkflowType, setGithubWorkflowType] = useState<'pages' | 'firebase' | 'data'>('pages');
 
   // Firebase state
   const existingFb = loadSavedFirebaseConfig();
-  const [fbApiKey, setFbApiKey] = useState(existingFb?.apiKey || '');
-  const [fbProjectId, setFbProjectId] = useState(existingFb?.projectId || '');
-  const [fbAppId, setFbAppId] = useState(existingFb?.appId || '');
+  const [fbApiKey, setFbApiKey] = useState(existingFb?.apiKey || PROVISIONED_FIREBASE_CONFIG.apiKey || '');
+  const [fbProjectId, setFbProjectId] = useState(
+    existingFb?.projectId || PROVISIONED_FIREBASE_CONFIG.projectId || ''
+  );
+  const [fbAppId, setFbAppId] = useState(existingFb?.appId || PROVISIONED_FIREBASE_CONFIG.appId || '');
   const [fbSyncStatus, setFbSyncStatus] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Handle CSV file
   const handleCsvFile = (file: File) => {
@@ -99,31 +108,45 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const getActiveWorkflowCode = () => {
+    if (githubWorkflowType === 'pages') return generateDeployGitHubPagesYaml();
+    if (githubWorkflowType === 'firebase') return generateFirebaseDeployYaml(fbProjectId);
+    return generateGitHubWorkflowYaml();
+  };
+
+  const getActiveWorkflowFileName = () => {
+    if (githubWorkflowType === 'pages') return '.github/workflows/deploy-gh-pages.yml';
+    if (githubWorkflowType === 'firebase') return '.github/workflows/deploy-firebase.yml';
+    return '.github/workflows/sync-kenchiko.yml';
+  };
+
   const handleCopyWorkflow = () => {
-    navigator.clipboard.writeText(generateGitHubWorkflowYaml());
+    navigator.clipboard.writeText(getActiveWorkflowCode());
     setCopiedWorkflow(true);
     setTimeout(() => setCopiedWorkflow(false), 2000);
   };
 
-  const handleSaveFirebase = async () => {
+  const handleManualSyncFirebase = async () => {
+    setIsSyncing(true);
+    setFbSyncStatus('Firebaseにクラウド同期中...');
     const config: FirebaseCustomConfig = {
-      apiKey: fbApiKey.trim(),
-      projectId: fbProjectId.trim(),
-      appId: fbAppId.trim(),
+      apiKey: fbApiKey.trim() || PROVISIONED_FIREBASE_CONFIG.apiKey,
+      projectId: fbProjectId.trim() || PROVISIONED_FIREBASE_CONFIG.projectId,
+      appId: fbAppId.trim() || PROVISIONED_FIREBASE_CONFIG.appId,
+      firestoreDatabaseId: PROVISIONED_FIREBASE_CONFIG.firestoreDatabaseId,
     };
     saveFirebaseConfig(config);
     onSaveFirebaseConfig(config);
 
-    if (config.apiKey && config.projectId) {
-      setFbSyncStatus('クラウド同期テスト中...');
-      const res = await syncSaveDataToFirebase(saveData, config);
-      if (res.success) {
-        setFbSyncStatus('✅ Firebaseへの同期が成功しました！全端末で同一状態が共有されます。');
-      } else {
-        setFbSyncStatus(`⚠️ Firebase接続エラー: ${res.error}`);
-      }
+    const res = await syncSaveDataToFirebase(saveData, config);
+    setIsSyncing(false);
+    if (res.success) {
+      setFbSyncStatus(
+        `✅ Firebase（プロジェクト: ${config.projectId}）への同期が完了しました！`
+      );
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
     } else {
-      setFbSyncStatus('Firebase設定を保存しました（未接続）');
+      setFbSyncStatus(`⚠️ Firebase接続エラー: ${res.error}`);
     }
   };
 
@@ -137,9 +160,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white">データ連携・週次CSV更新・GitHub設定</h3>
+              <h3 className="text-lg font-black text-white">クラウド同期・GitHubデプロイ設定</h3>
               <p className="text-xs text-[#CCC4B2]">
-                毎週の◯◯にゃん更新、Firebase同期、GitHub (ken-chiko) 自動コミット
+                Firebase常時接続、GitHub Actions 自動デプロイ、週次CSV更新
               </p>
             </div>
           </div>
@@ -154,18 +177,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {/* Navigation Tabs */}
         <div className="flex border-b border-[#DDD7C8] bg-[#EFECE4] px-6 pt-3 gap-2">
           <button
-            onClick={() => setActiveTab('csv')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x ${
-              activeTab === 'csv'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-[#728C7E]" />
-            <span>毎週のCSV更新 ({characters.length}体)</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('firebase')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x ${
               activeTab === 'firebase'
@@ -173,8 +184,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
             }`}
           >
-            <Cloud className="w-4 h-4 text-[#C8744E]" />
-            <span>Firebase クラウド同期</span>
+            <Cloud className="w-4 h-4 text-[#728C7E]" />
+            <span>Firebase 接続（接続中）</span>
           </button>
 
           <button
@@ -185,14 +196,190 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
             }`}
           >
-            <Github className="w-4 h-4 text-[#4A443F]" />
-            <span>GitHub (ken-chiko) 自動コミット</span>
+            <Rocket className="w-4 h-4 text-[#C8744E]" />
+            <span>GitHub 自動デプロイ YAML</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('csv')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x ${
+              activeTab === 'csv'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-[#728C7E]" />
+            <span>CSV更新 ({characters.length}体)</span>
           </button>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6">
-          {/* TAB 1: CSV Update */}
+        {/* Tab Content */}
+        <div className="p-6 overflow-y-auto space-y-4 max-h-[60vh]">
+          {/* TAB 1: Firebase Realtime Multi-device Sync */}
+          {activeTab === 'firebase' && (
+            <div className="space-y-4">
+              <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="text-xs font-black text-[#3D5447] flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#5C7E6B]" />
+                    Firebase Firestore データベース接続済み
+                  </h4>
+                  <span className="bg-[#5C7E6B] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    アクティブ
+                  </span>
+                </div>
+                <p className="text-xs text-[#5C7E6B] leading-relaxed">
+                  接続先プロジェクト: <strong className="font-mono text-[#3D5447]">{fbProjectId}</strong>
+                  <br />
+                  PC・スマホ・タブレット等の複数端末で、けんちこの現在地やおやつ・図鑑進行状況がリアルタイムに共有されます。
+                </p>
+              </div>
+
+              <div className="space-y-3 bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                      Project ID
+                    </label>
+                    <input
+                      type="text"
+                      value={fbProjectId}
+                      onChange={(e) => setFbProjectId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                      Database ID
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={PROVISIONED_FIREBASE_CONFIG.firestoreDatabaseId || '(default)'}
+                      className="w-full px-3 py-2 bg-[#EFECE4] border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#6B6259] cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                    API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={fbApiKey}
+                    onChange={(e) => setFbApiKey(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center justify-between">
+                  <span className="text-[11px] text-[#7D756D]">
+                    最終同期: {new Date(saveData.lastSaved).toLocaleTimeString('ja-JP')}
+                  </span>
+                  <button
+                    onClick={handleManualSyncFirebase}
+                    disabled={isSyncing}
+                    className="flex items-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isSyncing ? '同期中...' : '今すぐFirebaseへ同期'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {fbSyncStatus && (
+                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
+                  {fbSyncStatus}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: GitHub Workflow Auto-deploy */}
+          {activeTab === 'github' && (
+            <div className="space-y-4">
+              <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
+                <h4 className="text-xs font-black text-[#3A342F] mb-1 flex items-center gap-1.5">
+                  <Github className="w-4 h-4 text-[#4A443F]" />
+                  GitHub リポジトリ (ken-chiko) 自動デプロイ設定
+                </h4>
+                <p className="text-xs text-[#6B6259] leading-relaxed">
+                  リポジトリの <code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">.github/workflows/</code> 配下に以下のファイルを配置すると、GitHubへプッシュした際に自動ビルド＆公開されます。
+                </p>
+              </div>
+
+              {/* Selector for YAML Type */}
+              <div className="flex gap-2 p-1 bg-[#EFECE4] rounded-xl border border-[#DDD7C8]">
+                <button
+                  onClick={() => setGithubWorkflowType('pages')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                    githubWorkflowType === 'pages'
+                      ? 'bg-[#728C7E] text-white shadow-sm'
+                      : 'text-[#6B6259] hover:text-[#3A342F]'
+                  }`}
+                >
+                  GitHub Pages 自動公開
+                </button>
+                <button
+                  onClick={() => setGithubWorkflowType('firebase')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                    githubWorkflowType === 'firebase'
+                      ? 'bg-[#728C7E] text-white shadow-sm'
+                      : 'text-[#6B6259] hover:text-[#3A342F]'
+                  }`}
+                >
+                  Firebase Hosting 公開
+                </button>
+                <button
+                  onClick={() => setGithubWorkflowType('data')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                    githubWorkflowType === 'data'
+                      ? 'bg-[#728C7E] text-white shadow-sm'
+                      : 'text-[#6B6259] hover:text-[#3A342F]'
+                  }`}
+                >
+                  データ定期コミット
+                </button>
+              </div>
+
+              {/* YAML Workflow Box */}
+              <div className="bg-[#3A342F] text-white p-4 rounded-2xl border border-[#5A524A] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-mono text-[#CCC4B2]">
+                    {getActiveWorkflowFileName()}
+                  </span>
+                  <button
+                    onClick={handleCopyWorkflow}
+                    className="flex items-center gap-1 text-xs font-bold text-[#FAF8F5] hover:text-white bg-[#4A443F] hover:bg-[#5A524A] px-2.5 py-1 rounded-lg border border-[#5A524A] transition"
+                  >
+                    {copiedWorkflow ? <Check className="w-3.5 h-3.5 text-[#728C7E]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedWorkflow ? 'コピー完了' : 'YAMLをコピー'}</span>
+                  </button>
+                </div>
+                <pre className="text-[11px] font-mono text-[#C6D8CD] max-h-56 overflow-y-auto bg-[#2B2724] p-3 rounded-xl">
+                  {getActiveWorkflowCode()}
+                </pre>
+              </div>
+
+              {/* Download JSON Snapshot */}
+              <div className="flex items-center justify-between pt-2 border-t border-[#DDD7C8]">
+                <span className="text-xs font-bold text-[#7D756D]">
+                  リポジトリ保管用最新状態 (JSON):
+                </span>
+                <button
+                  onClick={handleDownloadSaveJson}
+                  className="flex items-center gap-1.5 text-xs font-bold bg-[#4A443F] hover:bg-[#3A342F] text-white px-4 py-2 rounded-xl transition shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#D4B996]" />
+                  <span>pet-state.json をダウンロード</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: CSV Update */}
           {activeTab === 'csv' && (
             <div className="space-y-5">
               <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
@@ -205,7 +392,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </p>
               </div>
 
-              {/* Drag & Drop Area */}
+              {/* Upload Dropzone */}
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -215,7 +402,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragActive(false);
-                  if (e.dataTransfer.files?.[0]) {
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
                     handleCsvFile(e.dataTransfer.files[0]);
                   }
                 }}
@@ -236,12 +423,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   <input
                     type="file"
                     accept=".csv,text/csv"
+                    className="hidden"
                     onChange={(e) => {
-                      if (e.target.files?.[0]) {
+                      if (e.target.files && e.target.files[0]) {
                         handleCsvFile(e.target.files[0]);
                       }
                     }}
-                    className="hidden"
                   />
                 </label>
               </div>
@@ -261,126 +448,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 >
                   <Download className="w-3.5 h-3.5 text-[#728C7E]" />
                   <span>現在の全{characters.length}体をCSVエクスポート</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: Firebase Realtime Multi-device Sync */}
-          {activeTab === 'firebase' && (
-            <div className="space-y-4">
-              <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD]">
-                <h4 className="text-xs font-black text-[#3D5447] mb-1 flex items-center gap-1.5">
-                  <Cloud className="w-4 h-4 text-[#728C7E]" />
-                  Firebase Firestore マルチデバイス同期
-                </h4>
-                <p className="text-xs text-[#5C7E6B] leading-relaxed">
-                  Firebaseのプロジェクト情報を登録すると、PC・スマホ・タブレットなどどの端末からアクセスしても、けんちこの現在地や図鑑が同一の状態でリアルタイム同期されます。
-                </p>
-              </div>
-
-              <div className="space-y-3 bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
-                <div>
-                  <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                    Firebase API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={fbApiKey}
-                    onChange={(e) => setFbApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                    Firebase Project ID
-                  </label>
-                  <input
-                    type="text"
-                    value={fbProjectId}
-                    onChange={(e) => setFbProjectId(e.target.value)}
-                    placeholder="kenchiko-pet-world"
-                    className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                    App ID (任意)
-                  </label>
-                  <input
-                    type="text"
-                    value={fbAppId}
-                    onChange={(e) => setFbAppId(e.target.value)}
-                    placeholder="1:123456789:web:abcdef..."
-                    className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                  />
-                </div>
-
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={handleSaveFirebase}
-                    className="flex items-center gap-1.5 bg-[#D9825B] hover:bg-[#C8744E] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Firebase設定を保存＆テスト同期</span>
-                  </button>
-                </div>
-              </div>
-
-              {fbSyncStatus && (
-                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
-                  {fbSyncStatus}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: GitHub (ken-chiko) Repo Auto-commit */}
-          {activeTab === 'github' && (
-            <div className="space-y-4">
-              <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
-                <h4 className="text-xs font-black text-[#3A342F] mb-1 flex items-center gap-1.5">
-                  <Github className="w-4 h-4 text-[#4A443F]" />
-                  GitHubリポジトリ (ken-chiko) との連携
-                </h4>
-                <p className="text-xs text-[#6B6259] leading-relaxed">
-                  リポジトリ <code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">ken-chiko</code> に以下のワークフローYAML（<code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">.github/workflows/sync-kenchiko.yml</code>）を配置することで、定期コミットやデータ同期が自動実行されます。
-                </p>
-              </div>
-
-              {/* YAML Workflow Box */}
-              <div className="bg-[#3A342F] text-white p-4 rounded-2xl border border-[#5A524A] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono text-[#CCC4B2]">
-                    .github/workflows/sync-kenchiko.yml
-                  </span>
-                  <button
-                    onClick={handleCopyWorkflow}
-                    className="flex items-center gap-1 text-xs font-bold text-[#FAF8F5] hover:text-white bg-[#4A443F] hover:bg-[#5A524A] px-2.5 py-1 rounded-lg border border-[#5A524A] transition"
-                  >
-                    {copiedWorkflow ? <Check className="w-3.5 h-3.5 text-[#728C7E]" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedWorkflow ? 'コピー完了' : 'YAMLをコピー'}</span>
-                  </button>
-                </div>
-                <pre className="text-[11px] font-mono text-[#C6D8CD] max-h-48 overflow-y-auto bg-[#2B2724] p-3 rounded-xl">
-                  {generateGitHubWorkflowYaml()}
-                </pre>
-              </div>
-
-              {/* Download JSON Snapshot */}
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-xs font-bold text-[#7D756D]">
-                  リポジトリ保管用JSONデータ:
-                </span>
-                <button
-                  onClick={handleDownloadSaveJson}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-[#4A443F] hover:bg-[#3A342F] text-white px-4 py-2 rounded-xl transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5 text-[#D4B996]" />
-                  <span>pet-state.json をダウンロード</span>
                 </button>
               </div>
             </div>

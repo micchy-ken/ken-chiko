@@ -1,0 +1,16 @@
+{
+  "entities": {
+    "KenchikoWorld": {
+      "collection": "kenchiko_world",
+      "fields": {
+        "kenchiko": { "type": "map", "description": "Current status of Kenchiko (location, mood, stamina, activity)" },
+        "characters": { "type": "array", "description": "Array of discovered/lore characters (NyanCharacter)" },
+        "inventory": { "type": "array", "description": "Inventory items and counts" },
+        "diary": { "type": "array", "description": "Diary entries log" },
+        "stats": { "type": "map", "description": "Overall stats and counts" },
+        "lastSaved": { "type": "number", "description": "Timestamp of last save" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
+      }
+    }
+  }
+}

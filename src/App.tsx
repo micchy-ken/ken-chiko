@@ -82,9 +82,13 @@ export default function App() {
     }
   }, []);
 
-  // Save to local storage on state updates
+  // Save to local storage and sync to Firebase on state updates
   useEffect(() => {
     saveGameData(saveData);
+    const timer = setTimeout(() => {
+      syncSaveDataToFirebase(saveData).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
   }, [saveData]);
 
   // Current Companion Nyan
