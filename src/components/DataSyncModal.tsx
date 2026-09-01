@@ -28,6 +28,8 @@ import {
   saveGoogleDocUrl,
   syncNyansFromGoogleDoc,
 } from '../services/googleDocSync';
+import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
+import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
 import {
   X,
   Upload,
@@ -55,6 +57,9 @@ import {
   Smile,
   Sliders,
   AlertTriangle,
+  RotateCcw,
+  Search,
+  Filter,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -108,13 +113,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Asobi Editor State
-  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || []);
+  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
   const [editingAsobiId, setEditingAsobiId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCondition, setNewCondition] = useState<AsobiConditionScope>('all');
   const [newFrequency, setNewFrequency] = useState<AsobiFrequency>('normal');
   const [asobiNotice, setAsobiNotice] = useState<string | null>(null);
+  const [filterCondition, setFilterCondition] = useState<string>('all');
+  const [searchEventQuery, setSearchEventQuery] = useState('');
 
   // Database Inspector State
   const [dbSubTab, setDbSubTab] = useState<'characters' | 'inventory' | 'stats'>('characters');
@@ -190,10 +197,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   };
 
-  // --- ASOBI (あそび) Management Handlers ---
+  // --- ASOBI (あそび・イベント) Management Handlers ---
   const handleAddOrUpdateAsobi = () => {
     if (!newTitle.trim()) {
-      setAsobiNotice('⚠️ あそび名（例: けんちこはうたをうたった）を入力してください。');
+      setAsobiNotice('⚠️ イベント名・あそび名（例: けんちこはうたをうたった）を入力してください。');
       return;
     }
     if (!newContent.trim()) {
@@ -217,7 +224,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             }
           : item
       );
-      setAsobiNotice(`✅ あそび「${newTitle.trim()}」を更新しました。Firebaseへ同期中...`);
+      setAsobiNotice(`✅ イベント「${newTitle.trim()}」を更新しました。Firebaseへ同期中...`);
     } else {
       // Add new
       const newItem: KenchikoAsobi = {
@@ -229,7 +236,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         createdAt: Date.now(),
       };
       updatedList = [newItem, ...asobiList];
-      setAsobiNotice(`✅ 新しいあそび「${newTitle.trim()}」を追加しました。Firebaseへ同期中...`);
+      setAsobiNotice(`✅ 新しいイベント「${newTitle.trim()}」を追加しました。Firebaseへ同期中...`);
     }
 
     setAsobiList(updatedList);
@@ -258,10 +265,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setNewCondition(item.condition);
     setNewFrequency(item.frequency);
     setAsobiNotice(null);
+    // Smooth scroll to top of edit panel
+    const formEl = document.getElementById('asobi-form-anchor');
+    if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleDeleteAsobi = (id: string, title: string) => {
-    if (!window.confirm(`あそび「${title}」を削除してもよろしいですか？`)) return;
+    if (!window.confirm(`イベント「${title}」を削除してもよろしいですか？`)) return;
 
     const updatedList = asobiList.filter((item) => item.id !== id);
     setAsobiList(updatedList);
@@ -270,7 +280,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setNewTitle('');
       setNewContent('');
     }
-    setAsobiNotice(`🗑️ あそび「${title}」を削除しました。Firebaseへ反映中...`);
+    setAsobiNotice(`🗑️ イベント「${title}」を削除しました。Firebaseへ反映中...`);
 
     onUpdateSaveData((prev) => {
       const nextData: GameSaveData = {
@@ -290,6 +300,44 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setNewCondition('all');
     setNewFrequency('normal');
     setAsobiNotice(null);
+  };
+
+  const handleApplyPresetTemplate = (preset: typeof EVENT_PRESET_TEMPLATES[0]) => {
+    setNewTitle(preset.title);
+    setNewContent(preset.content);
+    setNewCondition(preset.condition);
+    setNewFrequency('normal');
+    setAsobiNotice(`💡 テンプレート「${preset.name}」をフォームにセットしました。内容を調整して保存してください。`);
+  };
+
+  const handleResetToAllDefaultEvents = () => {
+    if (!window.confirm('すべての標準イベントを初期状態にリセットして復元しますか？（カスタムで追加したイベントは保持されます）')) return;
+
+    const currentMap = new Map(asobiList.map((a) => [a.id, a]));
+    const merged = [...asobiList];
+
+    INITIAL_ASOBI_LIST.forEach((initEvent) => {
+      if (!currentMap.has(initEvent.id)) {
+        merged.push(initEvent);
+      } else {
+        // overwrite standard with pristine defaults
+        const idx = merged.findIndex((m) => m.id === initEvent.id);
+        if (idx !== -1) merged[idx] = initEvent;
+      }
+    });
+
+    setAsobiList(merged);
+    setAsobiNotice('✨ すべての初期イベントを復元・更新しました。Firebaseへ同期中...');
+
+    onUpdateSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        asobiList: merged,
+        lastSaved: Date.now(),
+      };
+      handleManualSyncFirebase(nextData);
+      return nextData;
+    });
   };
 
   // --- Firebase CRUD for Characters & Items ---
@@ -368,6 +416,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     if (freq === 'rare') return 'レア（めったに出ない）';
     return '通常';
   };
+
+  // Filtered Events
+  const filteredEvents = asobiList.filter((event) => {
+    // Condition filter
+    if (filterCondition !== 'all') {
+      if (filterCondition === 'locations' && !event.condition.startsWith('loc_') && event.condition !== 'all_locations') return false;
+      if (filterCondition === 'transports' && !event.condition.startsWith('trans_') && event.condition !== 'all_transports') return false;
+      if (filterCondition.startsWith('loc_') && event.condition !== filterCondition) return false;
+      if (filterCondition.startsWith('trans_') && event.condition !== filterCondition) return false;
+    }
+    // Search query
+    if (searchEventQuery.trim()) {
+      const q = searchEventQuery.toLowerCase();
+      const matchTitle = event.title.toLowerCase().includes(q);
+      const matchContent = event.content.toLowerCase().includes(q);
+      if (!matchTitle && !matchContent) return false;
+    }
+    return true;
+  });
 
   // CSV
   const handleCsvFile = (file: File) => {
@@ -464,7 +531,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               </div>
               <h4 className="text-sm font-black text-[#3A342F]">管理者パスワード</h4>
               <p className="text-xs text-[#7D756D] mt-1">
-                Firebaseデータ操作および「あそび設定」を行うには認証が必要です。
+                全イベント・あそびの編集、およびFirebaseデータ操作には認証が必要です。
               </p>
             </div>
 
@@ -519,14 +586,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white">データ連携・Firebase管理コンソール</h3>
+                <h3 className="text-base sm:text-lg font-black text-white">データ連携・全イベント編集コンソール</h3>
                 <span className="bg-[#728C7E]/80 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-white/20 flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   認証済み
                 </span>
               </div>
               <p className="text-xs text-[#CCC4B2]">
-                けんちこのあそび設定、FirebaseクラウドデータCRUD、Google Docs連携
+                全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携
               </p>
             </div>
           </div>
@@ -550,7 +617,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-[#DDD7C8] bg-[#EFECE4] px-4 sm:px-6 pt-3 gap-1.5 overflow-x-auto">
-          {/* TAB 1: Asobi (あそび設定) */}
+          {/* TAB 1: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -560,7 +627,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             }`}
           >
             <Smile className="w-4 h-4 text-[#C8744E]" />
-            <span>けんちこのあそび設定 ({asobiList.length}件)</span>
+            <span>全イベント・あそび編集 ({asobiList.length}件)</span>
           </button>
 
           {/* TAB 2: Database CRUD */}
@@ -632,7 +699,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {/* Tab Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]">
           {/* ========================================================= */}
-          {/* TAB 1: KENCHIKO ASOBI CONFIGURATION (けんちこのあそび) */}
+          {/* TAB 1: ALL EVENTS & ASOBI CONFIGURATION (全イベント・あそび編集) */}
           {/* ========================================================= */}
           {activeTab === 'asobi' && (
             <div className="space-y-4 animate-fadeIn">
@@ -640,23 +707,56 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <div className="flex items-center justify-between mb-1">
                   <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
                     <Smile className="w-4 h-4 text-[#C8744E]" />
-                    けんちこのあそび・行動・セリフ設定
+                    全イベント・行動・セリフ設定コンソール
                   </h4>
-                  <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    Firebase即時保存
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleResetToAllDefaultEvents}
+                      className="text-[10px] font-bold text-[#874A2E] hover:text-[#5B301D] bg-white/70 hover:bg-white px-2 py-1 rounded-lg border border-[#F0D5C3] transition flex items-center gap-1"
+                      title="標準イベントを復元"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>初期イベント復元</span>
+                    </button>
+                    <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Firebase即時同期
+                    </span>
+                  </div>
                 </div>
                 <p className="text-xs text-[#874A2E] leading-relaxed">
-                  けんちこが画面上で見せる**「あそび（アクション）」「内容（セリフ・つぶやき）」「発生条件」「頻度」**を自由に追加・編集・削除できます。追加されたあそびはゲーム内で自動的に発生し、吹き出しやつぶやき、絵日記に登場します。
+                  現在アプリに実装されている<strong>「すべてのイベント（おやつ・睡眠・仕事・温泉・買い物・移動・歌・散歩など）」</strong>の内容、タイトル、発生条件、出現頻度をここで直接編集・追加・削除できます。変更内容はFirebase Firestoreへ即時反映されます。
                 </p>
               </div>
 
+              {/* Event Quick Preset Bar */}
+              <div className="bg-[#F5EBE1] p-3 rounded-2xl border border-[#E8D7C7] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-[#874A2E] flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-[#C8744E]" />
+                    クイックイベント作成テンプレート
+                  </span>
+                  <span className="text-[10px] text-[#A66C52]">クリックでフォームに入力</span>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {EVENT_PRESET_TEMPLATES.map((preset, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleApplyPresetTemplate(preset)}
+                      className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#FAF2EB] text-[#874A2E] border border-[#E8D7C7] text-[11px] font-bold whitespace-nowrap transition shadow-xs"
+                      title={preset.description}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Add / Edit Form */}
-              <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8] space-y-3">
+              <div id="asobi-form-anchor" className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8] space-y-3">
                 <div className="flex items-center justify-between border-b border-[#DDD7C8] pb-2">
                   <span className="text-xs font-black text-[#3A342F] flex items-center gap-1.5">
                     {editingAsobiId ? <Edit3 className="w-4 h-4 text-[#C8744E]" /> : <Plus className="w-4 h-4 text-[#728C7E]" />}
-                    {editingAsobiId ? '選択中のあそびを編集' : '新しいあそびを追加'}
+                    {editingAsobiId ? '選択中のイベントを編集' : '新しいイベント・あそびを追加'}
                   </span>
                   {editingAsobiId && (
                     <button
@@ -671,7 +771,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      あそび名 (例: けんちこはうたをうたった)
+                      イベント名 / 行動タイトル (例: けんちこはうたをうたった)
                     </label>
                     <input
                       type="text"
@@ -684,7 +784,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      内容・セリフ (例: 素敵なけんちこさん♪)
+                      内容・セリフ・つぶやき (例: 素敵なけんちこさん♪)
                     </label>
                     <input
                       type="text"
@@ -750,7 +850,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     className="flex items-center gap-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    <span>{editingAsobiId ? 'あそびを更新して保存' : 'あそびを追加して保存'}</span>
+                    <span>{editingAsobiId ? 'イベントを更新して保存' : 'イベントを追加して保存'}</span>
                   </button>
                 </div>
               </div>
@@ -761,15 +861,52 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               )}
 
-              {/* Registered Asobi List */}
+              {/* Event Filter & Search Bar */}
+              <div className="flex flex-col sm:flex-row gap-2 items-center justify-between bg-white p-3 rounded-2xl border border-[#DDD7C8]">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-3.5 h-3.5 text-[#7D756D] absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="イベント名やセリフで絞り込み..."
+                    value={searchEventQuery}
+                    onChange={(e) => setSearchEventQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-[#FAF8F5] border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                  <Filter className="w-3.5 h-3.5 text-[#7D756D] shrink-0" />
+                  <select
+                    value={filterCondition}
+                    onChange={(e) => setFilterCondition(e.target.value)}
+                    className="flex-1 sm:flex-none px-2.5 py-1.5 bg-[#FAF8F5] border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] font-bold focus:outline-none"
+                  >
+                    <option value="all">全条件 ({asobiList.length}件)</option>
+                    <option value="locations">場所イベント全般</option>
+                    <option value="transports">移動イベント全般</option>
+                    {Object.values(LOCATIONS).map((loc) => (
+                      <option key={loc.id} value={`loc_${loc.id}`}>
+                        場所: {loc.name}
+                      </option>
+                    ))}
+                    {TRANSPORT_METHODS.map((t) => (
+                      <option key={t.id} value={`trans_${t.id}`}>
+                        移動: {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Registered Events List */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-black text-[#6B6259] px-1">
-                  <span>登録済みのあそび一覧 ({asobiList.length}件)</span>
+                  <span>登録済みイベント一覧 ({filteredEvents.length}件 / 全{asobiList.length}件)</span>
                   <span className="text-[10px] text-[#7D756D]">クリックで編集・削除</span>
                 </div>
 
-                <div className="space-y-2">
-                  {asobiList.map((item) => (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {filteredEvents.map((item) => (
                     <div
                       key={item.id}
                       className={`p-3 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
@@ -820,9 +957,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     </div>
                   ))}
 
-                  {asobiList.length === 0 && (
+                  {filteredEvents.length === 0 && (
                     <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-[#DDD7C8] text-xs text-[#7D756D]">
-                      登録されているあそびがありません。上のフォームから自由に追加してください。
+                      該当するイベントが見つかりません。
                     </div>
                   )}
                 </div>
@@ -1155,101 +1292,99 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           )}
 
           {/* ========================================================= */}
-          {/* TAB 5: GitHub Workflow Auto-deploy */}
+          {/* TAB 5: GitHub Actions YAML */}
           {/* ========================================================= */}
           {activeTab === 'github' && (
             <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
-                <h4 className="text-xs font-black text-[#3A342F] mb-1 flex items-center gap-1.5">
-                  <Github className="w-4 h-4 text-[#4A443F]" />
-                  GitHub リポジトリ (ken-chiko) 自動デプロイ設定
+              <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3]">
+                <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5 mb-1">
+                  <Github className="w-4 h-4 text-[#C8744E]" />
+                  GitHub Actions 自動デプロイ設定
                 </h4>
-                <p className="text-xs text-[#6B6259] leading-relaxed">
-                  リポジトリの <code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">.github/workflows/deploy.yml</code> をプッシュするだけで、GitHub Pages にビルドされ、自動的にFirebase Firestoreへ接続されます。
+                <p className="text-xs text-[#874A2E] leading-relaxed">
+                  リポジトリの <code>.github/workflows/deploy-gh-pages.yml</code> に以下の設定を配置すると、GitHubへコミットするだけで自動ビルド＆Pages公開が完了します。
                 </p>
               </div>
 
-              <div className="flex gap-2 p-1 bg-[#EFECE4] rounded-xl border border-[#DDD7C8]">
+              <div className="flex gap-2">
                 <button
                   onClick={() => setGithubWorkflowType('pages')}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                     githubWorkflowType === 'pages'
-                      ? 'bg-[#728C7E] text-white shadow-sm'
-                      : 'text-[#6B6259] hover:text-[#3A342F]'
+                      ? 'bg-[#C8744E] text-white shadow-sm'
+                      : 'bg-[#EFECE4] text-[#6B6259]'
                   }`}
                 >
                   GitHub Pages 自動公開
                 </button>
                 <button
                   onClick={() => setGithubWorkflowType('firebase')}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                     githubWorkflowType === 'firebase'
-                      ? 'bg-[#728C7E] text-white shadow-sm'
-                      : 'text-[#6B6259] hover:text-[#3A342F]'
+                      ? 'bg-[#C8744E] text-white shadow-sm'
+                      : 'bg-[#EFECE4] text-[#6B6259]'
                   }`}
                 >
-                  Firebase Hosting 公開
-                </button>
-                <button
-                  onClick={() => setGithubWorkflowType('data')}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition ${
-                    githubWorkflowType === 'data'
-                      ? 'bg-[#728C7E] text-white shadow-sm'
-                      : 'text-[#6B6259] hover:text-[#3A342F]'
-                  }`}
-                >
-                  データ定期コミット
+                  Firebase Hosting 自動公開
                 </button>
               </div>
 
-              <div className="bg-[#3A342F] text-white p-4 rounded-2xl border border-[#5A524A] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono text-[#CCC4B2]">
-                    {getActiveWorkflowFileName()}
-                  </span>
+              <div className="relative bg-[#2B2724] rounded-2xl p-4 text-xs font-mono text-[#CCC4B2] overflow-x-auto max-h-56">
+                <div className="flex items-center justify-between border-b border-[#3A342F] pb-2 mb-2">
+                  <span className="text-[11px] text-[#A69B8D]">{getActiveWorkflowFileName()}</span>
                   <button
                     onClick={handleCopyWorkflow}
-                    className="flex items-center gap-1 text-xs font-bold text-[#FAF8F5] hover:text-white bg-[#4A443F] hover:bg-[#5A524A] px-2.5 py-1 rounded-lg border border-[#5A524A] transition"
+                    className="flex items-center gap-1 bg-[#3A342F] hover:bg-[#4A443F] text-white px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
                   >
-                    {copiedWorkflow ? <Check className="w-3.5 h-3.5 text-[#728C7E]" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedWorkflow ? <Check className="w-3 h-3 text-[#728C7E]" /> : <Copy className="w-3 h-3" />}
                     <span>{copiedWorkflow ? 'コピー完了' : 'YAMLをコピー'}</span>
                   </button>
                 </div>
-                <pre className="text-[11px] font-mono text-[#C6D8CD] max-h-56 overflow-y-auto bg-[#2B2724] p-3 rounded-xl">
-                  {getActiveWorkflowCode()}
-                </pre>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-[#DDD7C8]">
-                <span className="text-xs font-bold text-[#7D756D]">
-                  リポジトリ保管用最新状態 (JSON):
-                </span>
-                <button
-                  onClick={handleDownloadSaveJson}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-[#4A443F] hover:bg-[#3A342F] text-white px-4 py-2 rounded-xl transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5 text-[#D4B996]" />
-                  <span>pet-state.json をダウンロード</span>
-                </button>
+                <pre>{getActiveWorkflowCode()}</pre>
               </div>
             </div>
           )}
 
           {/* ========================================================= */}
-          {/* TAB 6: CSV Update */}
+          {/* TAB 6: CSV Export & Import */}
           {/* ========================================================= */}
           {activeTab === 'csv' && (
-            <div className="space-y-5 animate-fadeIn">
-              <div className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
-                <h4 className="text-xs font-black text-[#3A342F] mb-1 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-[#C8744E]" />
-                  ローカルCSVファイルの直接アップロード
-                </h4>
-                <p className="text-xs text-[#6B6259] leading-relaxed">
-                  毎週更新されたCSVファイルをドラッグ＆ドロップまたは選択すると、これまでの図鑑の発見状況や絵日記の進行を保持したまま、新しいキャラクターが自動マージされます。
-                </p>
+            <div className="space-y-4 animate-fadeIn">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-4 bg-[#F5F2EA] rounded-2xl border border-[#DDD7C8] flex flex-col justify-between">
+                  <div>
+                    <h5 className="font-black text-xs text-[#3A342F] mb-1">CSV ダウンロード</h5>
+                    <p className="text-xs text-[#7D756D]">
+                      現在の全キャラクター図鑑（{characters.length}体）をCSVファイルとして保存します。
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadCsv}
+                    className="mt-3 w-full py-2 bg-[#728C7E] hover:bg-[#5E786A] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>図鑑CSVを保存</span>
+                  </button>
+                </div>
+
+                <div className="p-4 bg-[#F5F2EA] rounded-2xl border border-[#DDD7C8] flex flex-col justify-between">
+                  <div>
+                    <h5 className="font-black text-xs text-[#3A342F] mb-1">全体セーブデータ JSON</h5>
+                    <p className="text-xs text-[#7D756D]">
+                      けんちこの状態・あそび一覧・日記・アイテムすべてを含むバックアップJSONです。
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadSaveJson}
+                    className="mt-3 w-full py-2 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>セーブJSONを保存</span>
+                  </button>
+                </div>
               </div>
 
+              {/* CSV Upload Area */}
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1263,20 +1398,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     handleCsvFile(e.dataTransfer.files[0]);
                   }
                 }}
-                className={`p-8 border-2 border-dashed rounded-3xl text-center transition ${
+                className={`p-6 border-2 border-dashed rounded-2xl text-center transition ${
                   dragActive
                     ? 'border-[#728C7E] bg-[#EAF0EC]'
-                    : 'border-[#DDD7C8] bg-[#F5F2EA]/60 hover:border-[#8C837A]'
+                    : 'border-[#DDD7C8] bg-white hover:border-[#728C7E]'
                 }`}
               >
-                <FileSpreadsheet className="w-10 h-10 mx-auto text-[#728C7E] mb-2" />
-                <p className="text-xs font-bold text-[#3A342F] mb-1">
-                  新しいCSVファイルをここにドロップ
+                <Upload className="w-6 h-6 mx-auto text-[#7D756D] mb-2" />
+                <p className="text-xs font-bold text-[#3A342F]">
+                  CSVファイルをここにドラッグ＆ドロップ
                 </p>
-                <p className="text-[11px] text-[#7D756D] mb-4">またはファイルを選択</p>
-                <label className="cursor-pointer inline-flex items-center gap-2 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm">
-                  <Upload className="w-4 h-4 text-white" />
-                  <span>CSVファイルを選択</span>
+                <p className="text-[11px] text-[#7D756D] mt-1">または</p>
+                <label className="mt-2 inline-block px-4 py-1.5 bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#4A443F] font-bold text-xs rounded-xl cursor-pointer transition border border-[#DDD7C8]">
+                  ファイルを選択
                   <input
                     type="file"
                     accept=".csv,text/csv"
@@ -1291,33 +1425,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               </div>
 
               {importStatus && (
-                <div className="p-3.5 bg-[#EAF0EC] rounded-xl border border-[#C6D8CD] text-xs font-bold text-[#3D5447] animate-fadeIn">
+                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
                   {importStatus}
                 </div>
               )}
-
-              <div className="pt-2 flex items-center justify-between border-t border-[#DDD7C8]">
-                <span className="text-xs font-bold text-[#7D756D]">現在の図鑑データを出力:</span>
-                <button
-                  onClick={handleDownloadCsv}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-[#FAF8F5] hover:bg-white text-[#4A443F] px-3.5 py-2 rounded-xl border border-[#DDD7C8] shadow-sm transition"
-                >
-                  <Download className="w-3.5 h-3.5 text-[#728C7E]" />
-                  <span>現在の全{characters.length}体をCSVエクスポート</span>
-                </button>
-              </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="bg-[#EFECE4] px-6 py-3.5 border-t border-[#DDD7C8] flex justify-between items-center">
-          <div className="text-[11px] text-[#7D756D]">
-            管理者認証中（パスワード: {DEFAULT_AUTH_PASSWORD}）
-          </div>
+        <div className="bg-[#EFECE4] px-6 py-3 border-t border-[#DDD7C8] flex items-center justify-between text-xs text-[#7D756D]">
+          <span>パスワード保護コンソール (ログイン中)</span>
           <button
             onClick={onClose}
-            className="bg-[#4A443F] hover:bg-[#3A342F] text-white font-bold text-xs px-5 py-2 rounded-xl transition shadow-sm"
+            className="px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm"
           >
             閉じる
           </button>

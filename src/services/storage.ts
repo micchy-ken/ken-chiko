@@ -1,4 +1,4 @@
-import { GameSaveData, KenchikoState, NyanCharacter } from '../types';
+import { GameSaveData, KenchikoState, NyanCharacter, KenchikoAsobi } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -82,12 +82,23 @@ export function loadGameData(): GameSaveData {
       return defaultN;
     });
 
+    // Merge asobiList: ensure newly added default events exist if user hasn't created them
+    const savedAsobiList: KenchikoAsobi[] = Array.isArray(parsed.asobiList) ? parsed.asobiList : [];
+    const savedAsobiMap = new Map<string, KenchikoAsobi>(savedAsobiList.map((a: KenchikoAsobi) => [a.id, a]));
+
+    const mergedAsobiList = [...savedAsobiList];
+    INITIAL_ASOBI_LIST.forEach((defaultAsobi) => {
+      if (!savedAsobiMap.has(defaultAsobi.id)) {
+        mergedAsobiList.push(defaultAsobi);
+      }
+    });
+
     return {
       ...DEFAULT_INITIAL_STATE,
       ...parsed,
       characters: mergedNyans,
       inventory: parsed.inventory || INITIAL_ITEMS,
-      asobiList: Array.isArray(parsed.asobiList) && parsed.asobiList.length > 0 ? parsed.asobiList : INITIAL_ASOBI_LIST,
+      asobiList: mergedAsobiList.length > 0 ? mergedAsobiList : INITIAL_ASOBI_LIST,
       diary: parsed.diary || DEFAULT_INITIAL_STATE.diary,
       stats: parsed.stats || DEFAULT_INITIAL_STATE.stats,
       kenchiko: {

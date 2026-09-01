@@ -129,8 +129,12 @@ export async function syncSaveDataToFirebase(
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
+    const sanitizedData = JSON.parse(
+      JSON.stringify(data, (_, value) => (value === undefined ? null : value))
+    );
+
     await setDoc(docRef, {
-      ...data,
+      ...sanitizedData,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
