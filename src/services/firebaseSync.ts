@@ -13,31 +13,36 @@ export interface FirebaseCustomConfig {
   syncDocId?: string; // default: "ken-chiko-global-state"
 }
 
-// Provisioned Firebase configuration for this app
-export const PROVISIONED_FIREBASE_CONFIG: FirebaseCustomConfig = {
-  projectId: 'gen-lang-client-0027333270',
-  appId: '1:589716285990:web:0b1c0cce13f5f0187154e7',
-  apiKey: 'AIzaSyCDqLWbRYRSsrhzYKdUXvd5DQ6m360yKBk',
-  authDomain: 'gen-lang-client-0027333270.firebaseapp.com',
-  firestoreDatabaseId: 'ai-studio-fae23163-8cc8-4b97-bd81-37d5070e358a',
-  storageBucket: 'gen-lang-client-0027333270.firebasestorage.app',
-  messagingSenderId: '589716285990',
-  syncDocId: 'ken-chiko-global-state',
-};
+// Read configuration from environment variables (import.meta.env)
+export function getEnvFirebaseConfig(): FirebaseCustomConfig {
+  const env = (import.meta as any).env || {};
+  const projectId = env.VITE_FIREBASE_PROJECT_ID || '';
+  return {
+    apiKey: env.VITE_FIREBASE_API_KEY || '',
+    projectId: projectId,
+    appId: env.VITE_FIREBASE_APP_ID || '',
+    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || (projectId ? `${projectId}.firebaseapp.com` : ''),
+    firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || '',
+    storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || (projectId ? `${projectId}.firebasestorage.app` : ''),
+    messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+    syncDocId: 'ken-chiko-global-state',
+  };
+}
 
 const FIREBASE_CONFIG_STORAGE_KEY = 'kenchiko_firebase_config_v1';
 
 export function loadSavedFirebaseConfig(): FirebaseCustomConfig {
+  const envConfig = getEnvFirebaseConfig();
   try {
     const raw = localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY);
-    if (!raw) return PROVISIONED_FIREBASE_CONFIG;
+    if (!raw) return envConfig;
     const parsed = JSON.parse(raw);
     return {
-      ...PROVISIONED_FIREBASE_CONFIG,
+      ...envConfig,
       ...parsed,
     };
   } catch {
-    return PROVISIONED_FIREBASE_CONFIG;
+    return envConfig;
   }
 }
 
@@ -53,18 +58,18 @@ let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let unsubscribeSnapshot: Unsubscribe | null = null;
 
-export function initFirebase(config: FirebaseCustomConfig = PROVISIONED_FIREBASE_CONFIG): {
+export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseConfig()): {
   success: boolean;
   error?: string;
 } {
   try {
     const activeConfig = {
-      ...PROVISIONED_FIREBASE_CONFIG,
+      ...loadSavedFirebaseConfig(),
       ...config,
     };
 
     if (!activeConfig.apiKey || !activeConfig.projectId) {
-      return { success: false, error: 'API KeyとProject IDを入力してください' };
+      return { success: false, error: '環境変数 (VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID) または設定画面で設定してください' };
     }
 
     if (getApps().length > 0) {
@@ -109,7 +114,7 @@ export async function syncSaveDataToFirebase(
     }
     if (!firestoreDb) return { success: false, error: 'Firestore is not initialized' };
 
-    const docId = config.syncDocId || PROVISIONED_FIREBASE_CONFIG.syncDocId || 'ken-chiko-global-state';
+    const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
     await setDoc(docRef, {
@@ -145,7 +150,7 @@ export function subscribeToFirebaseState(
 
   if (!firestoreDb) return () => {};
 
-  const docId = config.syncDocId || PROVISIONED_FIREBASE_CONFIG.syncDocId || 'ken-chiko-global-state';
+  const docId = config.syncDocId || 'ken-chiko-global-state';
   const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
   unsubscribeSnapshot = onSnapshot(

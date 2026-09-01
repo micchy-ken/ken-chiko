@@ -11,7 +11,7 @@ import {
   saveFirebaseConfig,
   FirebaseCustomConfig,
   syncSaveDataToFirebase,
-  PROVISIONED_FIREBASE_CONFIG,
+  getEnvFirebaseConfig,
 } from '../services/firebaseSync';
 import {
   X,
@@ -27,6 +27,7 @@ import {
   Cloud,
   CheckCircle2,
   Rocket,
+  ShieldCheck,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -53,13 +54,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Firebase state
   const existingFb = loadSavedFirebaseConfig();
-  const [fbApiKey, setFbApiKey] = useState(existingFb?.apiKey || PROVISIONED_FIREBASE_CONFIG.apiKey || '');
-  const [fbProjectId, setFbProjectId] = useState(
-    existingFb?.projectId || PROVISIONED_FIREBASE_CONFIG.projectId || ''
-  );
-  const [fbAppId, setFbAppId] = useState(existingFb?.appId || PROVISIONED_FIREBASE_CONFIG.appId || '');
+  const envFb = getEnvFirebaseConfig();
+  const [fbApiKey, setFbApiKey] = useState(existingFb?.apiKey || '');
+  const [fbProjectId, setFbProjectId] = useState(existingFb?.projectId || '');
+  const [fbAppId, setFbAppId] = useState(existingFb?.appId || '');
+  const [fbDatabaseId, setFbDatabaseId] = useState(existingFb?.firestoreDatabaseId || '');
   const [fbSyncStatus, setFbSyncStatus] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  const isConfigured = Boolean((fbApiKey || envFb.apiKey) && (fbProjectId || envFb.projectId));
 
   // Handle CSV file
   const handleCsvFile = (file: File) => {
@@ -110,7 +113,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const getActiveWorkflowCode = () => {
     if (githubWorkflowType === 'pages') return generateDeployGitHubPagesYaml();
-    if (githubWorkflowType === 'firebase') return generateFirebaseDeployYaml(fbProjectId);
+    if (githubWorkflowType === 'firebase') return generateFirebaseDeployYaml(fbProjectId || 'YOUR_PROJECT_ID');
     return generateGitHubWorkflowYaml();
   };
 
@@ -130,10 +133,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setIsSyncing(true);
     setFbSyncStatus('Firebaseにクラウド同期中...');
     const config: FirebaseCustomConfig = {
-      apiKey: fbApiKey.trim() || PROVISIONED_FIREBASE_CONFIG.apiKey,
-      projectId: fbProjectId.trim() || PROVISIONED_FIREBASE_CONFIG.projectId,
-      appId: fbAppId.trim() || PROVISIONED_FIREBASE_CONFIG.appId,
-      firestoreDatabaseId: PROVISIONED_FIREBASE_CONFIG.firestoreDatabaseId,
+      apiKey: fbApiKey.trim() || envFb.apiKey,
+      projectId: fbProjectId.trim() || envFb.projectId,
+      appId: fbAppId.trim() || envFb.appId,
+      firestoreDatabaseId: fbDatabaseId.trim() || envFb.firestoreDatabaseId,
     };
     saveFirebaseConfig(config);
     onSaveFirebaseConfig(config);
@@ -162,7 +165,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <div>
               <h3 className="text-lg font-black text-white">クラウド同期・GitHubデプロイ設定</h3>
               <p className="text-xs text-[#CCC4B2]">
-                Firebase常時接続、GitHub Actions 自動デプロイ、週次CSV更新
+                環境変数（.env）安全保護、GitHub Actions 自動デプロイ、週次CSV更新
               </p>
             </div>
           </div>
@@ -185,7 +188,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             }`}
           >
             <Cloud className="w-4 h-4 text-[#728C7E]" />
-            <span>Firebase 接続（接続中）</span>
+            <span>Firebase 接続</span>
           </button>
 
           <button
@@ -221,17 +224,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD]">
                 <div className="flex items-center justify-between mb-1.5">
                   <h4 className="text-xs font-black text-[#3D5447] flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-[#5C7E6B]" />
-                    Firebase Firestore データベース接続済み
+                    <ShieldCheck className="w-4 h-4 text-[#5C7E6B]" />
+                    環境変数 (.env) & Secrets 秘匿保護
                   </h4>
                   <span className="bg-[#5C7E6B] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    アクティブ
+                    {isConfigured ? '設定済み' : '要設定'}
                   </span>
                 </div>
                 <p className="text-xs text-[#5C7E6B] leading-relaxed">
-                  接続先プロジェクト: <strong className="font-mono text-[#3D5447]">{fbProjectId}</strong>
-                  <br />
-                  PC・スマホ・タブレット等の複数端末で、けんちこの現在地やおやつ・図鑑進行状況がリアルタイムに共有されます。
+                  ソースコード内からハードコードされたAPI Keyおよびプロジェクト情報を完全に除去しました。<br />
+                  設定は <code className="font-mono bg-white/60 px-1 py-0.5 rounded">.env</code> または下記フォーム・GitHub Secretsから安全に供給されます。
                 </p>
               </div>
 
@@ -239,10 +241,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      Project ID
+                      Project ID (VITE_FIREBASE_PROJECT_ID)
                     </label>
                     <input
                       type="text"
+                      placeholder="例: my-firebase-project"
                       value={fbProjectId}
                       onChange={(e) => setFbProjectId(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
@@ -251,23 +254,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      Database ID
+                      Database ID (VITE_FIREBASE_DATABASE_ID)
                     </label>
                     <input
                       type="text"
-                      readOnly
-                      value={PROVISIONED_FIREBASE_CONFIG.firestoreDatabaseId || '(default)'}
-                      className="w-full px-3 py-2 bg-[#EFECE4] border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#6B6259] cursor-not-allowed"
+                      placeholder="(default) または databaseId"
+                      value={fbDatabaseId}
+                      onChange={(e) => setFbDatabaseId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                    API Key
+                    API Key (VITE_FIREBASE_API_KEY)
                   </label>
                   <input
                     type="password"
+                    placeholder="AIzaSy..."
                     value={fbApiKey}
                     onChange={(e) => setFbApiKey(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
@@ -284,7 +289,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     className="flex items-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{isSyncing ? '同期中...' : '今すぐFirebaseへ同期'}</span>
+                    <span>{isSyncing ? '同期中...' : '設定を保存して同期テスト'}</span>
                   </button>
                 </div>
               </div>
@@ -306,7 +311,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   GitHub リポジトリ (ken-chiko) 自動デプロイ設定
                 </h4>
                 <p className="text-xs text-[#6B6259] leading-relaxed">
-                  リポジトリの <code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">.github/workflows/</code> 配下に以下のファイルを配置すると、GitHubへプッシュした際に自動ビルド＆公開されます。
+                  リポジトリの <strong>Settings &gt; Secrets and variables &gt; Actions</strong> に <code className="bg-[#EFECE4] px-1 py-0.5 rounded font-mono text-[#3A342F] border border-[#DDD7C8]">VITE_FIREBASE_API_KEY</code> 等のシークレットを登録することで、公開リポジトリでも安全にデプロイできます。
                 </p>
               </div>
 

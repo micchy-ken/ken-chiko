@@ -43,6 +43,12 @@ jobs:
           fi
 
       - name: Build Application
+        env:
+          VITE_FIREBASE_API_KEY: \${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_PROJECT_ID: \${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: \${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_AUTH_DOMAIN: \${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_ID: \${{ secrets.VITE_FIREBASE_DATABASE_ID }}
         run: npm run build
 
       - name: Setup Pages
@@ -59,7 +65,7 @@ jobs:
 `;
 }
 
-export function generateFirebaseDeployYaml(projectId = 'gen-lang-client-0027333270'): string {
+export function generateFirebaseDeployYaml(projectId = '${{ secrets.FIREBASE_PROJECT_ID }}'): string {
   return `name: Deploy to Firebase Hosting
 
 on:
@@ -90,6 +96,10 @@ jobs:
           fi
 
       - name: Build App
+        env:
+          VITE_FIREBASE_API_KEY: \${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_PROJECT_ID: \${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: \${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
       - name: Deploy to Firebase Hosting
@@ -98,7 +108,7 @@ jobs:
           repoToken: \${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: \${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           channelId: live
-          projectId: ${projectId}
+          projectId: \${{ secrets.FIREBASE_PROJECT_ID || '${projectId}' }}
 `;
 }
 
