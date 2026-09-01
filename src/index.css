@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #F5F2EA;
+    color: #4A443F;
+  }
+}
+
+/* Custom smooth scrollbars with natural tone styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #EFECE4;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CCC4B2;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #B8AF9C;
+}

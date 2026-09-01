@@ -1,0 +1,6 @@
+{
+  "name": "けんちこワールド - 放置型オジサン観察＆◯◯にゃん図鑑",
+  "description": "セカイをうろつくオジサン「けんちこ」の生活を眺めながら、各地で出会う「◯◯にゃん」を図鑑に登録して遊ぶ放置型ペットシミュレーター。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
