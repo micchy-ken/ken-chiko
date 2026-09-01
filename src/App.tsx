@@ -24,6 +24,7 @@ import {
 } from './services/firebaseSync';
 
 import { KenchikoStage } from './components/KenchikoStage';
+import { KenchikoAvatar } from './components/KenchikoAvatar';
 import { ZukanView } from './components/ZukanView';
 import { ZukanDetailModal } from './components/ZukanDetailModal';
 import { GiftItemModal } from './components/GiftItemModal';
@@ -471,9 +472,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           {/* Logo & Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#E8E1D5] border border-[#CCC4B2] flex items-center justify-center font-black text-xl shadow-sm text-[#4A443F]">
-              🐱
-            </div>
+            <KenchikoAvatar size={42} className="shadow-sm" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-black tracking-tight text-[#3A342F]">

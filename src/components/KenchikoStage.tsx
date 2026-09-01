@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { KenchikoState, NyanCharacter, GiftItem, LocationId } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { KenchikoFigure } from './KenchikoFigure';
+import { KenchikoAvatar } from './KenchikoAvatar';
 import { NyanIllustration } from './NyanIllustration';
 import {
   MapPin,
@@ -153,8 +154,8 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             title="タップでけんちこのつぶやきを聞く"
             className="w-full group bg-[#FAF8F5]/95 backdrop-blur border border-[#DDD7C8] rounded-2xl px-4 py-3 shadow-[0_2px_8px_rgba(74,68,63,0.05)] text-left transition hover:-translate-y-0.5 active:translate-y-0 flex items-start gap-3"
           >
-            <div className="p-1.5 rounded-xl bg-[#EAF0EC] text-[#5C7366] border border-[#C6D8CD] mt-0.5 shrink-0">
-              <MessageCircle className="w-4 h-4" />
+            <div className="shrink-0 mt-0.5">
+              <KenchikoAvatar size={34} />
             </div>
             <div className="flex-1">
               <div className="flex items-center justify-between text-[11px] text-[#7D756D] font-bold mb-0.5">
