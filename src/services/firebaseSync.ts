@@ -1,6 +1,7 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, onSnapshot, Firestore, Unsubscribe } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, Firestore, Unsubscribe } from 'firebase/firestore';
 import { GameSaveData } from '../types';
+import { DEFAULT_INITIAL_STATE } from './storage';
 
 export interface FirebaseCustomConfig {
   apiKey?: string;
@@ -13,7 +14,7 @@ export interface FirebaseCustomConfig {
   syncDocId?: string; // default: "ken-chiko-global-state"
 }
 
-// Built-in Firebase configuration protected by HTTP referrer domain restrictions
+// Built-in Firebase configuration for the project
 export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
   projectId: 'gen-lang-client-0027333270',
   appId: '1:589716285990:web:0b1c0cce13f5f0187154e7',
@@ -25,7 +26,6 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
   syncDocId: 'ken-chiko-global-state',
 };
 
-// Read configuration with priority: LocalStorage > Environment variables > Default protected config
 export function getEnvFirebaseConfig(): FirebaseCustomConfig {
   const env = (import.meta as any).env || {};
   const projectId = env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId;
@@ -41,34 +41,42 @@ export function getEnvFirebaseConfig(): FirebaseCustomConfig {
   };
 }
 
-const FIREBASE_CONFIG_STORAGE_KEY = 'kenchiko_firebase_config_v1';
-
 export function loadSavedFirebaseConfig(): FirebaseCustomConfig {
-  const envConfig = getEnvFirebaseConfig();
-  try {
-    const raw = localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY);
-    if (!raw) return envConfig;
-    const parsed = JSON.parse(raw);
-    return {
-      ...envConfig,
-      ...parsed,
-    };
-  } catch {
-    return envConfig;
-  }
+  return getEnvFirebaseConfig();
 }
 
-export function saveFirebaseConfig(config: FirebaseCustomConfig): void {
-  try {
-    localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, JSON.stringify(config));
-  } catch (err) {
-    console.error('Failed to save Firebase config', err);
-  }
+export function saveFirebaseConfig(_config: FirebaseCustomConfig): void {
+  // Config is managed in environment / default config
 }
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let unsubscribeSnapshot: Unsubscribe | null = null;
+
+// Quota & Rate Limit Protection State
+let quotaExhaustedUntil: number = 0;
+let lastSuccessfulWriteTime: number = 0;
+let isQuotaCurrentlyExhausted: boolean = false;
+let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
+
+export function setQuotaStatusCallback(cb: (exhausted: boolean) => void) {
+  onQuotaStatusChangeCallback = cb;
+}
+
+export function getIsQuotaExhausted(): boolean {
+  return isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
+}
+
+// Purge all legacy local storage data
+export function purgeLocalData(): void {
+  try {
+    localStorage.removeItem('kenchiko_pet_world_v1');
+    localStorage.removeItem('kenchiko_firebase_config_v1');
+    localStorage.removeItem('kenchiko_google_doc_url');
+  } catch (err) {
+    // ignore
+  }
+}
 
 export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseConfig()): {
   success: boolean;
@@ -115,10 +123,59 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
   }
 }
 
+// Fetch master state directly from Firestore (First load)
+export async function fetchInitialFirebaseState(
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
+  try {
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) return { success: false, data: DEFAULT_INITIAL_STATE, error: initRes.error };
+    }
+    if (!firestoreDb) return { success: false, data: DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
+
+    const docId = config.syncDocId || 'ken-chiko-global-state';
+    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
+    
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const remoteData = snap.data() as GameSaveData;
+        if (remoteData && remoteData.kenchiko) {
+          return { success: true, data: remoteData, isNew: false };
+        }
+      }
+    } catch (readErr: any) {
+      console.warn('Firestore initial read notice:', readErr);
+      if (readErr?.code === 'resource-exhausted' || String(readErr?.message).includes('Quota')) {
+        isQuotaCurrentlyExhausted = true;
+        quotaExhaustedUntil = Date.now() + 60 * 1000;
+        if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+      }
+    }
+
+    return { success: true, data: DEFAULT_INITIAL_STATE, isNew: false };
+  } catch (err: any) {
+    console.error('Error fetching initial Firestore state', err);
+    return { success: false, data: DEFAULT_INITIAL_STATE, error: err.message };
+  }
+}
+
 export async function syncSaveDataToFirebase(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
+  // If quota is currently exceeded, skip network write and operate in memory
+  if (isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil) {
+    return { success: false, error: 'Firestore無料書き込み上限のため待機中（メモリ動作）' };
+  }
+
+  // Throttle writes: minimum 3 seconds between writes from a single client
+  const now = Date.now();
+  if (now - lastSuccessfulWriteTime < 3000) {
+    return { success: true };
+  }
+
   try {
     if (!firestoreDb) {
       const initRes = initFirebase(config);
@@ -139,10 +196,24 @@ export async function syncSaveDataToFirebase(
       updatedAt: new Date().toISOString(),
     });
 
+    lastSuccessfulWriteTime = Date.now();
+    if (isQuotaCurrentlyExhausted) {
+      isQuotaCurrentlyExhausted = false;
+      if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
+    }
+
     return { success: true };
   } catch (err: any) {
-    console.error('Error syncing to Firestore', err);
-    return { success: false, error: err.message || 'Firestore書き込みに失敗しました' };
+    const errMsg = err?.message || String(err);
+    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
+      isQuotaCurrentlyExhausted = true;
+      quotaExhaustedUntil = Date.now() + 120 * 1000; // Pause for 2 minutes to respect backend
+      if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+      console.warn('[Firestore] Daily quota limit reached. Gracefully operating in memory.');
+      return { success: false, error: 'Firebaseの書き込み上限に達しました。ローカルメモリ上で継続します。' };
+    }
+    console.warn('Sync to Firestore note:', err);
+    return { success: false, error: errMsg };
   }
 }
 
@@ -169,21 +240,31 @@ export function subscribeToFirebaseState(
   const docId = config.syncDocId || 'ken-chiko-global-state';
   const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
-  unsubscribeSnapshot = onSnapshot(
-    docRef,
-    (snapshot) => {
-      if (snapshot.exists()) {
-        const remoteData = snapshot.data() as GameSaveData;
-        if (remoteData && remoteData.kenchiko) {
-          onRemoteUpdate(remoteData);
+  try {
+    unsubscribeSnapshot = onSnapshot(
+      docRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const remoteData = snapshot.data() as GameSaveData;
+          if (remoteData && remoteData.kenchiko) {
+            onRemoteUpdate(remoteData);
+          }
         }
+      },
+      (err) => {
+        if (err?.code === 'resource-exhausted' || String(err?.message).includes('Quota')) {
+          isQuotaCurrentlyExhausted = true;
+          quotaExhaustedUntil = Date.now() + 120 * 1000;
+          if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+        } else {
+          console.warn('Firebase snapshot listener note:', err);
+        }
+        if (onError) onError(err);
       }
-    },
-    (err) => {
-      console.error('Firebase snapshot error', err);
-      if (onError) onError(err);
-    }
-  );
+    );
+  } catch (listenErr: any) {
+    console.warn('Firebase subscription init note:', listenErr);
+  }
 
   return () => {
     if (unsubscribeSnapshot) {

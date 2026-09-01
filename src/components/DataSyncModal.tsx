@@ -57,7 +57,6 @@ import {
   Smile,
   Sliders,
   AlertTriangle,
-  RotateCcw,
   Search,
   Filter,
 } from 'lucide-react';
@@ -127,6 +126,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [dbSubTab, setDbSubTab] = useState<'characters' | 'inventory' | 'stats'>('characters');
   const [searchCharQuery, setSearchCharQuery] = useState('');
   const [dbNotice, setDbNotice] = useState<string | null>(null);
+
+  // Sync asobiList state if remote Firestore updates while modal is open
+  React.useEffect(() => {
+    if (saveData.asobiList && !editingAsobiId) {
+      setAsobiList(saveData.asobiList);
+    }
+  }, [saveData.asobiList, editingAsobiId]);
 
   // Password Authentication Handler
   const handleLogin = (e: React.FormEvent) => {
@@ -247,15 +253,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setNewFrequency('normal');
 
     // Update global save state & Firebase
-    onUpdateSaveData((prev) => {
-      const nextData: GameSaveData = {
-        ...prev,
-        asobiList: updatedList,
-        lastSaved: Date.now(),
-      };
-      handleManualSyncFirebase(nextData);
-      return nextData;
-    });
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
   };
 
   const handleEditAsobi = (item: KenchikoAsobi) => {
@@ -282,15 +284,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
     setAsobiNotice(`🗑️ イベント「${title}」を削除しました。Firebaseへ反映中...`);
 
-    onUpdateSaveData((prev) => {
-      const nextData: GameSaveData = {
-        ...prev,
-        asobiList: updatedList,
-        lastSaved: Date.now(),
-      };
-      handleManualSyncFirebase(nextData);
-      return nextData;
-    });
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
   };
 
   const handleCancelAsobiEdit = () => {
@@ -310,36 +308,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setAsobiNotice(`💡 テンプレート「${preset.name}」をフォームにセットしました。内容を調整して保存してください。`);
   };
 
-  const handleResetToAllDefaultEvents = () => {
-    if (!window.confirm('すべての標準イベントを初期状態にリセットして復元しますか？（カスタムで追加したイベントは保持されます）')) return;
-
-    const currentMap = new Map(asobiList.map((a) => [a.id, a]));
-    const merged = [...asobiList];
-
-    INITIAL_ASOBI_LIST.forEach((initEvent) => {
-      if (!currentMap.has(initEvent.id)) {
-        merged.push(initEvent);
-      } else {
-        // overwrite standard with pristine defaults
-        const idx = merged.findIndex((m) => m.id === initEvent.id);
-        if (idx !== -1) merged[idx] = initEvent;
-      }
-    });
-
-    setAsobiList(merged);
-    setAsobiNotice('✨ すべての初期イベントを復元・更新しました。Firebaseへ同期中...');
-
-    onUpdateSaveData((prev) => {
-      const nextData: GameSaveData = {
-        ...prev,
-        asobiList: merged,
-        lastSaved: Date.now(),
-      };
-      handleManualSyncFirebase(nextData);
-      return nextData;
-    });
-  };
-
   // --- Firebase CRUD for Characters & Items ---
   const handleToggleNyanDiscovery = (no: number) => {
     onUpdateSaveData((prev) => {
@@ -352,13 +320,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             }
           : c
       );
-      const nextData: GameSaveData = {
+      return {
         ...prev,
         characters: updatedChars,
         lastSaved: Date.now(),
       };
-      handleManualSyncFirebase(nextData);
-      return nextData;
     });
     setDbNotice(`No.${no} の発見ステータスを更新しました。Firebaseへ保存しました。`);
   };
@@ -368,13 +334,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     onUpdateSaveData((prev) => {
       const updatedChars = prev.characters.filter((c) => c.no !== no);
-      const nextData: GameSaveData = {
+      return {
         ...prev,
         characters: updatedChars,
         lastSaved: Date.now(),
       };
-      handleManualSyncFirebase(nextData);
-      return nextData;
     });
     setDbNotice(`🗑️ No.${no} ${name} を削除しました。Firebaseを更新しました。`);
   };
@@ -384,13 +348,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       const updatedInv = prev.inventory.map((item) =>
         item.id === id ? { ...item, count: Math.max(0, item.count + delta) } : item
       );
-      const nextData: GameSaveData = {
+      return {
         ...prev,
         inventory: updatedInv,
         lastSaved: Date.now(),
       };
-      handleManualSyncFirebase(nextData);
-      return nextData;
     });
   };
 
@@ -709,19 +671,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     <Smile className="w-4 h-4 text-[#C8744E]" />
                     全イベント・行動・セリフ設定コンソール
                   </h4>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleResetToAllDefaultEvents}
-                      className="text-[10px] font-bold text-[#874A2E] hover:text-[#5B301D] bg-white/70 hover:bg-white px-2 py-1 rounded-lg border border-[#F0D5C3] transition flex items-center gap-1"
-                      title="標準イベントを復元"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>初期イベント復元</span>
-                    </button>
-                    <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      Firebase即時同期
-                    </span>
-                  </div>
+                  <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    Firebase即時同期
+                  </span>
                 </div>
                 <p className="text-xs text-[#874A2E] leading-relaxed">
                   現在アプリに実装されている<strong>「すべてのイベント（おやつ・睡眠・仕事・温泉・買い物・移動・歌・散歩など）」</strong>の内容、タイトル、発生条件、出現頻度をここで直接編集・追加・削除できます。変更内容はFirebase Firestoreへ即時反映されます。

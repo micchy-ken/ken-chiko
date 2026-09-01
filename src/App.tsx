@@ -8,7 +8,7 @@ import {
   LocationId,
   TransportMethod,
 } from './types';
-import { loadGameData, saveGameData } from './services/storage';
+import { DEFAULT_INITIAL_STATE } from './services/storage';
 import {
   getRandomMonologue,
   generateNextActivity,
@@ -21,6 +21,10 @@ import {
   loadSavedFirebaseConfig,
   subscribeToFirebaseState,
   syncSaveDataToFirebase,
+  fetchInitialFirebaseState,
+  purgeLocalData,
+  setQuotaStatusCallback,
+  getIsQuotaExhausted,
 } from './services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -49,24 +53,24 @@ import {
   Sparkles,
   FastForward,
   Play,
-  RotateCcw,
   Cloud,
   CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function App() {
-  // Main Game Save Data State
-  const [saveData, setSaveData] = useState<GameSaveData>(() => loadGameData());
+  // Main Game Save Data State (Pure Firestore Source of Truth)
+  const [saveData, setSaveData] = useState<GameSaveData>(DEFAULT_INITIAL_STATE);
+  const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(true);
+  const [isFirebaseSynced, setIsFirebaseSynced] = useState<boolean>(false);
+  const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'stage' | 'zukan' | 'inventory' | 'diary' | 'sync'>('stage');
 
   // Time & Simulation Controls
   const [timeSpeed, setTimeSpeed] = useState<number>(1); // 1x, 5x, 30x, 60x
-  const [remainingTimeSec, setRemainingTimeSec] = useState<number>(() => {
-    const initial = loadGameData();
-    const elapsedRealSec = Math.floor((Date.now() - initial.kenchiko.activityStartedAt) / 1000);
-    return Math.max(0, initial.kenchiko.activityDurationSec - elapsedRealSec);
-  });
+  const [remainingTimeSec, setRemainingTimeSec] = useState<number>(300);
 
   // Modal States
   const [selectedZukanNyan, setSelectedZukanNyan] = useState<NyanCharacter | null>(null);
@@ -75,48 +79,80 @@ export default function App() {
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
 
-  // Firestore sync listener
+  // Reference for avoiding echo saves from remote snapshot updates
+  const isRemoteUpdateRef = useRef<boolean>(false);
+
+  // 1. Initial Load & Realtime Firestore Subscription (Zero Local Cache)
   useEffect(() => {
-    const fbConfig = loadSavedFirebaseConfig();
-    if (fbConfig?.apiKey && fbConfig?.projectId) {
-      const unsub = subscribeToFirebaseState(fbConfig, (remoteData) => {
-        if (remoteData.lastSaved > (saveData.lastSaved || 0)) {
-          setSaveData(remoteData);
+    purgeLocalData();
+
+    setQuotaStatusCallback((exhausted) => {
+      setIsQuotaLimited(exhausted);
+    });
+
+    let isMounted = true;
+
+    // Fetch initial state from Firestore
+    fetchInitialFirebaseState()
+      .then((res) => {
+        if (!isMounted) return;
+        if (res.success && res.data) {
+          isRemoteUpdateRef.current = true;
+          setSaveData(res.data);
+          const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
+          setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
+          setIsFirebaseSynced(true);
         }
+        setIsLoadingFirebase(false);
+      })
+      .catch((err) => {
+        console.warn('Firebase initial load note:', err);
+        if (isMounted) setIsLoadingFirebase(false);
       });
-      return unsub;
-    }
+
+    // Realtime listener with echo prevention
+    const unsub = subscribeToFirebaseState(
+      loadSavedFirebaseConfig(),
+      (remoteData) => {
+        if (!isMounted) return;
+        isRemoteUpdateRef.current = true;
+        setSaveData(remoteData);
+        setIsFirebaseSynced(true);
+        setIsLoadingFirebase(false);
+      },
+      (err) => {
+        if (err?.name === 'FirebaseError' && (err.message.includes('Quota') || err.message.includes('resource-exhausted'))) {
+          setIsQuotaLimited(true);
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
-  // Pattern A: Auto-fetch and merge Google Docs/Sheets data on application launch
+  // 2. Auto-sync Google Docs/Sheets on launch if configured (Triggered once on ready)
   useEffect(() => {
+    if (isLoadingFirebase) return;
     const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
     if (docUrl && docUrl.trim().length > 0) {
       syncNyansFromGoogleDoc(docUrl, saveData.characters)
         .then((res) => {
           if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
-            setSaveData((prev) => ({
-              ...prev,
+            const nextData: GameSaveData = {
+              ...saveData,
               characters: res.updatedNyans,
               lastSaved: Date.now(),
-            }));
-            console.log(`[Google Doc Auto-Sync] Updated: ${res.updatedCount}, Added: ${res.addedCount}`);
+            };
+            setSaveData(nextData);
+            syncSaveDataToFirebase(nextData).catch(() => {});
           }
         })
-        .catch((err) => {
-          console.warn('[Google Doc Auto-Sync] Note:', err);
-        });
+        .catch(() => {});
     }
-  }, []);
-
-  // Save to local storage and sync to Firebase on state updates
-  useEffect(() => {
-    saveGameData(saveData);
-    const timer = setTimeout(() => {
-      syncSaveDataToFirebase(saveData).catch(() => {});
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [saveData]);
+  }, [isLoadingFirebase]);
 
   // Current Companion Nyan
   const companionNyan = useMemo(() => {
@@ -126,8 +162,10 @@ export default function App() {
     );
   }, [saveData.characters, saveData.kenchiko.currentCompanionNyanId]);
 
-  // Primary Simulation Tick Loop
+  // Primary Simulation Tick Loop (Local in-memory ticking without constant Firebase writes)
   useEffect(() => {
+    if (isLoadingFirebase) return;
+
     const interval = setInterval(() => {
       setRemainingTimeSec((prev) => {
         const nextTime = prev - timeSpeed;
@@ -135,13 +173,13 @@ export default function App() {
         if (nextTime <= 0) {
           // Current activity has completed! Transition to next activity.
           handleActivityCompletion();
-          return 300; // placeholder until updated
+          return 300;
         }
 
         return nextTime;
       });
 
-      // Gradually adjust hunger & stamina
+      // Adjust hunger & stamina in memory for smooth animations
       setSaveData((prev) => {
         const curKenchiko = prev.kenchiko;
         const hungerDelta = curKenchiko.currentActivity === 'snacking' ? 0.05 : -0.02 * timeSpeed;
@@ -160,9 +198,9 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation]);
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, isLoadingFirebase]);
 
-  // Activity Completion Handler
+  // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = () => {
     setSaveData((prev) => {
       const curK = prev.kenchiko;
@@ -175,6 +213,8 @@ export default function App() {
       const updatedDiary = [...prev.diary];
       const updatedStats = { ...prev.stats };
 
+      let nextData: GameSaveData;
+
       // Case A: Just arrived from transit
       if (curK.currentActivity === 'transit' && curK.targetLocation) {
         nextLocation = curK.targetLocation;
@@ -182,11 +222,9 @@ export default function App() {
         nextTransport = null;
         updatedStats.totalTrips += 1;
 
-        // Generate activity at destination
         const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
         nextCompanionId = actResult.companionNyanId;
 
-        // If new nyan discovered at destination!
         if (actResult.newDiscoveredNyan) {
           const charIndex = updatedCharacters.findIndex(
             (c) => c.no === actResult.newDiscoveredNyan!.no
@@ -205,7 +243,6 @@ export default function App() {
           }
         }
 
-        // Add arrival diary entry
         if (actResult.diaryText) {
           const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
           updatedDiary.unshift({
@@ -235,11 +272,12 @@ export default function App() {
           ? updatedCharacters.find((c) => c.no === nextCompanionId)
           : null;
 
-        return {
+        nextData = {
           ...prev,
           characters: updatedCharacters,
           diary: updatedDiary.slice(0, 50),
           stats: updatedStats,
+          lastSaved: Date.now(),
           kenchiko: {
             ...curK,
             currentLocation: nextLocation,
@@ -261,148 +299,160 @@ export default function App() {
               ),
           },
         };
-      }
-
-      // Case B: Finished activity at current place -> either move to another place or continue new activity
-      const shouldMove = Math.random() < 0.45;
-
-      if (shouldMove) {
-        // Pick new random destination & transport
-        const dest = pickRandomLocation(curK.currentLocation);
-        const transport = pickRandomTransport();
-        const transitInfo = startTransit(curK.currentLocation, dest, transport);
-
-        setRemainingTimeSec(transitInfo.durationSec);
-
-        return {
-          ...prev,
-          kenchiko: {
-            ...curK,
-            targetLocation: dest,
-            transportMethod: transport,
-            currentActivity: 'transit',
-            currentActivityTitle: transitInfo.title,
-            activityStartedAt: Date.now(),
-            activityDurationSec: transitInfo.durationSec,
-            currentCompanionNyanId: null,
-            monologue: getRandomMonologue(
-              'transit',
-              curK.currentLocation,
-              transport,
-              prev.asobiList
-            ),
-          },
-        };
       } else {
-        // Stay and do another activity (snacking, nap, play, or custom asobi)
-        const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
-        nextCompanionId = actResult.companionNyanId;
+        // Case B: Finished activity at current place
+        const shouldMove = Math.random() < 0.45;
 
-        if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
-        if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
+        if (shouldMove) {
+          const dest = pickRandomLocation(curK.currentLocation);
+          const transport = pickRandomTransport();
+          const transitInfo = startTransit(curK.currentLocation, dest, transport);
 
-        if (actResult.newDiscoveredNyan) {
-          const charIndex = updatedCharacters.findIndex(
-            (c) => c.no === actResult.newDiscoveredNyan!.no
-          );
-          if (charIndex >= 0) {
-            updatedCharacters[charIndex] = {
-              ...updatedCharacters[charIndex],
-              discovered: true,
-              discoveryDate: new Date().toLocaleString('ja-JP'),
-              playCount: 1,
-              friendshipLevel: 1,
-            };
-            updatedStats.totalEncounters += 1;
-            setNewEncounterToast(updatedCharacters[charIndex]);
-            confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
-          }
-        }
+          setRemainingTimeSec(transitInfo.durationSec);
 
-        // Add diary if generated
-        if (actResult.diaryText) {
-          const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
-          updatedDiary.unshift({
-            id: `diary_${Date.now()}`,
-            timestamp: Date.now(),
-            dateFormatted: new Date().toLocaleDateString('ja-JP', {
-              month: 'numeric',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-            locationName: locInfo.name,
-            activityTitle: actResult.title,
-            nyanId: nextCompanionId,
-            nyanName: actResult.companionNyanId
-              ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
-              : null,
-            itemUsed: null,
-            mood: curK.mood,
-            text: actResult.diaryText,
-          });
-        }
-
-        setRemainingTimeSec(actResult.durationSec);
-
-        const compChar = nextCompanionId
-          ? updatedCharacters.find((c) => c.no === nextCompanionId)
-          : null;
-
-        return {
-          ...prev,
-          characters: updatedCharacters,
-          diary: updatedDiary.slice(0, 50),
-          stats: updatedStats,
-          kenchiko: {
-            ...curK,
-            currentActivity: actResult.type,
-            currentActivityTitle: actResult.title,
-            activityStartedAt: Date.now(),
-            activityDurationSec: actResult.durationSec,
-            currentCompanionNyanId: nextCompanionId,
-            monologue:
-              actResult.customMonologue ||
-              getRandomMonologue(
-                actResult.type,
+          nextData = {
+            ...prev,
+            lastSaved: Date.now(),
+            kenchiko: {
+              ...curK,
+              targetLocation: dest,
+              transportMethod: transport,
+              currentActivity: 'transit',
+              currentActivityTitle: transitInfo.title,
+              activityStartedAt: Date.now(),
+              activityDurationSec: transitInfo.durationSec,
+              currentCompanionNyanId: null,
+              monologue: getRandomMonologue(
+                'transit',
                 curK.currentLocation,
-                null,
-                prev.asobiList,
-                compChar?.name
+                transport,
+                prev.asobiList
               ),
-          },
-        };
+            },
+          };
+        } else {
+          const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
+          nextCompanionId = actResult.companionNyanId;
+
+          if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
+          if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
+
+          if (actResult.newDiscoveredNyan) {
+            const charIndex = updatedCharacters.findIndex(
+              (c) => c.no === actResult.newDiscoveredNyan!.no
+            );
+            if (charIndex >= 0) {
+              updatedCharacters[charIndex] = {
+                ...updatedCharacters[charIndex],
+                discovered: true,
+                discoveryDate: new Date().toLocaleString('ja-JP'),
+                playCount: 1,
+                friendshipLevel: 1,
+              };
+              updatedStats.totalEncounters += 1;
+              setNewEncounterToast(updatedCharacters[charIndex]);
+              confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
+            }
+          }
+
+          if (actResult.diaryText) {
+            const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+            updatedDiary.unshift({
+              id: `diary_${Date.now()}`,
+              timestamp: Date.now(),
+              dateFormatted: new Date().toLocaleDateString('ja-JP', {
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              locationName: locInfo.name,
+              activityTitle: actResult.title,
+              nyanId: nextCompanionId,
+              nyanName: actResult.companionNyanId
+                ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
+                : null,
+              itemUsed: null,
+              mood: curK.mood,
+              text: actResult.diaryText,
+            });
+          }
+
+          setRemainingTimeSec(actResult.durationSec);
+
+          const compChar = nextCompanionId
+            ? updatedCharacters.find((c) => c.no === nextCompanionId)
+            : null;
+
+          nextData = {
+            ...prev,
+            characters: updatedCharacters,
+            diary: updatedDiary.slice(0, 50),
+            stats: updatedStats,
+            lastSaved: Date.now(),
+            kenchiko: {
+              ...curK,
+              currentActivity: actResult.type,
+              currentActivityTitle: actResult.title,
+              activityStartedAt: Date.now(),
+              activityDurationSec: actResult.durationSec,
+              currentCompanionNyanId: nextCompanionId,
+              monologue:
+                actResult.customMonologue ||
+                getRandomMonologue(
+                  actResult.type,
+                  curK.currentLocation,
+                  null,
+                  prev.asobiList,
+                  compChar?.name
+                ),
+            },
+          };
+        }
       }
+
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
     });
   };
 
   // User Actions: Petting
   const handlePetKenchiko = () => {
-    setSaveData((prev) => ({
-      ...prev,
-      kenchiko: {
-        ...prev.kenchiko,
-        happiness: Math.min(100, prev.kenchiko.happiness + 10),
-        monologue: 'なでてくれてありがとう〜！今日もいい日だなぁ。',
-      },
-    }));
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...prev.kenchiko,
+          happiness: Math.min(100, prev.kenchiko.happiness + 10),
+          monologue: 'なでてくれてありがとう〜！今日もいい日だなぁ。',
+        },
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
   };
 
   // User Actions: Manual Monologue update
   const handleManualMonologue = () => {
-    setSaveData((prev) => ({
-      ...prev,
-      kenchiko: {
-        ...prev.kenchiko,
-        monologue: getRandomMonologue(
-          prev.kenchiko.currentActivity,
-          prev.kenchiko.currentLocation,
-          prev.kenchiko.transportMethod,
-          prev.asobiList,
-          companionNyan ? companionNyan.name : undefined
-        ),
-      },
-    }));
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...prev.kenchiko,
+          monologue: getRandomMonologue(
+            prev.kenchiko.currentActivity,
+            prev.kenchiko.currentLocation,
+            prev.kenchiko.transportMethod,
+            prev.asobiList,
+            companionNyan ? companionNyan.name : undefined
+          ),
+        },
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
   };
 
   // User Actions: Start Travel to specific destination
@@ -410,25 +460,30 @@ export default function App() {
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
     setRemainingTimeSec(transitInfo.durationSec);
 
-    setSaveData((prev) => ({
-      ...prev,
-      kenchiko: {
-        ...prev.kenchiko,
-        targetLocation: destination,
-        transportMethod: transport,
-        currentActivity: 'transit',
-        currentActivityTitle: transitInfo.title,
-        activityStartedAt: Date.now(),
-        activityDurationSec: transitInfo.durationSec,
-        currentCompanionNyanId: null,
-        monologue: getRandomMonologue(
-          'transit',
-          prev.kenchiko.currentLocation,
-          transport,
-          prev.asobiList
-        ),
-      },
-    }));
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...prev.kenchiko,
+          targetLocation: destination,
+          transportMethod: transport,
+          currentActivity: 'transit',
+          currentActivityTitle: transitInfo.title,
+          activityStartedAt: Date.now(),
+          activityDurationSec: transitInfo.durationSec,
+          currentCompanionNyanId: null,
+          monologue: getRandomMonologue(
+            'transit',
+            prev.kenchiko.currentLocation,
+            transport,
+            prev.asobiList
+          ),
+        },
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
   };
 
   // User Actions: Present Gift Item
@@ -450,7 +505,6 @@ export default function App() {
         }
       }
 
-      // Add diary note
       const locInfo = LOCATIONS[prev.kenchiko.currentLocation] || LOCATIONS.living;
       const updatedDiary = [
         {
@@ -475,11 +529,12 @@ export default function App() {
         ...prev.diary,
       ];
 
-      return {
+      const nextData: GameSaveData = {
         ...prev,
         inventory: updatedInv,
         characters: updatedChars,
         diary: updatedDiary.slice(0, 50),
+        lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
           hunger: Math.min(100, prev.kenchiko.hunger + item.hungerRecovery),
@@ -488,6 +543,9 @@ export default function App() {
           monologue: `「${item.name}」をもらった！${item.effectText}`,
         },
       };
+
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
     });
   };
 
@@ -497,7 +555,13 @@ export default function App() {
       const updated = prev.characters.map((c) =>
         c.no === nyanNo ? { ...c, customImageUrl: imageUrl || undefined } : c
       );
-      return { ...prev, characters: updated };
+      const nextData: GameSaveData = {
+        ...prev,
+        characters: updated,
+        lastSaved: Date.now(),
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
     });
 
     if (selectedZukanNyan && selectedZukanNyan.no === nyanNo) {
@@ -510,13 +574,18 @@ export default function App() {
   // User Actions: Import Nyans from weekly CSV
   const handleImportNyans = (
     updatedNyans: NyanCharacter[],
-    addedCount: number,
-    updatedCount: number
+    _addedCount: number,
+    _updatedCount: number
   ) => {
-    setSaveData((prev) => ({
-      ...prev,
-      characters: updatedNyans,
-    }));
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        characters: updatedNyans,
+        lastSaved: Date.now(),
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
   };
 
   // User Actions: Take Picture Snapshot for Diary
@@ -542,13 +611,36 @@ export default function App() {
       }まったりしているところをパシャリと撮影。けんちこは「${saveData.kenchiko.monologue}」とつぶやいていた。`,
     };
 
-    setSaveData((prev) => ({
-      ...prev,
-      diary: [newEntry, ...prev.diary].slice(0, 50),
-    }));
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        diary: [newEntry, ...prev.diary].slice(0, 50),
+        lastSaved: Date.now(),
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
 
     confetti({ particleCount: 20, spread: 50, origin: { y: 0.8 } });
   };
+
+  // Loading Screen while connecting to Firestore
+  if (isLoadingFirebase) {
+    return (
+      <div className="min-h-screen bg-[#F5F2EA] flex flex-col items-center justify-center p-4 font-['M_PLUS_Rounded_1c',sans-serif]">
+        <div className="text-center space-y-4 max-w-sm">
+          <KenchikoAvatar size={72} className="mx-auto animate-bounce shadow-md" />
+          <div className="space-y-1">
+            <h2 className="text-base font-black text-[#3A342F]">けんちこの世界とクラウド同期中...</h2>
+            <p className="text-xs text-[#7D756D]">Firebase Firestoreから最新データを取得しています</p>
+          </div>
+          <div className="w-36 h-2 bg-[#DDD7C8] rounded-full mx-auto overflow-hidden">
+            <div className="w-full h-full bg-[#728C7E] animate-pulse rounded-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const discoveredCount = saveData.characters.filter((c) => c.discovered).length;
   const totalCharacters = saveData.characters.length;
@@ -566,9 +658,17 @@ export default function App() {
                 <h1 className="text-lg font-black tracking-tight text-[#3A342F]">
                   けんちこワールド
                 </h1>
-                <span className="bg-[#EAF0EC] text-[#3D5447] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#C6D8CD]">
-                  放置型ペットシム
-                </span>
+                {isQuotaLimited ? (
+                  <span className="bg-[#FFF4E5] text-[#9A5B18] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#FADBB5] flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 text-[#D9825B]" />
+                    メモリ動作中（クラウド上限到達）
+                  </span>
+                ) : (
+                  <span className="bg-[#EAF0EC] text-[#3D5447] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#C6D8CD] flex items-center gap-1">
+                    <Cloud className="w-3 h-3 text-[#5C7E6B]" />
+                    クラウド常時同期
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-[#7D756D] font-medium">
                 オジサン「けんちこ」観察 ＆ 毎週増える◯◯にゃん図鑑
@@ -634,7 +734,7 @@ export default function App() {
             <button
               onClick={() => setShowSyncModal(true)}
               className="flex items-center gap-1.5 bg-[#FAF8F5] hover:bg-[#EFECE4] text-[#4A443F] font-bold text-xs px-3 py-1.5 rounded-xl border border-[#DDD7C8] shadow-sm transition"
-              title="週次CSV更新・GitHub連携・Firebase設定"
+              title="週次CSV更新・全イベント編集・Firebase管理"
             >
               <Database className="w-3.5 h-3.5 text-[#728C7E]" />
               <span className="hidden sm:inline">データ連携</span>
@@ -691,7 +791,7 @@ export default function App() {
             }`}
           >
             <Database className="w-4 h-4" />
-            <span>週次CSV更新 / GitHub</span>
+            <span>週次CSV更新 / 全イベント管理</span>
           </button>
         </div>
       </div>
@@ -793,10 +893,10 @@ export default function App() {
           <div className="bg-[#FAF8F5] rounded-3xl border border-[#DDD7C8] shadow-[0_2px_8px_rgba(74,68,63,0.04)] p-6 space-y-6">
             <div>
               <h2 className="text-xl font-black text-[#3A342F] mb-1">
-                週次CSVデータ更新 & GitHub / Firebase 連携
+                データ連携・全イベント編集コンソール
               </h2>
               <p className="text-xs text-[#7D756D]">
-                毎週更新される「◯◯にゃん」CSVの取り込みや、GitHubリポジトリ (ken-chiko) への自動コミット設定を行います。
+                Firestoreクラウド同期、全イベント・あそびの編集、毎週更新される「◯◯にゃん」CSVの取り込み設定を行います。
               </p>
             </div>
 
@@ -805,10 +905,14 @@ export default function App() {
               saveData={saveData}
               onClose={() => setActiveTab('stage')}
               onImportNyans={handleImportNyans}
-              onSaveFirebaseConfig={(cfg) => {
-                // saved
+              onSaveFirebaseConfig={(_cfg) => {}}
+              onUpdateSaveData={(updater) => {
+                setSaveData((prev) => {
+                  const next = updater(prev);
+                  syncSaveDataToFirebase(next).catch(() => {});
+                  return next;
+                });
               }}
-              onUpdateSaveData={setSaveData}
             />
           </div>
         )}
@@ -820,7 +924,7 @@ export default function App() {
           nyan={selectedZukanNyan}
           onClose={() => setSelectedZukanNyan(null)}
           onUpdateCustomImage={handleUpdateCustomImage}
-          onGiftToNyan={(nyan) => {
+          onGiftToNyan={(_nyan) => {
             setSelectedZukanNyan(null);
             setShowGiftModal(true);
           }}
@@ -851,10 +955,14 @@ export default function App() {
           saveData={saveData}
           onClose={() => setShowSyncModal(false)}
           onImportNyans={handleImportNyans}
-          onSaveFirebaseConfig={(cfg) => {
-            // saved
+          onSaveFirebaseConfig={(_cfg) => {}}
+          onUpdateSaveData={(updater) => {
+            setSaveData((prev) => {
+              const next = updater(prev);
+              syncSaveDataToFirebase(next).catch(() => {});
+              return next;
+            });
           }}
-          onUpdateSaveData={setSaveData}
         />
       )}
 
@@ -862,7 +970,7 @@ export default function App() {
       <footer className="bg-[#EFECE4] border-t border-[#DDD7C8] py-6 text-center text-xs text-[#7D756D]">
         <p className="font-bold text-[#4A443F]">けんちこワールド (ken-chiko)</p>
         <p className="mt-1 text-[11px]">
-          5分刻みでセカイをうろつくオジサン観察 ＆ 毎週更新される脱力「◯◯にゃん」図鑑
+          5分刻みでセカイをうろつくオジサン観察 ＆ 毎週更新される脱力「◯◯にゃん」図鑑 (Firebase Firestore Cloud)
         </p>
       </footer>
     </div>
