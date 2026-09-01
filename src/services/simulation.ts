@@ -6,6 +6,7 @@ import {
   NyanCharacter,
   DiaryEntry,
   GiftItem,
+  KenchikoAsobi,
 } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 
@@ -62,9 +63,85 @@ const MONOLOGUES: Record<ActivityType, string[]> = {
     '80%オフって見ると買わなきゃ損な気がしてくる。',
     '両手に荷物がいっぱいになっちゃった。',
   ],
+  custom_action: [
+    '素敵なけんちこさん♪',
+    '今日も一日ごきげんよう。',
+    'ふふふ、いい感じ。',
+  ],
 };
 
-export function getRandomMonologue(activity: ActivityType, companionName?: string): string {
+/**
+ * Filter custom asobi list matching current location, transport, or activity
+ */
+export function getMatchingAsobiList(
+  asobiList: KenchikoAsobi[] | undefined,
+  currentLocation: LocationId,
+  transportMethod: TransportMethod | null
+): KenchikoAsobi[] {
+  if (!asobiList || asobiList.length === 0) return [];
+
+  const isTransit = transportMethod !== null;
+
+  return asobiList.filter((item) => {
+    const cond = item.condition;
+    // 1. All (any state)
+    if (cond === 'all') return true;
+
+    // 2. All locations (when not in transit)
+    if (cond === 'all_locations' && !isTransit) return true;
+
+    // 3. All transports (when in transit)
+    if (cond === 'all_transports' && isTransit) return true;
+
+    // 4. Specific location
+    if (cond.startsWith('loc_')) {
+      const targetLoc = cond.replace('loc_', '');
+      return !isTransit && targetLoc === currentLocation;
+    }
+
+    // 5. Specific transport
+    if (cond.startsWith('trans_')) {
+      const targetTrans = cond.replace('trans_', '');
+      return isTransit && targetTrans === transportMethod;
+    }
+
+    return false;
+  });
+}
+
+/**
+ * Picks a monologue from either matched custom asobi or built-in pool
+ */
+export function getRandomMonologue(
+  activity: ActivityType,
+  currentLocation: LocationId = 'living',
+  transportMethod: TransportMethod | null = null,
+  asobiList: KenchikoAsobi[] = [],
+  companionName?: string
+): string {
+  // Check if matching custom asobi exists
+  const matchedAsobi = getMatchingAsobiList(asobiList, currentLocation, transportMethod);
+
+  // If matched custom asobi found, weighted random pick (high=3x, normal=1.5x, rare=0.5x)
+  if (matchedAsobi.length > 0 && Math.random() < 0.65) {
+    const weightedPool: KenchikoAsobi[] = [];
+    matchedAsobi.forEach((a) => {
+      const weight = a.frequency === 'high' ? 4 : a.frequency === 'normal' ? 2 : 1;
+      for (let i = 0; i < weight; i++) {
+        weightedPool.push(a);
+      }
+    });
+
+    const chosen = weightedPool[Math.floor(Math.random() * weightedPool.length)];
+    if (chosen && chosen.content) {
+      if (companionName && Math.random() > 0.6) {
+        return `${companionName}といっしょ。「${chosen.content}」`;
+      }
+      return chosen.content;
+    }
+  }
+
+  // Fallback to standard monologues
   const pool = MONOLOGUES[activity] || MONOLOGUES.spacing_out;
   let quote = pool[Math.floor(Math.random() * pool.length)];
   if (companionName && Math.random() > 0.5) {
@@ -90,7 +167,8 @@ export function pickRandomTransport(): TransportMethod {
 
 export function generateNextActivity(
   currentLoc: LocationId,
-  allNyans: NyanCharacter[]
+  allNyans: NyanCharacter[],
+  asobiList: KenchikoAsobi[] = []
 ): {
   type: ActivityType;
   title: string;
@@ -98,6 +176,7 @@ export function generateNextActivity(
   companionNyanId: number | null;
   newDiscoveredNyan: NyanCharacter | null;
   diaryText?: string;
+  customMonologue?: string;
 } {
   const roll = Math.random();
   const locInfo = LOCATIONS[currentLoc] || LOCATIONS.living;
@@ -124,6 +203,21 @@ export function generateNextActivity(
         isNewDiscovery = randomNyan;
       }
     }
+  }
+
+  // Check if custom asobi should trigger as an activity
+  const matchedAsobi = getMatchingAsobiList(asobiList, currentLoc, null);
+  if (matchedAsobi.length > 0 && Math.random() < 0.35) {
+    const chosenAsobi = matchedAsobi[Math.floor(Math.random() * matchedAsobi.length)];
+    return {
+      type: 'custom_action',
+      title: chosenAsobi.title,
+      durationSec: 300, // 5 min
+      companionNyanId: companionNyan ? companionNyan.no : null,
+      newDiscoveredNyan: isNewDiscovery,
+      customMonologue: chosenAsobi.content,
+      diaryText: `${locInfo.name}で「${chosenAsobi.title}」。${chosenAsobi.content}`,
+    };
   }
 
   // 1. Snacking (30min or 5min)

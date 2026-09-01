@@ -1,6 +1,7 @@
 import { GameSaveData, KenchikoState, NyanCharacter } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
+import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 
 const STORAGE_KEY = 'kenchiko_pet_world_v1';
 
@@ -25,6 +26,7 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
   },
   characters: INITIAL_NYANS,
   inventory: INITIAL_ITEMS,
+  asobiList: INITIAL_ASOBI_LIST,
   diary: [
     {
       id: 'diary_init_1',
@@ -85,6 +87,7 @@ export function loadGameData(): GameSaveData {
       ...parsed,
       characters: mergedNyans,
       inventory: parsed.inventory || INITIAL_ITEMS,
+      asobiList: Array.isArray(parsed.asobiList) && parsed.asobiList.length > 0 ? parsed.asobiList : INITIAL_ASOBI_LIST,
       diary: parsed.diary || DEFAULT_INITIAL_STATE.diary,
       stats: parsed.stats || DEFAULT_INITIAL_STATE.stats,
       kenchiko: {

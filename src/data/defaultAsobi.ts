@@ -1,0 +1,60 @@
+import { KenchikoAsobi } from '../types';
+
+export const INITIAL_ASOBI_LIST: KenchikoAsobi[] = [
+  {
+    id: 'asobi_1',
+    title: 'けんちこはうたをうたった',
+    content: '素敵なけんちこさん♪ 今日も街をゆく〜',
+    condition: 'loc_living',
+    frequency: 'normal',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'asobi_2',
+    title: 'けんちこはメガネを磨いた',
+    content: 'キュッキュッ…これで視界良好、にゃんこもクッキリ！',
+    condition: 'all',
+    frequency: 'normal',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'asobi_3',
+    title: 'けんちこは風を感じた',
+    content: 'すいすい〜！自転車で走ると悩み事も吹き飛ぶなぁ。',
+    condition: 'trans_bicycle',
+    frequency: 'high',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'asobi_4',
+    title: 'けんちこは熟睡の体勢に入った',
+    content: 'リカバリーウェアの包容力たるや…おやすみ世界…Zzz',
+    condition: 'loc_bedroom',
+    frequency: 'high',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'asobi_5',
+    title: 'けんちこはキーボードを叩いた',
+    content: 'カタカタ…ッターン！仕事してる風だけど実は週末の予定を検索中。',
+    condition: 'loc_office',
+    frequency: 'normal',
+    createdAt: Date.now() - 86400000 * 2,
+  },
+  {
+    id: 'asobi_6',
+    title: 'けんちこは空を見上げた',
+    content: '雲の形がどことなく猫に見えるような気がする…',
+    condition: 'all_locations',
+    frequency: 'normal',
+    createdAt: Date.now() - 86400000,
+  },
+  {
+    id: 'asobi_7',
+    title: 'けんちこは旅情にひたった',
+    content: 'ガタゴト揺られながら飲むお茶は格別だねぇ。',
+    condition: 'all_transports',
+    frequency: 'normal',
+    createdAt: Date.now() - 86400000,
+  },
+];

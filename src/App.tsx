@@ -22,6 +22,11 @@ import {
   subscribeToFirebaseState,
   syncSaveDataToFirebase,
 } from './services/firebaseSync';
+import {
+  getSavedGoogleDocUrl,
+  syncNyansFromGoogleDoc,
+  DEFAULT_GOOGLE_DOC_URL,
+} from './services/googleDocSync';
 
 import { KenchikoStage } from './components/KenchikoStage';
 import { KenchikoAvatar } from './components/KenchikoAvatar';
@@ -80,6 +85,27 @@ export default function App() {
         }
       });
       return unsub;
+    }
+  }, []);
+
+  // Pattern A: Auto-fetch and merge Google Docs/Sheets data on application launch
+  useEffect(() => {
+    const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
+    if (docUrl && docUrl.trim().length > 0) {
+      syncNyansFromGoogleDoc(docUrl, saveData.characters)
+        .then((res) => {
+          if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
+            setSaveData((prev) => ({
+              ...prev,
+              characters: res.updatedNyans,
+              lastSaved: Date.now(),
+            }));
+            console.log(`[Google Doc Auto-Sync] Updated: ${res.updatedCount}, Added: ${res.addedCount}`);
+          }
+        })
+        .catch((err) => {
+          console.warn('[Google Doc Auto-Sync] Note:', err);
+        });
     }
   }, []);
 
@@ -157,7 +183,7 @@ export default function App() {
         updatedStats.totalTrips += 1;
 
         // Generate activity at destination
-        const actResult = generateNextActivity(nextLocation, updatedCharacters);
+        const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
         nextCompanionId = actResult.companionNyanId;
 
         // If new nyan discovered at destination!
@@ -205,6 +231,10 @@ export default function App() {
 
         setRemainingTimeSec(actResult.durationSec);
 
+        const compChar = nextCompanionId
+          ? updatedCharacters.find((c) => c.no === nextCompanionId)
+          : null;
+
         return {
           ...prev,
           characters: updatedCharacters,
@@ -220,7 +250,15 @@ export default function App() {
             activityStartedAt: Date.now(),
             activityDurationSec: actResult.durationSec,
             currentCompanionNyanId: nextCompanionId,
-            monologue: getRandomMonologue(actResult.type),
+            monologue:
+              actResult.customMonologue ||
+              getRandomMonologue(
+                actResult.type,
+                nextLocation,
+                null,
+                prev.asobiList,
+                compChar?.name
+              ),
           },
         };
       }
@@ -247,12 +285,17 @@ export default function App() {
             activityStartedAt: Date.now(),
             activityDurationSec: transitInfo.durationSec,
             currentCompanionNyanId: null,
-            monologue: getRandomMonologue('transit'),
+            monologue: getRandomMonologue(
+              'transit',
+              curK.currentLocation,
+              transport,
+              prev.asobiList
+            ),
           },
         };
       } else {
-        // Stay and do another activity (snacking, nap, play)
-        const actResult = generateNextActivity(curK.currentLocation, updatedCharacters);
+        // Stay and do another activity (snacking, nap, play, or custom asobi)
+        const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
         nextCompanionId = actResult.companionNyanId;
 
         if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
@@ -276,11 +319,40 @@ export default function App() {
           }
         }
 
+        // Add diary if generated
+        if (actResult.diaryText) {
+          const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+          updatedDiary.unshift({
+            id: `diary_${Date.now()}`,
+            timestamp: Date.now(),
+            dateFormatted: new Date().toLocaleDateString('ja-JP', {
+              month: 'numeric',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            locationName: locInfo.name,
+            activityTitle: actResult.title,
+            nyanId: nextCompanionId,
+            nyanName: actResult.companionNyanId
+              ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
+              : null,
+            itemUsed: null,
+            mood: curK.mood,
+            text: actResult.diaryText,
+          });
+        }
+
         setRemainingTimeSec(actResult.durationSec);
+
+        const compChar = nextCompanionId
+          ? updatedCharacters.find((c) => c.no === nextCompanionId)
+          : null;
 
         return {
           ...prev,
           characters: updatedCharacters,
+          diary: updatedDiary.slice(0, 50),
           stats: updatedStats,
           kenchiko: {
             ...curK,
@@ -289,7 +361,15 @@ export default function App() {
             activityStartedAt: Date.now(),
             activityDurationSec: actResult.durationSec,
             currentCompanionNyanId: nextCompanionId,
-            monologue: getRandomMonologue(actResult.type),
+            monologue:
+              actResult.customMonologue ||
+              getRandomMonologue(
+                actResult.type,
+                curK.currentLocation,
+                null,
+                prev.asobiList,
+                compChar?.name
+              ),
           },
         };
       }
@@ -316,6 +396,9 @@ export default function App() {
         ...prev.kenchiko,
         monologue: getRandomMonologue(
           prev.kenchiko.currentActivity,
+          prev.kenchiko.currentLocation,
+          prev.kenchiko.transportMethod,
+          prev.asobiList,
           companionNyan ? companionNyan.name : undefined
         ),
       },
@@ -338,7 +421,12 @@ export default function App() {
         activityStartedAt: Date.now(),
         activityDurationSec: transitInfo.durationSec,
         currentCompanionNyanId: null,
-        monologue: getRandomMonologue('transit'),
+        monologue: getRandomMonologue(
+          'transit',
+          prev.kenchiko.currentLocation,
+          transport,
+          prev.asobiList
+        ),
       },
     }));
   };
@@ -720,6 +808,7 @@ export default function App() {
               onSaveFirebaseConfig={(cfg) => {
                 // saved
               }}
+              onUpdateSaveData={setSaveData}
             />
           </div>
         )}
@@ -765,6 +854,7 @@ export default function App() {
           onSaveFirebaseConfig={(cfg) => {
             // saved
           }}
+          onUpdateSaveData={setSaveData}
         />
       )}
 
