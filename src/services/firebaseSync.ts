@@ -59,12 +59,102 @@ let lastSuccessfulWriteTime: number = 0;
 let isQuotaCurrentlyExhausted: boolean = false;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
 
+// Connection Status Tracking
+export interface FirebaseConnectionStatus {
+  isConnected: boolean;
+  isOffline: boolean;
+  lastError?: string;
+  isQuotaExhausted?: boolean;
+}
+
+let isCurrentlyConnected: boolean = false;
+let lastConnectionError: string | undefined = undefined;
+const connectionStatusListeners = new Set<(status: FirebaseConnectionStatus) => void>();
+
+export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
+  const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
+  return {
+    isConnected: !isOffline && isCurrentlyConnected,
+    isOffline: isOffline || !isCurrentlyConnected,
+    lastError: lastConnectionError,
+    isQuotaExhausted: isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil,
+  };
+}
+
+export function subscribeFirebaseConnectionStatus(
+  listener: (status: FirebaseConnectionStatus) => void
+): () => void {
+  connectionStatusListeners.add(listener);
+  listener(getFirebaseConnectionStatus());
+  return () => {
+    connectionStatusListeners.delete(listener);
+  };
+}
+
+function notifyConnectionStatusChange(connected: boolean, error?: string) {
+  isCurrentlyConnected = connected;
+  if (error !== undefined) {
+    lastConnectionError = error;
+  }
+  const currentStatus = getFirebaseConnectionStatus();
+  connectionStatusListeners.forEach((listener) => {
+    try {
+      listener(currentStatus);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+// Window online/offline listener setup
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    testFirebaseConnection().catch(() => {});
+  });
+  window.addEventListener('offline', () => {
+    notifyConnectionStatusChange(false, 'ネットワークが切断されています（オフライン）');
+  });
+}
+
 export function setQuotaStatusCallback(cb: (exhausted: boolean) => void) {
   onQuotaStatusChangeCallback = cb;
 }
 
 export function getIsQuotaExhausted(): boolean {
   return isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
+}
+
+export async function testFirebaseConnection(
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; error?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    notifyConnectionStatusChange(false, 'オフライン状態です');
+    return { success: false, error: '端末がオフラインです' };
+  }
+
+  try {
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) {
+        notifyConnectionStatusChange(false, initRes.error);
+        return initRes;
+      }
+    }
+    if (!firestoreDb) {
+      notifyConnectionStatusChange(false, 'Firestoreの初期化に失敗しました');
+      return { success: false, error: 'Firestore is not initialized' };
+    }
+
+    const docId = config.syncDocId || 'ken-chiko-global-state';
+    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
+    await getDoc(docRef);
+    notifyConnectionStatusChange(true);
+    return { success: true };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    notifyConnectionStatusChange(false, errMsg);
+    return { success: false, error: errMsg };
+  }
 }
 
 // Purge all legacy local storage data
@@ -128,17 +218,29 @@ export async function fetchInitialFirebaseState(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
   try {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      notifyConnectionStatusChange(false, 'オフライン状態です');
+      return { success: false, data: DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
+    }
+
     if (!firestoreDb) {
       const initRes = initFirebase(config);
-      if (!initRes.success) return { success: false, data: DEFAULT_INITIAL_STATE, error: initRes.error };
+      if (!initRes.success) {
+        notifyConnectionStatusChange(false, initRes.error);
+        return { success: false, data: DEFAULT_INITIAL_STATE, error: initRes.error };
+      }
     }
-    if (!firestoreDb) return { success: false, data: DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
+    if (!firestoreDb) {
+      notifyConnectionStatusChange(false, 'Firestore is not ready');
+      return { success: false, data: DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
+    }
 
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     
     try {
       const snap = await getDoc(docRef);
+      notifyConnectionStatusChange(true);
       if (snap.exists()) {
         const remoteData = snap.data() as GameSaveData;
         if (remoteData && remoteData.kenchiko) {
@@ -151,12 +253,16 @@ export async function fetchInitialFirebaseState(
         isQuotaCurrentlyExhausted = true;
         quotaExhaustedUntil = Date.now() + 60 * 1000;
         if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+        notifyConnectionStatusChange(false, 'Firestore無料クォータ上限到達');
+      } else {
+        notifyConnectionStatusChange(false, readErr?.message || String(readErr));
       }
     }
 
     return { success: true, data: DEFAULT_INITIAL_STATE, isNew: false };
   } catch (err: any) {
     console.error('Error fetching initial Firestore state', err);
+    notifyConnectionStatusChange(false, err?.message || String(err));
     return { success: false, data: DEFAULT_INITIAL_STATE, error: err.message };
   }
 }
@@ -179,9 +285,15 @@ export async function syncSaveDataToFirebase(
   try {
     if (!firestoreDb) {
       const initRes = initFirebase(config);
-      if (!initRes.success) return initRes;
+      if (!initRes.success) {
+        notifyConnectionStatusChange(false, initRes.error);
+        return initRes;
+      }
     }
-    if (!firestoreDb) return { success: false, error: 'Firestore is not initialized' };
+    if (!firestoreDb) {
+      notifyConnectionStatusChange(false, 'Firestore is not initialized');
+      return { success: false, error: 'Firestore is not initialized' };
+    }
 
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
@@ -197,6 +309,7 @@ export async function syncSaveDataToFirebase(
     });
 
     lastSuccessfulWriteTime = Date.now();
+    notifyConnectionStatusChange(true);
     if (isQuotaCurrentlyExhausted) {
       isQuotaCurrentlyExhausted = false;
       if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
@@ -209,10 +322,12 @@ export async function syncSaveDataToFirebase(
       isQuotaCurrentlyExhausted = true;
       quotaExhaustedUntil = Date.now() + 120 * 1000; // Pause for 2 minutes to respect backend
       if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+      notifyConnectionStatusChange(false, 'Firebaseの書き込み上限に達しました（メモリ動作中）');
       console.warn('[Firestore] Daily quota limit reached. Gracefully operating in memory.');
       return { success: false, error: 'Firebaseの書き込み上限に達しました。ローカルメモリ上で継続します。' };
     }
     console.warn('Sync to Firestore note:', err);
+    notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
   }
 }
@@ -230,6 +345,7 @@ export function subscribeToFirebaseState(
   if (!firestoreDb) {
     const initRes = initFirebase(config);
     if (!initRes.success) {
+      notifyConnectionStatusChange(false, initRes.error);
       if (onError) onError(new Error(initRes.error));
       return () => {};
     }
@@ -244,6 +360,7 @@ export function subscribeToFirebaseState(
     unsubscribeSnapshot = onSnapshot(
       docRef,
       (snapshot) => {
+        notifyConnectionStatusChange(true);
         if (snapshot.exists()) {
           const remoteData = snapshot.data() as GameSaveData;
           if (remoteData && remoteData.kenchiko) {
@@ -256,14 +373,17 @@ export function subscribeToFirebaseState(
           isQuotaCurrentlyExhausted = true;
           quotaExhaustedUntil = Date.now() + 120 * 1000;
           if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+          notifyConnectionStatusChange(false, 'Firebaseクォータ上限');
         } else {
           console.warn('Firebase snapshot listener note:', err);
+          notifyConnectionStatusChange(false, err?.message || String(err));
         }
         if (onError) onError(err);
       }
     );
   } catch (listenErr: any) {
     console.warn('Firebase subscription init note:', listenErr);
+    notifyConnectionStatusChange(false, listenErr?.message || String(listenErr));
   }
 
   return () => {

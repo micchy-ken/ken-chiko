@@ -22,6 +22,10 @@ import {
   FirebaseCustomConfig,
   syncSaveDataToFirebase,
   getEnvFirebaseConfig,
+  getFirebaseConnectionStatus,
+  subscribeFirebaseConnectionStatus,
+  testFirebaseConnection,
+  FirebaseConnectionStatus,
 } from '../services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -110,6 +114,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [fbDatabaseId, setFbDatabaseId] = useState(existingFb?.firestoreDatabaseId || '');
   const [fbSyncStatus, setFbSyncStatus] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<FirebaseConnectionStatus>(() => getFirebaseConnectionStatus());
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+
+  // Subscribe to connection status changes
+  React.useEffect(() => {
+    const unsub = subscribeFirebaseConnectionStatus((status) => {
+      setConnectionStatus(status);
+    });
+    return () => unsub();
+  }, []);
 
   // Asobi Editor State
   const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
@@ -466,21 +480,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   // --- RENDER PASSWORD LOCK SCREEN ---
   if (!isAuthenticated) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3A342F]/70 backdrop-blur-sm animate-fadeIn font-['M_PLUS_Rounded_1c',sans-serif]">
-        <div className="relative w-full max-w-md bg-[#FAF8F5] rounded-3xl border border-[#DDD7C8] shadow-[0_12px_40px_rgba(74,68,63,0.25)] overflow-hidden flex flex-col">
-          <div className="bg-[#4A443F] px-6 py-4 border-b border-[#3A342F] flex items-center justify-between text-white">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn">
+        <div className="relative w-full max-w-md bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col">
+          <div className="bg-[#ECE7DC] px-6 py-4 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-[#C8744E] text-white shadow-sm">
+              <div className="p-2 sketch-tag bg-[#D97543] text-white shadow-sm">
                 <Lock className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-black text-white">データ連携・管理ロック</h3>
-                <p className="text-[11px] text-[#CCC4B2]">パスワードを入力して認証してください</p>
+                <h3 className="text-base font-bold text-[#2E2824] font-handwriting">データ連携・管理ロック</h3>
+                <p className="text-[11px] text-[#7A726A] font-handwriting">パスワードを入力して認証してください</p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl bg-[#3A342F] hover:bg-[#2B2724] text-[#CCC4B2] hover:text-white border border-[#5A524A] transition"
+              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -538,23 +552,23 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // --- RENDER MAIN AUTHENTICATED MANAGEMENT CONSOLE ---
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#3A342F]/70 backdrop-blur-sm animate-fadeIn font-['M_PLUS_Rounded_1c',sans-serif]">
-      <div className="relative w-full max-w-4xl bg-[#FAF8F5] rounded-3xl border border-[#DDD7C8] shadow-[0_12px_40px_rgba(74,68,63,0.25)] overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-4xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="bg-[#4A443F] px-6 py-3.5 border-b border-[#3A342F] flex items-center justify-between text-white">
+        <div className="bg-[#ECE7DC] px-6 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-[#728C7E] text-white shadow-sm">
+            <div className="p-2 sketch-tag bg-[#3E3833] text-white shadow-sm">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-white">データ連携・全イベント編集コンソール</h3>
-                <span className="bg-[#728C7E]/80 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-white/20 flex items-center gap-1">
+                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">データ連携・全イベント編集コンソール</h3>
+                <span className="bg-[#487560] text-white text-[10px] font-bold px-2 py-0.5 sketch-tag flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   認証済み
                 </span>
               </div>
-              <p className="text-xs text-[#CCC4B2]">
+              <p className="text-xs text-[#7A726A] font-handwriting">
                 全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携
               </p>
             </div>
@@ -562,7 +576,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleLogout}
-              className="text-[11px] font-bold text-[#CCC4B2] hover:text-white bg-[#3A342F] hover:bg-[#2B2724] px-2.5 py-1.5 rounded-xl border border-[#5A524A] transition flex items-center gap-1"
+              className="text-[11px] font-bold text-[#5A524A] hover:text-[#2E2824] bg-[#FAF8F4] hover:bg-white px-2.5 py-1.5 sketch-tag transition flex items-center gap-1 font-handwriting"
               title="ロックする"
             >
               <Lock className="w-3.5 h-3.5" />
@@ -570,7 +584,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl bg-[#3A342F] hover:bg-[#2B2724] text-[#CCC4B2] hover:text-white border border-[#5A524A] transition"
+              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1165,20 +1179,101 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* ========================================================= */}
           {activeTab === 'firebase' && (
             <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD]">
-                <div className="flex items-center justify-between mb-1.5">
-                  <h4 className="text-xs font-black text-[#3D5447] flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-[#5C7E6B]" />
-                    ドメイン制限保護済み Firebase 常時接続
-                  </h4>
-                  <span className="bg-[#5C7E6B] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    接続稼働中
+              {/* Connection Status Banner with Lamp */}
+              <div
+                className={`p-4 rounded-2xl border transition ${
+                  connectionStatus.isOffline
+                    ? 'bg-[#FFF2EE] border-[#F5A898]'
+                    : 'bg-[#EAF0EC] border-[#C6D8CD]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2.5">
+                    {connectionStatus.isOffline ? (
+                      <span className="relative flex h-3.5 w-3.5 flex-shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.9)] ring-2 ring-red-300"></span>
+                      </span>
+                    ) : (
+                      <span className="relative flex h-3.5 w-3.5 flex-shrink-0">
+                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-600 ring-2 ring-emerald-300"></span>
+                      </span>
+                    )}
+                    <h4
+                      className={`text-xs font-black flex items-center gap-1.5 ${
+                        connectionStatus.isOffline ? 'text-[#9A2214]' : 'text-[#3D5447]'
+                      }`}
+                    >
+                      {connectionStatus.isOffline
+                        ? 'オフラインモード（Firebase未接続 / メモリ上動作中）'
+                        : 'Firebase Firestore 常時接続（オンライン）'}
+                    </h4>
+                  </div>
+
+                  <span
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                      connectionStatus.isOffline
+                        ? 'bg-[#C0392B] text-white'
+                        : 'bg-[#5C7E6B] text-white'
+                    }`}
+                  >
+                    {connectionStatus.isOffline ? 'オフライン' : '接続稼働中'}
                   </span>
                 </div>
-                <p className="text-xs text-[#5C7E6B] leading-relaxed">
-                  接続先プロジェクト: <strong className="font-mono text-[#3D5447]">{fbProjectId || 'gen-lang-client-0027333270'}</strong><br />
-                  Google Cloud コンソールのHTTPリファラー制限により、GitHub Pages（*.github.io）およびAI Studio環境から安全に直接通信されます。
+
+                <p
+                  className={`text-xs leading-relaxed ${
+                    connectionStatus.isOffline ? 'text-[#7D281F]' : 'text-[#5C7E6B]'
+                  }`}
+                >
+                  {connectionStatus.isOffline ? (
+                    <>
+                      現在Firebaseサーバーと通信できていません。ローカルメモリ上で継続動作し、再接続時に自動保存されます。
+                      {connectionStatus.lastError && (
+                        <span className="block mt-1 font-mono text-[11px] text-[#A93226]">
+                          エラー詳細: {connectionStatus.lastError}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      接続先プロジェクト: <strong className="font-mono text-[#3D5447]">{fbProjectId || 'gen-lang-client-0027333270'}</strong><br />
+                      Google Cloud コンソールのHTTPリファラー制限により、GitHub PagesおよびAI Studio環境から安全に直接通信されます。
+                    </>
+                  )}
                 </p>
+
+                <div className="mt-3 pt-2 border-t border-black/5 flex items-center justify-between">
+                  <span className="text-[10px] text-[#7D756D]">
+                    接続状態: {connectionStatus.isConnected ? '接続成功' : '切断中'}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      setIsTestingConnection(true);
+                      const res = await testFirebaseConnection({
+                        apiKey: fbApiKey,
+                        projectId: fbProjectId,
+                        appId: fbAppId,
+                        firestoreDatabaseId: fbDatabaseId,
+                      });
+                      setIsTestingConnection(false);
+                      setFbSyncStatus(
+                        res.success
+                          ? '✅ Firebaseへの接続テストに成功しました！'
+                          : `⚠️ 接続テスト失敗: ${res.error || '通信エラー'}`
+                      );
+                    }}
+                    disabled={isTestingConnection}
+                    className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition disabled:opacity-60 ${
+                      connectionStatus.isOffline
+                        ? 'bg-[#C0392B] hover:bg-[#A93226] text-white'
+                        : 'bg-[#5C7E6B] hover:bg-[#4A6657] text-white'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
+                    <span>{isTestingConnection ? '接続確認中...' : '接続テストを実行'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3 bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">

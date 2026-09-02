@@ -42,24 +42,24 @@ export const TravelModal: React.FC<TravelModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3A342F]/60 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-xl bg-[#FAF8F5] rounded-3xl border border-[#DDD7C8] shadow-[0_8px_30px_rgba(74,68,63,0.15)] overflow-hidden flex flex-col font-['M_PLUS_Rounded_1c',sans-serif]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="bg-[#4A443F] px-6 py-4 border-b border-[#3A342F] flex items-center justify-between text-white">
+        <div className="bg-[#ECE7DC] px-6 py-4 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-[#728C7E] text-white shadow-sm">
+            <div className="p-2 sketch-tag bg-[#3E3833] text-white shadow-sm">
               <Compass className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white">おでかけ先を提案する</h3>
-              <p className="text-xs font-bold text-[#CCC4B2]">
+              <h3 className="text-lg font-bold text-[#2E2824] font-handwriting">おでかけ先を提案する</h3>
+              <p className="text-xs text-[#7A726A] font-handwriting">
                 行き先と移動手段を選んで、けんちこを旅立たせます
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#3A342F] hover:bg-[#2B2724] text-[#CCC4B2] hover:text-white border border-[#5A524A] transition"
+            className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -69,8 +69,8 @@ export const TravelModal: React.FC<TravelModalProps> = ({
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Section 1: Choose Location */}
           <div>
-            <h4 className="text-xs font-black text-[#6B6259] tracking-wider mb-2 flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-[#728C7E]" />
+            <h4 className="text-xs font-bold text-[#7A726A] font-handwriting mb-2 flex items-center gap-1.5">
+              <MapPin className="w-4 h-4 text-[#487560]" />
               1. 行き先を選択
             </h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -81,92 +81,74 @@ export const TravelModal: React.FC<TravelModalProps> = ({
                 return (
                   <button
                     key={id}
-                    onClick={() => !isCurrent && setSelectedLoc(id)}
                     disabled={isCurrent}
-                    className={`p-3 rounded-2xl border transition text-left ${
+                    onClick={() => setSelectedLoc(id)}
+                    className={`p-3 text-left transition flex flex-col justify-between ${
                       isSelected
-                        ? 'bg-[#FAF8F5] border-[#728C7E] ring-2 ring-[#728C7E]/40 shadow-sm'
+                        ? 'bg-[#FFFDF9] sketch-border shadow-sm'
                         : isCurrent
-                        ? 'bg-[#EFECE4]/50 border-[#DDD7C8] opacity-50 cursor-not-allowed'
-                        : 'bg-[#F5F2EA] border-[#DDD7C8] hover:border-[#8C837A]'
+                        ? 'bg-[#EAE6DC]/60 sketch-card-subtle opacity-50 cursor-not-allowed'
+                        : 'bg-[#FAF8F4] sketch-card-subtle hover:bg-white'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-black text-[#3A342F]">{info.name}</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl">{info.bgIcon}</span>
                       {isCurrent && (
-                        <span className="text-[10px] bg-[#DDD7C8] text-[#4A443F] px-1.5 py-0.5 rounded font-bold">
+                        <span className="text-[10px] bg-[#3E3833] text-white px-1.5 py-0.5 rounded font-handwriting">
                           現在地
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-[#7D756D] line-clamp-2">{info.description}</p>
+                    <div className="mt-2">
+                      <p className="text-xs font-bold text-[#2E2824] font-handwriting">{info.name}</p>
+                      <p className="text-[10px] text-[#7A726A] line-clamp-1">{info.description}</p>
+                    </div>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Section 2: Choose Transport Method */}
+          {/* Section 2: Choose Transport */}
           <div>
-            <h4 className="text-xs font-black text-[#6B6259] tracking-wider mb-2 flex items-center gap-1.5">
-              <Compass className="w-4 h-4 text-[#728C7E]" />
-              2. 移動手段を選択（所要時間：5〜10分）
+            <h4 className="text-xs font-bold text-[#7A726A] font-handwriting mb-2 flex items-center gap-1.5">
+              <Footprints className="w-4 h-4 text-[#3C5C7A]" />
+              2. 移動手段を選択
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {TRANSPORT_METHODS.map((t) => {
                 const isSelected = selectedTransport === t.id;
-
                 return (
                   <button
                     key={t.id}
                     onClick={() => setSelectedTransport(t.id)}
-                    className={`p-3 rounded-2xl border transition text-left flex items-start gap-3 ${
+                    className={`p-3 text-left transition flex items-center gap-2.5 ${
                       isSelected
-                        ? 'bg-[#FAF8F5] border-[#728C7E] ring-2 ring-[#728C7E]/40 shadow-sm'
-                        : 'bg-[#F5F2EA] border-[#DDD7C8] hover:border-[#8C837A]'
+                        ? 'bg-[#FFFDF9] sketch-border shadow-sm'
+                        : 'bg-[#FAF8F4] sketch-card-subtle hover:bg-white'
                     }`}
                   >
-                    <div className="p-2 rounded-xl bg-[#EAF0EC] text-[#3D5447] border border-[#C6D8CD] shrink-0">
+                    <div className={`p-2 sketch-tag ${isSelected ? 'bg-[#3E3833] text-white' : 'bg-[#EAE6DC] text-[#3E3833]'}`}>
                       {getTransportIcon(t.id)}
                     </div>
                     <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-[#3A342F]">{t.name}</span>
-                        <span className="text-[10px] font-mono font-bold text-[#5C7E6B]">
-                          {t.speedMultiplier}x 速い
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-[#7D756D] mt-0.5">{t.description}</p>
+                      <p className="text-xs font-bold text-[#2E2824] font-handwriting">{t.name}</p>
+                      <p className="text-[10px] text-[#7A726A]">{t.speedMultiplier}x スピード</p>
                     </div>
                   </button>
                 );
               })}
             </div>
           </div>
-        </div>
 
-        {/* Footer Actions */}
-        <div className="bg-[#EFECE4] px-6 py-4 border-t border-[#DDD7C8] flex items-center justify-between">
-          <div className="text-xs font-bold text-[#7D756D]">
-            目的地: <span className="text-[#3A342F] font-black">{LOCATIONS[selectedLoc]?.name}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-[#FAF8F5] hover:bg-white text-[#6B6259] font-bold text-xs rounded-xl border border-[#DDD7C8] transition"
-            >
-              キャンセル
-            </button>
-
-            <button
-              onClick={handleGo}
-              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl font-black text-xs bg-[#728C7E] hover:bg-[#5E786A] text-white shadow-sm transition active:translate-y-0.5"
-            >
-              <Compass className="w-4 h-4" />
-              <span>しゅっぱつ！</span>
-            </button>
-          </div>
+          {/* Action Button */}
+          <button
+            onClick={handleGo}
+            className="w-full py-3 bg-[#3E3833] hover:bg-[#2E2824] text-white text-sm font-bold sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting flex items-center justify-center gap-2"
+          >
+            <Compass className="w-4 h-4 text-white" />
+            <span>{LOCATIONS[selectedLoc]?.name || 'そこ'} へ出発する！</span>
+          </button>
         </div>
       </div>
     </div>

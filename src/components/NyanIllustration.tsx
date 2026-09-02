@@ -1,24 +1,27 @@
 import React from 'react';
 import { NyanCharacter } from '../types';
+import { getNyanComposition } from '../utils/nyanAssetComposer';
 
 interface NyanIllustrationProps {
   nyan: NyanCharacter;
   size?: number;
   className?: string;
   isDiscovered?: boolean;
+  showCaption?: boolean;
 }
 
 export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
   nyan,
-  size = 120,
+  size = 130,
   className = '',
   isDiscovered = true,
+  showCaption = false,
 }) => {
-  // If user provided custom image (via prompt generation / upload)
+  // If user uploaded custom external image
   if (nyan.customImageUrl && isDiscovered) {
     return (
       <div
-        className={`relative inline-flex items-center justify-center rounded-2xl overflow-hidden border-2 border-stone-800 bg-white shadow-sm ${className}`}
+        className={`relative inline-flex items-center justify-center rounded-2xl overflow-hidden border border-[#2E2824] bg-[#FAF8F4] shadow-sm ${className}`}
         style={{ width: size, height: size }}
       >
         <img
@@ -31,263 +34,361 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
     );
   }
 
-  // If undiscovered, render mystery silhouette
+  // Undiscovered Silhouette (Hand-drawn question mark outline on paper)
   if (!isDiscovered) {
     return (
       <div
-        className={`relative inline-flex items-center justify-center rounded-2xl border-2 border-dashed border-stone-400 bg-stone-100 ${className}`}
+        className={`relative inline-flex flex-col items-center justify-center p-2 rounded-2xl border-2 border-dashed border-[#C4BCAB] bg-[#EFECE4] ${className}`}
         style={{ width: size, height: size }}
       >
         <svg
           viewBox="0 0 100 100"
-          className="w-3/4 h-3/4 opacity-30 drop-shadow-sm"
-          fill="#525252"
+          className="w-3/4 h-3/4 opacity-30"
+          fill="#3E3833"
+          style={{ filter: 'url(#pencil-jitter)' }}
         >
-          {/* Cat silhouette */}
           <path d="M25 80 L25 45 L35 25 L45 42 Q50 40 55 40 Q60 40 65 42 L75 25 L85 45 L85 80 Q55 85 25 80 Z" />
-          <circle cx="85" cy="75" r="10" />
+          <circle cx="85" cy="75" r="8" />
         </svg>
-        <span className="absolute font-bold text-stone-500 text-lg">?</span>
+        <span className="font-bold text-[#8A8177] text-sm mt-1">未発見</span>
       </div>
     );
   }
 
-  // Minimalist Pen-line Art SVG illustration generator
-  const no = nyan.no;
+  // Dynamic modular parts composition
+  const config = getNyanComposition(nyan);
+  const { coat, pose, headProp, handProp, soundEffect } = config;
+
+  // Coat color mappings in soft pencil & watercolor aesthetic
+  const coatFills: Record<string, { body: string; patch?: string }> = {
+    white: { body: '#FFFDF9' },
+    black: { body: '#3A3430', patch: '#2E2824' },
+    gray: { body: '#D8D4CC', patch: '#BDB7AB' },
+    calico: { body: '#FFFDF9', patch: '#D97543' },
+    tabby: { body: '#E8CEAA', patch: '#9A5B32' },
+    tuxedo: { body: '#3A3430', patch: '#FFFDF9' },
+  };
+
+  const currentCoat = coatFills[coat] || coatFills.white;
 
   return (
     <div
-      className={`relative inline-flex items-center justify-center select-none ${className}`}
-      style={{ width: size, height: size }}
+      className={`relative inline-flex flex-col items-center justify-center select-none ${className}`}
+      style={{ width: size }}
     >
-      <svg
-        viewBox="0 0 120 120"
-        className="w-full h-full overflow-visible"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Soft shadow */}
-        <ellipse cx="60" cy="108" rx="28" ry="5" fill="#e7e5e4" />
-
-        {/* Cat Tail */}
-        <path
-          d={no === 87 ? "M85 80 L95 65 L88 60 L102 45" : "M85 85 Q105 80 100 65 Q95 55 90 60"}
-          stroke={no === 87 ? "#eab308" : "#262626"}
-          strokeWidth={no === 87 ? "4" : "3.5"}
-          strokeLinecap="round"
+      <div className="relative w-full aspect-square flex items-center justify-center">
+        <svg
+          viewBox="0 0 140 140"
+          className="w-full h-full overflow-visible"
           fill="none"
-        />
-
-        {/* Tail Tag for Michiko-nyan (#53) */}
-        {no === 53 && (
-          <circle cx="98" cy="60" r="4.5" fill="#f43f5e" stroke="#262626" strokeWidth="1.5" />
-        )}
-
-        {/* Cat Body */}
-        <path
-          d="M32 95 Q28 65 40 60 Q50 56 70 56 Q82 65 78 95 Q55 102 32 95 Z"
-          fill={no === 9 ? '#eff6ff' : no === 57 ? '#bae6fd' : no === 87 || no === 88 ? '#374151' : '#ffffff'}
-          stroke="#262626"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-
-        {/* Cat Paws Bottom */}
-        <ellipse cx="44" cy="98" rx="6" ry="3.5" fill="#ffffff" stroke="#262626" strokeWidth="2.5" />
-        <ellipse cx="66" cy="98" rx="6" ry="3.5" fill="#ffffff" stroke="#262626" strokeWidth="2.5" />
-
-        {/* Head */}
-        <ellipse
-          cx="60"
-          cy="48"
-          rx="26"
-          ry="23"
-          fill={no === 9 ? '#eff6ff' : no === 57 ? '#bae6fd' : no === 87 || no === 88 ? '#374151' : '#ffffff'}
-          stroke="#262626"
-          strokeWidth="3.5"
-        />
-
-        {/* Ears */}
-        <path
-          d="M38 36 L30 18 L48 27 Z"
-          fill={no === 87 || no === 88 ? '#374151' : '#ffffff'}
-          stroke="#262626"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M82 36 L90 18 L72 27 Z"
-          fill={no === 87 || no === 88 ? '#374151' : '#ffffff'}
-          stroke="#262626"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-
-        {/* Inner ear lines */}
-        <path d="M36 28 L34 22 L42 27" stroke="#f472b6" strokeWidth="2" strokeLinecap="round" />
-        <path d="M84 28 L86 22 L78 27" stroke="#f472b6" strokeWidth="2" strokeLinecap="round" />
-
-        {/* Deadpan Dot Eyes */}
-        <circle cx="51" cy="46" r="2.8" fill={no === 87 || no === 88 ? '#ffffff' : '#262626'} />
-        <circle cx="69" cy="46" r="2.8" fill={no === 87 || no === 88 ? '#ffffff' : '#262626'} />
-
-        {/* Nose & Mouth (Cat stoic dot or inverted Y) */}
-        <circle cx="60" cy="51" r="1.5" fill="#f43f5e" />
-        <path d="M57 55 Q60 57 63 55" stroke="#262626" strokeWidth="2" strokeLinecap="round" />
-
-        {/* Whiskers */}
-        <path d="M35 48 L22 47 M35 52 L23 54" stroke="#262626" strokeWidth="2" strokeLinecap="round" />
-        <path d="M85 48 L98 47 M85 52 L97 54" stroke="#262626" strokeWidth="2" strokeLinecap="round" />
-
-        {/* Distinctive Accessories based on No. */}
-        {/* #1 Hebi-nyan: BBQ tongs */}
-        {no === 1 && (
-          <g>
-            <path d="M72 75 L88 68 L86 64 M88 68 L84 72" stroke="#737373" strokeWidth="3" strokeLinecap="round" />
-            <ellipse cx="90" cy="67" rx="3" ry="2" fill="#ef4444" />
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ filter: 'url(#pencil-jitter)' }}
+        >
+          {/* Ground Shadow - Organic Pencil Hatch Lines (Identical to reference drawing) */}
+          <g opacity="0.75">
+            <ellipse cx="70" cy="116" rx="38" ry="6" fill="#E2DDD5" />
+            <line x1="38" y1="116" x2="102" y2="116" stroke="#2E2824" strokeWidth="1.3" strokeLinecap="round" />
+            <line x1="48" y1="119" x2="92" y2="119" stroke="#2E2824" strokeWidth="0.9" strokeLinecap="round" />
+            <line x1="56" y1="121" x2="84" y2="121" stroke="#2E2824" strokeWidth="0.6" strokeLinecap="round" />
           </g>
-        )}
 
-        {/* #2 Kyoto Tachibana-nyan: Orange uniform */}
-        {no === 2 && (
-          <g>
-            <path d="M40 65 L70 65 L68 85 L42 85 Z" fill="#f97316" stroke="#262626" strokeWidth="2" />
-            <path d="M68 70 L82 65 L84 60" stroke="#eab308" strokeWidth="3" strokeLinecap="round" />
-          </g>
-        )}
+          {/* BACKGROUND PROPS (Behind Cat Body) */}
+          {/* Sound / Onomatopoeia Text (Handwritten sketchy font) */}
+          {soundEffect && (
+            <text
+              x={pose === 'typing' ? '92' : '98'}
+              y="42"
+              fontSize="11"
+              fontWeight="bold"
+              fill="#5A524A"
+              className="font-handwriting select-none"
+              letterSpacing="1"
+            >
+              {soundEffect}
+            </text>
+          )}
 
-        {/* #4 Oden-nyan: Triangular Hanpen on head */}
-        {no === 4 && (
-          <polygon
-            points="60,12 46,28 74,28"
-            fill="#fff"
-            stroke="#262626"
-            strokeWidth="3"
+          {/* TAIL */}
+          {pose === 'sleeping' ? (
+            <path d="M96 102 Q108 98 104 88 Q100 82 92 86" stroke="#2E2824" strokeWidth="2.8" strokeLinecap="round" fill="none" />
+          ) : (
+            <path
+              d="M92 92 Q116 84 110 66 Q104 54 96 60"
+              stroke="#2E2824"
+              strokeWidth="2.8"
+              strokeLinecap="round"
+              fill="none"
+            />
+          )}
+
+          {/* MAIN CAT BODY (Hand-drawn organic curve) */}
+          {pose === 'sleeping' ? (
+            // Loaf / Sleeping curled body
+            <path
+              d="M34 110 C28 88 50 78 76 78 C102 78 114 88 108 110 C96 116 46 116 34 110 Z"
+              fill={currentCoat.body}
+              stroke="#2E2824"
+              strokeWidth="2.8"
+              strokeLinejoin="round"
+            />
+          ) : (
+            // Sitting / Typing plump cat body
+            <path
+              d="M42 104 C34 72 48 66 70 66 C92 66 100 76 96 104 C88 112 52 112 42 104 Z"
+              fill={currentCoat.body}
+              stroke="#2E2824"
+              strokeWidth="2.8"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Coat Patterns (Calico / Tabby / Tuxedo markings) */}
+          {coat === 'calico' && (
+            <path d="M78 68 C88 74 94 88 90 98 C84 92 80 80 78 68 Z" fill="#D97543" opacity="0.85" />
+          )}
+          {coat === 'tabby' && (
+            <g opacity="0.6">
+              <path d="M48 76 Q56 78 52 86 M86 76 Q80 78 84 86" stroke="#8C4E28" strokeWidth="2" strokeLinecap="round" />
+            </g>
+          )}
+          {coat === 'tuxedo' && (
+            <path d="M62 68 L70 88 L78 68 Z" fill="#FFFDF9" stroke="#2E2824" strokeWidth="1.5" />
+          )}
+
+          {/* FRONT PAWS / LEGS */}
+          {pose === 'typing' ? (
+            <g>
+              {/* Typing Paws over Keyboard */}
+              <path d="M52 82 Q46 88 50 94 Q54 96 57 90" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+              <path d="M64 82 Q60 88 64 94 Q68 96 71 90" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+            </g>
+          ) : pose === 'standing' ? (
+            <g>
+              <ellipse cx="54" cy="108" rx="6" ry="4" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+              <ellipse cx="78" cy="108" rx="6" ry="4" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+            </g>
+          ) : (
+            <g>
+              {/* Cute resting paws */}
+              <ellipse cx="54" cy="105" rx="6" ry="4" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+              <ellipse cx="78" cy="105" rx="6" ry="4" fill={currentCoat.body} stroke="#2E2824" strokeWidth="2.4" />
+            </g>
+          )}
+
+          {/* CAT HEAD (Round Hand-Drawn Contour) */}
+          <ellipse
+            cx="68"
+            cy="50"
+            rx="27"
+            ry="24"
+            fill={currentCoat.body}
+            stroke="#2E2824"
+            strokeWidth="2.8"
+          />
+
+          {/* Calico / Tabby head patch */}
+          {coat === 'calico' && (
+            <path d="M44 38 L38 22 L54 30 Z" fill="#D97543" opacity="0.85" />
+          )}
+
+          {/* EARS */}
+          {/* Left Ear */}
+          <path
+            d="M46 40 L38 20 L56 28 Z"
+            fill={currentCoat.body}
+            stroke="#2E2824"
+            strokeWidth="2.8"
             strokeLinejoin="round"
           />
-        )}
+          {/* Right Ear */}
+          <path
+            d="M90 40 L98 20 L80 28 Z"
+            fill={currentCoat.body}
+            stroke="#2E2824"
+            strokeWidth="2.8"
+            strokeLinejoin="round"
+          />
 
-        {/* #5 Snow-nyan / Pino-nyan: Holding Pino box */}
-        {no === 5 && (
-          <g>
-            <rect x="48" y="65" width="24" height="15" rx="3" fill="#dc2626" stroke="#262626" strokeWidth="2" />
-            <text x="51" y="76" fontSize="7" fontWeight="bold" fill="#ffffff" fontFamily="sans-serif">
-              pino
-            </text>
-          </g>
-        )}
+          {/* Inner Ear Pencil Lines */}
+          <path d="M44 32 L42 25 L48 30" stroke="#D49B95" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M92 32 L94 25 L88 30" stroke="#D49B95" strokeWidth="1.8" strokeLinecap="round" />
 
-        {/* #6 Influ-nyan: Cooling patch & thermometer */}
-        {no === 6 && (
-          <g>
-            <rect x="48" y="32" width="24" height="8" rx="2" fill="#67e8f9" stroke="#262626" strokeWidth="1.5" />
-            <line x1="58" y1="53" x2="44" y2="58" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />
-          </g>
-        )}
+          {/* HEAD PROPS (Antenna, Hanpen, Glasses, Ribbon, etc.) */}
+          {/* 1. Antenna with Red Light (AI-Nyan exact replica) */}
+          {headProp === 'antenna' && (
+            <g>
+              <line x1="68" y1="26" x2="68" y2="13" stroke="#2E2824" strokeWidth="2.4" strokeLinecap="round" />
+              <circle cx="68" cy="11" r="3.8" fill="#E85D54" stroke="#2E2824" strokeWidth="2" />
+              {/* Radio Wave Radiance */}
+              <path d="M61 7 Q64 4 66 7" stroke="#7A726A" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M70 7 Q72 4 75 7" stroke="#7A726A" strokeWidth="1.3" strokeLinecap="round" />
+              <line x1="68" y1="5" x2="68" y2="2" stroke="#7A726A" strokeWidth="1.3" strokeLinecap="round" />
+            </g>
+          )}
 
-        {/* #7 Yataizushi-nyan: Tuna sushi & headband */}
-        {no === 7 && (
-          <g>
-            <line x1="38" y1="36" x2="82" y2="36" stroke="#262626" strokeWidth="3" strokeLinecap="round" />
-            <ellipse cx="60" cy="74" rx="14" ry="7" fill="#ef4444" stroke="#262626" strokeWidth="2" />
-            <rect x="56" y="70" width="8" height="8" fill="#262626" />
-          </g>
-        )}
+          {/* 2. Triangular Hanpen (Oden-nyan) */}
+          {headProp === 'hanpen' && (
+            <polygon
+              points="68,8 52,26 84,26"
+              fill="#FFFDF9"
+              stroke="#2E2824"
+              strokeWidth="2.6"
+              strokeLinejoin="round"
+            />
+          )}
 
-        {/* #9 Kanpa-nyan: Oversized blue scarf */}
-        {no === 9 && (
-          <g>
-            <rect x="36" y="56" width="48" height="12" rx="6" fill="#38bdf8" stroke="#262626" strokeWidth="2.5" />
-            <path d="M68 64 L74 84 L64 84 Z" fill="#38bdf8" stroke="#262626" strokeWidth="2" />
-          </g>
-        )}
+          {/* 3. Headband (Chef / Sushi / Ramen) */}
+          {headProp === 'headband' && (
+            <g>
+              <path d="M44 38 Q68 34 92 38" stroke="#2E2824" strokeWidth="3.2" strokeLinecap="round" />
+              <circle cx="94" cy="38" r="3" fill="#D9433B" />
+            </g>
+          )}
 
-        {/* #17 Kenchiki-nyan: Fried chicken bucket hat */}
-        {no === 17 && (
-          <g>
-            <path d="M46 26 L74 26 L70 12 L50 12 Z" fill="#dc2626" stroke="#262626" strokeWidth="2.5" />
-            <line x1="56" y1="12" x2="56" y2="26" stroke="#fff" strokeWidth="3" />
-            <ellipse cx="78" cy="68" rx="6" ry="4" fill="#d97706" stroke="#262626" strokeWidth="1.5" />
-          </g>
-        )}
+          {/* 4. Glasses (JINS-nyan) */}
+          {headProp === 'glasses' && (
+            <g>
+              <circle cx="56" cy="46" r="7.5" fill="none" stroke="#2E2824" strokeWidth="2.4" />
+              <circle cx="78" cy="46" r="7.5" fill="none" stroke="#2E2824" strokeWidth="2.4" />
+              <line x1="63.5" y1="46" x2="70.5" y2="46" stroke="#2E2824" strokeWidth="2.4" />
+            </g>
+          )}
 
-        {/* #22 Shinkansen-nyan: Train Hat */}
-        {no === 22 && (
-          <g>
-            <rect x="42" y="10" width="36" height="18" rx="4" fill="#ffffff" stroke="#262626" strokeWidth="2.5" />
-            <line x1="42" y1="20" x2="78" y2="20" stroke="#2563eb" strokeWidth="3" />
-            <circle cx="78" cy="72" r="5" fill="#f59e0b" stroke="#262626" strokeWidth="1.5" />
-          </g>
-        )}
+          {/* 5. Ribbon */}
+          {headProp === 'ribbon' && (
+            <g transform="translate(82, 28)">
+              <circle cx="0" cy="0" r="3" fill="#E86E84" stroke="#2E2824" strokeWidth="1.8" />
+              <ellipse cx="-5" cy="-2" rx="4" ry="2.5" fill="#E86E84" stroke="#2E2824" strokeWidth="1.8" />
+              <ellipse cx="5" cy="2" rx="4" ry="2.5" fill="#E86E84" stroke="#2E2824" strokeWidth="1.8" />
+            </g>
+          )}
 
-        {/* #47 Jins-nyan: Big Black Glasses */}
-        {no === 47 && (
-          <g>
-            <circle cx="49" cy="46" r="8" fill="none" stroke="#262626" strokeWidth="2.5" />
-            <circle cx="71" cy="46" r="8" fill="none" stroke="#262626" strokeWidth="2.5" />
-            <line x1="57" y1="46" x2="63" y2="46" stroke="#262626" strokeWidth="2.5" />
-          </g>
-        )}
+          {/* 6. Scarf (Kanpa-nyan) */}
+          {headProp === 'scarf' && (
+            <g>
+              <path d="M44 60 Q68 64 90 60" stroke="#68A5C7" strokeWidth="7" strokeLinecap="round" />
+              <path d="M44 60 Q68 64 90 60" stroke="#2E2824" strokeWidth="2.2" fill="none" />
+              <path d="M78 62 L84 78 L74 78 Z" fill="#68A5C7" stroke="#2E2824" strokeWidth="1.8" />
+            </g>
+          )}
 
-        {/* #53 Michiko-nyan: Reading Glasses & Tags */}
-        {no === 53 && (
-          <g>
-            <circle cx="49" cy="47" r="6" fill="none" stroke="#b45309" strokeWidth="2" />
-            <circle cx="71" cy="47" r="6" fill="none" stroke="#b45309" strokeWidth="2" />
-            <line x1="55" y1="47" x2="65" y2="47" stroke="#b45309" strokeWidth="2" />
-            {/* Tag on neck */}
-            <circle cx="60" cy="65" r="4.5" fill="#10b981" stroke="#262626" strokeWidth="1.5" />
-          </g>
-        )}
+          {/* EYES - Iconic Deadpan Half-Open Slit / Flat-Top Eyes */}
+          {pose === 'sleeping' ? (
+            // Curved sleeping eyes
+            <g>
+              <path d="M52 48 Q56 53 60 48" stroke="#2E2824" strokeWidth="2.4" strokeLinecap="round" />
+              <path d="M74 48 Q78 53 82 48" stroke="#2E2824" strokeWidth="2.4" strokeLinecap="round" />
+            </g>
+          ) : (
+            <g>
+              {/* Left Eye: Flat top eyebrow + half square pupil */}
+              <line x1="52" y1="46" x2="62" y2="46" stroke="#2E2824" strokeWidth="2.6" strokeLinecap="round" />
+              <path d="M54 47 C54 51 60 51 60 47" fill="#2E2824" stroke="#2E2824" strokeWidth="1.2" />
 
-        {/* #67 Jinbei-nyan: Jinbei Pattern */}
-        {no === 67 && (
-          <g>
-            <path d="M38 62 L82 62 L78 90 L42 90 Z" fill="#1e3a8a" stroke="#262626" strokeWidth="2.5" />
-            <path d="M50 62 L60 76 L70 62" stroke="#ffffff" strokeWidth="2" />
-            {/* Uchiwa fan */}
-            <ellipse cx="84" cy="72" rx="9" ry="8" fill="#fef08a" stroke="#262626" strokeWidth="2" />
-            <line x1="84" y1="80" x2="84" y2="92" stroke="#262626" strokeWidth="2" />
-          </g>
-        )}
+              {/* Right Eye: Flat top eyebrow + half square pupil */}
+              <line x1="73" y1="46" x2="83" y2="46" stroke="#2E2824" strokeWidth="2.6" strokeLinecap="round" />
+              <path d="M75 47 C75 51 81 51 81 47" fill="#2E2824" stroke="#2E2824" strokeWidth="1.2" />
+            </g>
+          )}
 
-        {/* #78 Mario-nyan: Red Cap */}
-        {no === 78 && (
-          <g>
-            <path d="M40 28 Q60 14 80 28 Q84 32 60 32 Q36 32 40 28 Z" fill="#ef4444" stroke="#262626" strokeWidth="2.5" />
-            <circle cx="60" cy="24" r="4" fill="#ffffff" />
-            <text x="58" y="27" fontSize="5" fontWeight="bold" fill="#ef4444">M</text>
-          </g>
-        )}
+          {/* MOUTH - Iconic Inverted 'T' Stoic Cat Expression */}
+          <path d="M68 51 L68 57 M63 57 L73 57" stroke="#2E2824" strokeWidth="2.4" strokeLinecap="round" />
 
-        {/* #86 AI-nyan: Antenna & Laptop */}
-        {no === 86 && (
-          <g>
-            <line x1="60" y1="26" x2="60" y2="12" stroke="#262626" strokeWidth="2.5" />
-            <circle cx="60" cy="10" r="3" fill="#3b82f6" stroke="#262626" strokeWidth="1.5" />
-            <rect x="48" y="68" width="24" height="14" rx="2" fill="#94a3b8" stroke="#262626" strokeWidth="2" />
-          </g>
-        )}
+          {/* WHISKERS - Delicate Pencil Strokes */}
+          <path d="M42 50 L28 49 M42 56 L30 58" stroke="#2E2824" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M94 50 L108 49 M94 56 L106 58" stroke="#2E2824" strokeWidth="1.8" strokeLinecap="round" />
 
-        {/* #87 Kaminari-nyan: Little Lightning Horn & Sparks */}
-        {no === 87 && (
-          <g>
-            <polygon points="60,14 55,26 65,26" fill="#eab308" stroke="#262626" strokeWidth="2" />
-            <path d="M25 40 L28 44 L24 46 L30 52" stroke="#eab308" strokeWidth="2" strokeLinecap="round" />
-            <path d="M95 40 L92 44 L96 46 L90 52" stroke="#eab308" strokeWidth="2" strokeLinecap="round" />
-          </g>
-        )}
+          {/* HAND / FOREGROUND PROPS */}
+          {/* 1. Laptop with "カタカタ" (AI-Nyan) */}
+          {handProp === 'laptop' && (
+            <g transform="translate(20, 72)">
+              {/* Keyboard base */}
+              <polygon points="14,38 52,38 44,24 8,24" fill="#FAF8F5" stroke="#2E2824" strokeWidth="2.4" strokeLinejoin="round" />
+              {/* Keyboard Grid */}
+              <line x1="14" y1="28" x2="46" y2="28" stroke="#2E2824" strokeWidth="1.2" />
+              <line x1="17" y1="33" x2="49" y2="33" stroke="#2E2824" strokeWidth="1.2" />
+              <line x1="22" y1="24" x2="25" y2="38" stroke="#2E2824" strokeWidth="1" />
+              <line x1="32" y1="24" x2="35" y2="38" stroke="#2E2824" strokeWidth="1" />
+              
+              {/* Screen tilted */}
+              <polygon points="8,24 2,0 30,-4 36,20" fill="#FFFDF9" stroke="#2E2824" strokeWidth="2.4" strokeLinejoin="round" />
+              {/* Glowing Logo & Code lines */}
+              <ellipse cx="16" cy="8" rx="4" ry="3.5" fill="#EAF5EC" stroke="#488A58" strokeWidth="1.3" />
+              <path d="M6 2 L22 -1" stroke="#488A58" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M6 14 L20 12" stroke="#488A58" strokeWidth="1.3" strokeLinecap="round" />
 
-        {/* #88 Homura-nyan: Parfait & Spoon */}
-        {no === 88 && (
-          <g>
-            <path d="M26 60 Q18 55 24 48 Q32 54 28 62" fill="#18181b" stroke="#262626" strokeWidth="1.5" />
-            <path d="M94 60 Q102 55 96 48 Q88 54 92 62" fill="#18181b" stroke="#262626" strokeWidth="1.5" />
-            <ellipse cx="60" cy="74" rx="10" ry="6" fill="#ec4899" stroke="#262626" strokeWidth="1.5" />
-            <line x1="72" y1="68" x2="80" y2="60" stroke="#71717a" strokeWidth="2" strokeLinecap="round" />
-          </g>
-        )}
-      </svg>
+              {/* Typing Sound "カタカタ" (Exact match to reference) */}
+              <text x="36" y="7" fontSize="10" fontWeight="900" fill="#3E3833" className="font-handwriting select-none">
+                カタ
+              </text>
+              <text x="46" y="18" fontSize="10" fontWeight="900" fill="#3E3833" className="font-handwriting select-none">
+                カタ
+              </text>
+            </g>
+          )}
+
+          {/* 2. Pino Ice Cream Box */}
+          {handProp === 'pino_box' && (
+            <g transform="translate(54, 82)">
+              <rect x="0" y="0" width="28" height="18" rx="3" fill="#D9433B" stroke="#2E2824" strokeWidth="2.2" />
+              <text x="4" y="12" fontSize="8" fontWeight="bold" fill="#ffffff" fontFamily="sans-serif">
+                pino
+              </text>
+            </g>
+          )}
+
+          {/* 3. Sushi Plate */}
+          {handProp === 'sushi_plate' && (
+            <g transform="translate(50, 88)">
+              <ellipse cx="18" cy="12" rx="18" ry="7" fill="#F4F1EA" stroke="#2E2824" strokeWidth="2.2" />
+              <ellipse cx="18" cy="9" rx="11" ry="5" fill="#D9433B" stroke="#2E2824" strokeWidth="1.8" />
+              <rect x="14" y="5" width="8" height="8" fill="#2E2824" />
+            </g>
+          )}
+
+          {/* 4. Coffee Mug */}
+          {handProp === 'coffee' && (
+            <g transform="translate(74, 84)">
+              <rect x="0" y="0" width="14" height="16" rx="3" fill="#FFFDF9" stroke="#2E2824" strokeWidth="2" />
+              <path d="M14 4 Q20 8 14 12" stroke="#2E2824" strokeWidth="1.8" fill="none" />
+              <path d="M5 -4 Q7 -8 9 -4" stroke="#7A726A" strokeWidth="1.2" strokeLinecap="round" />
+            </g>
+          )}
+
+          {/* 5. Beer Mug */}
+          {handProp === 'beer' && (
+            <g transform="translate(72, 80)">
+              <rect x="0" y="6" width="16" height="20" rx="3" fill="#F2C044" stroke="#2E2824" strokeWidth="2.2" />
+              <rect x="0" y="0" width="16" height="8" rx="4" fill="#FFFFFF" stroke="#2E2824" strokeWidth="2" />
+              <path d="M16 8 Q22 14 16 20" stroke="#2E2824" strokeWidth="2" fill="none" />
+            </g>
+          )}
+
+          {/* 6. Ramen Bowl */}
+          {handProp === 'ramen' && (
+            <g transform="translate(50, 82)">
+              <path d="M4 8 Q18 24 32 8 Z" fill="#D9534F" stroke="#2E2824" strokeWidth="2.2" />
+              <ellipse cx="18" cy="8" rx="14" ry="5" fill="#FFF2D6" stroke="#2E2824" strokeWidth="1.8" />
+              <line x1="22" y1="2" x2="36" y2="-4" stroke="#8C4E28" strokeWidth="1.8" strokeLinecap="round" />
+            </g>
+          )}
+
+          {/* 7. Book */}
+          {handProp === 'book' && (
+            <g transform="translate(56, 86)">
+              <polygon points="0,4 12,0 24,4 24,18 12,14 0,18" fill="#5C8299" stroke="#2E2824" strokeWidth="2.2" />
+              <line x1="12" y1="0" x2="12" y2="14" stroke="#2E2824" strokeWidth="1.8" />
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {/* Hand-drawn hiragana caption (like "えーあいにゃん" in reference) */}
+      {showCaption && (
+        <p className="mt-1 text-center font-handwriting text-sm font-bold text-[#3E3833] tracking-wider select-none">
+          {nyan.name}
+        </p>
+      )}
     </div>
   );
 };

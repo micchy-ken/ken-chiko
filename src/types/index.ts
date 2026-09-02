@@ -60,6 +60,7 @@ export interface KenchikoState {
   activityStartedAt: number; // timestamp in ms
   activityDurationSec: number; // duration in simulated seconds
   currentCompanionNyanId: number | null;
+  customImageUrl?: string;
   mood: 'happy' | 'sleepy' | 'hungry' | 'chill' | 'excited' | 'zapped';
   stamina: number; // 0 - 100
   hunger: number; // 0 - 100

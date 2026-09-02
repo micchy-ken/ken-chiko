@@ -25,6 +25,10 @@ import {
   purgeLocalData,
   setQuotaStatusCallback,
   getIsQuotaExhausted,
+  getFirebaseConnectionStatus,
+  subscribeFirebaseConnectionStatus,
+  testFirebaseConnection,
+  FirebaseConnectionStatus,
 } from './services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -40,23 +44,16 @@ import { GiftItemModal } from './components/GiftItemModal';
 import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
 import { DataSyncModal } from './components/DataSyncModal';
+import { PencilSketchFilters } from './utils/pencilFilters';
 
 import {
   Eye,
   BookOpen,
   Gift,
   BookMarked,
-  Database,
-  Heart,
-  Zap,
-  Coffee,
-  Sparkles,
-  FastForward,
-  Play,
-  Cloud,
-  CheckCircle2,
-  AlertTriangle,
+  Settings,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -66,6 +63,8 @@ export default function App() {
   const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(true);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState<boolean>(false);
   const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
+  const [connectionStatus, setConnectionStatus] = useState<FirebaseConnectionStatus>(getFirebaseConnectionStatus());
+  const [isRetryingConnection, setIsRetryingConnection] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'stage' | 'zukan' | 'inventory' | 'diary' | 'sync'>('stage');
 
   // Time & Simulation Controls
@@ -88,6 +87,10 @@ export default function App() {
 
     setQuotaStatusCallback((exhausted) => {
       setIsQuotaLimited(exhausted);
+    });
+
+    const unsubStatus = subscribeFirebaseConnectionStatus((status) => {
+      setConnectionStatus(status);
     });
 
     let isMounted = true;
@@ -130,6 +133,7 @@ export default function App() {
     return () => {
       isMounted = false;
       unsub();
+      unsubStatus();
     };
   }, []);
 
@@ -588,6 +592,22 @@ export default function App() {
     });
   };
 
+  // User Actions: Update Kenchiko custom image
+  const handleUpdateKenchikoImage = (imageUrl: string) => {
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...prev.kenchiko,
+          customImageUrl: imageUrl ? imageUrl : undefined,
+        },
+      };
+      syncSaveDataToFirebase(nextData).catch(() => {});
+      return nextData;
+    });
+  };
+
   // User Actions: Take Picture Snapshot for Diary
   const handleTakeSnapshot = () => {
     const locInfo = LOCATIONS[saveData.kenchiko.currentLocation] || LOCATIONS.living;
@@ -646,155 +666,135 @@ export default function App() {
   const totalCharacters = saveData.characters.length;
 
   return (
-    <div className="min-h-screen bg-[#F5F2EA] text-[#4A443F] flex flex-col font-['M_PLUS_Rounded_1c',sans-serif]">
-      {/* Top Navbar */}
-      <header className="bg-[#FAF8F5] border-b border-[#DDD7C8] sticky top-0 z-30 shadow-[0_1px_4px_rgba(74,68,63,0.05)]">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* Logo & Title */}
-          <div className="flex items-center gap-3">
-            <KenchikoAvatar size={42} className="shadow-sm" />
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-black tracking-tight text-[#3A342F]">
-                  けんちこワールド
-                </h1>
-                {isQuotaLimited ? (
-                  <span className="bg-[#FFF4E5] text-[#9A5B18] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#FADBB5] flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 text-[#D9825B]" />
-                    メモリ動作中（クラウド上限到達）
-                  </span>
-                ) : (
-                  <span className="bg-[#EAF0EC] text-[#3D5447] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#C6D8CD] flex items-center gap-1">
-                    <Cloud className="w-3 h-3 text-[#5C7E6B]" />
-                    クラウド常時同期
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-[#7D756D] font-medium">
-                オジサン「けんちこ」観察 ＆ 毎週増える◯◯にゃん図鑑
-              </p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+      {/* Global SVG Pencil Filter Definitions */}
+      <PencilSketchFilters />
 
-          {/* Kenchiko Status Meters */}
-          <div className="flex items-center gap-3 bg-[#EFECE4] px-3.5 py-1.5 rounded-2xl border border-[#DDD7C8]">
-            {/* Hunger */}
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#6B6259]" title="満腹度">
-              <Coffee className="w-3.5 h-3.5 text-[#C8744E]" />
-              <div className="w-12 bg-[#DDD7C8] h-2 rounded-full overflow-hidden">
-                <div
-                  className="bg-[#D9825B] h-full rounded-full transition-all duration-300"
-                  style={{ width: `${saveData.kenchiko.hunger}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Happiness */}
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#6B6259]" title="ごきげん度">
-              <Heart className="w-3.5 h-3.5 fill-[#D4736A] text-[#D4736A]" />
-              <div className="w-12 bg-[#DDD7C8] h-2 rounded-full overflow-hidden">
-                <div
-                  className="bg-[#D4736A] h-full rounded-full transition-all duration-300"
-                  style={{ width: `${saveData.kenchiko.happiness}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Stamina */}
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#6B6259]" title="体力">
-              <Zap className="w-3.5 h-3.5 text-[#5C7E6B]" />
-              <div className="w-12 bg-[#DDD7C8] h-2 rounded-full overflow-hidden">
-                <div
-                  className="bg-[#728C7E] h-full rounded-full transition-all duration-300"
-                  style={{ width: `${saveData.kenchiko.stamina}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Time Speed Control & Quick Sync */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-[#EFECE4] p-1 rounded-xl border border-[#DDD7C8]">
-              {[1, 5, 30, 60].map((spd) => (
-                <button
-                  key={spd}
-                  onClick={() => setTimeSpeed(spd)}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
-                    timeSpeed === spd
-                      ? 'bg-[#728C7E] text-white shadow-sm'
-                      : 'text-[#6B6259] hover:text-[#3A342F]'
-                  }`}
-                  title={`${spd}倍速で時間を進める`}
-                >
-                  {spd === 1 ? '1x リアル' : `${spd}x`}
-                </button>
-              ))}
-            </div>
+      {/* Top Navigation Bar with Tabs and Top-Right Settings Button */}
+      <div className="bg-[#ECE7DC] border-b-1.5 border-[#3E3833] sticky top-0 z-30 shadow-[0_2px_6px_rgba(46,40,36,0.06)]">
+        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-2 py-2.5">
+          {/* Main Tab Navigation */}
+          <div className="flex gap-1.5 sm:gap-2.5 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('stage')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+                activeTab === 'stage'
+                  ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
+              }`}
+            >
+              <Eye className="w-4 h-4" />
+              <span className="font-handwriting text-sm">けんちこ観察</span>
+            </button>
 
             <button
-              onClick={() => setShowSyncModal(true)}
-              className="flex items-center gap-1.5 bg-[#FAF8F5] hover:bg-[#EFECE4] text-[#4A443F] font-bold text-xs px-3 py-1.5 rounded-xl border border-[#DDD7C8] shadow-sm transition"
-              title="週次CSV更新・全イベント編集・Firebase管理"
+              onClick={() => setActiveTab('zukan')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+                activeTab === 'zukan'
+                  ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
+              }`}
             >
-              <Database className="w-3.5 h-3.5 text-[#728C7E]" />
-              <span className="hidden sm:inline">データ連携</span>
+              <BookOpen className="w-4 h-4" />
+              <span className="font-handwriting text-sm">◯◯にゃん図鑑 ({discoveredCount}/{totalCharacters})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('diary')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+                activeTab === 'diary'
+                  ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
+              }`}
+            >
+              <BookMarked className="w-4 h-4" />
+              <span className="font-handwriting text-sm">おもいで絵日記 ({saveData.diary.length})</span>
+            </button>
+          </div>
+
+          {/* Top-Right Status Lamp & Settings Button */}
+          <div className="flex items-center gap-2">
+            {/* Connection Status Lamp Indicator */}
+            {connectionStatus.isOffline ? (
+              <button
+                onClick={() => setShowSyncModal(true)}
+                className="flex-shrink-0 flex items-center gap-2 bg-[#FDECE8] hover:bg-[#FCDFD8] border border-[#F5A898] text-[#B92B1B] px-3 py-1.5 sketch-tag shadow-sm transition"
+                title="Firebaseと接続できていません（オフラインモード動作中）。タップして設定を確認"
+              >
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.9)] ring-2 ring-red-200"></span>
+                </span>
+                <span className="font-handwriting text-xs sm:text-sm font-black text-[#9A2214]">
+                  オフラインモード
+                </span>
+              </button>
+            ) : (
+              <div
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sketch-tag bg-[#FAF8F4] text-[#487560] text-xs font-bold"
+                title="Firebase Firestore クラウド同期中（オンライン）"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#487560]"></span>
+                </span>
+                <span className="font-handwriting text-[11px] text-[#487560]">接続中</span>
+              </div>
+            )}
+
+            {/* Top-Right Settings Button */}
+            <button
+              onClick={() => setShowSyncModal(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#3E3833] font-black text-xs px-3.5 py-2 sketch-card-subtle shadow-sm transition"
+              title="設定・データ管理"
+            >
+              <Settings className="w-4 h-4 text-[#487560]" />
+              <span className="font-handwriting text-sm">設定</span>
             </button>
           </div>
         </div>
-      </header>
-
-      {/* Main Tab Navigation */}
-      <div className="bg-[#EBE6DC] border-b border-[#DDD7C8]">
-        <div className="max-w-6xl mx-auto px-4 flex gap-1.5 sm:gap-2 overflow-x-auto py-2">
-          <button
-            onClick={() => setActiveTab('stage')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition border ${
-              activeTab === 'stage'
-                ? 'bg-[#4A443F] text-[#FAF8F5] border-[#3A342F] shadow-sm'
-                : 'bg-[#FAF8F5] text-[#6B6259] border-[#DDD7C8] hover:bg-white hover:text-[#3A342F]'
-            }`}
-          >
-            <Eye className="w-4 h-4" />
-            <span>けんちこ観察</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('zukan')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition border ${
-              activeTab === 'zukan'
-                ? 'bg-[#4A443F] text-[#FAF8F5] border-[#3A342F] shadow-sm'
-                : 'bg-[#FAF8F5] text-[#6B6259] border-[#DDD7C8] hover:bg-white hover:text-[#3A342F]'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>◯◯にゃん図鑑 ({discoveredCount}/{totalCharacters})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('diary')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition border ${
-              activeTab === 'diary'
-                ? 'bg-[#4A443F] text-[#FAF8F5] border-[#3A342F] shadow-sm'
-                : 'bg-[#FAF8F5] text-[#6B6259] border-[#DDD7C8] hover:bg-white hover:text-[#3A342F]'
-            }`}
-          >
-            <BookMarked className="w-4 h-4" />
-            <span>おもいで絵日記 ({saveData.diary.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('sync')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-black transition border ${
-              activeTab === 'sync'
-                ? 'bg-[#4A443F] text-[#FAF8F5] border-[#3A342F] shadow-sm'
-                : 'bg-[#FAF8F5] text-[#6B6259] border-[#DDD7C8] hover:bg-white hover:text-[#3A342F]'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>週次CSV更新 / 全イベント管理</span>
-          </button>
-        </div>
       </div>
+
+      {/* Offline Mode Alert Bar with Pulsing Red Lamp */}
+      {connectionStatus.isOffline && (
+        <div className="bg-[#FFF4F2] border-b-2 border-[#E74C3C]/40 px-4 py-3 shadow-inner">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3">
+              <span className="relative flex h-3.5 w-3.5 mt-0.5 sm:mt-0 flex-shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.9)] ring-2 ring-red-300"></span>
+              </span>
+              <div>
+                <span className="font-handwriting font-black text-sm text-[#922B21] mr-2">
+                  【オフラインモードで動作中】
+                </span>
+                <span className="text-xs text-[#78281F]">
+                  Firebaseクラウドデータベースと接続できていません。ゲームの進行や観察はローカル上でそのまま継続でき、再接続時に自動保存されます。
+                </span>
+                {connectionStatus.lastError && (
+                  <span className="block text-[10px] text-[#A93226] font-mono mt-0.5 opacity-80 truncate max-w-xl">
+                    詳細: {connectionStatus.lastError}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+              <button
+                onClick={async () => {
+                  setIsRetryingConnection(true);
+                  await testFirebaseConnection();
+                  setTimeout(() => setIsRetryingConnection(false), 600);
+                }}
+                disabled={isRetryingConnection}
+                className="flex items-center gap-1.5 bg-[#C0392B] hover:bg-[#A93226] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-sm transition disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRetryingConnection ? 'animate-spin' : ''}`} />
+                <span>{isRetryingConnection ? '接続確認中...' : '再接続を試す'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Discovery Toast Notification */}
       {newEncounterToast && (
@@ -835,6 +835,7 @@ export default function App() {
               onSelectNyan={(nyan) => setSelectedZukanNyan(nyan)}
               onManualMonologue={handleManualMonologue}
               onTakeSnapshot={handleTakeSnapshot}
+              onUpdateKenchikoImage={handleUpdateKenchikoImage}
             />
 
             {/* Quick Mini Zukan Strip */}
@@ -965,14 +966,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* Footer */}
-      <footer className="bg-[#EFECE4] border-t border-[#DDD7C8] py-6 text-center text-xs text-[#7D756D]">
-        <p className="font-bold text-[#4A443F]">けんちこワールド (ken-chiko)</p>
-        <p className="mt-1 text-[11px]">
-          5分刻みでセカイをうろつくオジサン観察 ＆ 毎週更新される脱力「◯◯にゃん」図鑑 (Firebase Firestore Cloud)
-        </p>
-      </footer>
     </div>
   );
 }

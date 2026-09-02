@@ -4,6 +4,7 @@ import { ActivityType, TransportMethod } from '../types';
 interface KenchikoFigureProps {
   activity: ActivityType;
   transportMethod: TransportMethod | null;
+  customImageUrl?: string;
   mood?: string;
   className?: string;
   size?: number;
@@ -12,314 +13,228 @@ interface KenchikoFigureProps {
 export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
   activity,
   transportMethod,
+  customImageUrl,
   className = '',
-  size = 200,
+  size = 230,
 }) => {
+  if (customImageUrl) {
+    return (
+      <div
+        className={`relative inline-flex items-center justify-center select-none ${className}`}
+        style={{ width: size, height: size }}
+      >
+        <div className={`w-full h-full flex items-center justify-center ${
+          activity === 'nap'
+            ? 'rotate-[-10deg] translate-y-3 opacity-95'
+            : activity === 'transit'
+            ? 'animate-bounce'
+            : activity === 'snacking'
+            ? 'animate-pulse'
+            : 'hover:scale-105 transition duration-200'
+        }`}>
+          <img
+            src={customImageUrl}
+            alt="けんちこ"
+            className="max-w-full max-h-full object-contain filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)]"
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`relative inline-flex items-center justify-center select-none ${className}`}
       style={{ width: size, height: size }}
     >
       <svg
-        viewBox="0 0 200 200"
+        viewBox="0 0 200 240"
         className="w-full h-full drop-shadow-sm overflow-visible"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/* Definitions for textures and gradients */}
-        <defs>
-          <linearGradient id="kenchikoSweater" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#9BD5F0" />
-            <stop offset="100%" stopColor="#78B9DC" />
-          </linearGradient>
-          <linearGradient id="kenchikoSkin" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#FFF2EB" />
-            <stop offset="100%" stopColor="#FEE3D8" />
-          </linearGradient>
-        </defs>
-
-        {/* Transit Mode: Bicycle */}
+        {/* Transit Props */}
         {activity === 'transit' && transportMethod === 'bicycle' && (
           <g className="animate-bounce" style={{ animationDuration: '0.6s' }}>
-            {/* Bicycle Frame */}
-            <circle cx="50" cy="155" r="24" stroke="#262626" strokeWidth="4" />
-            <circle cx="150" cy="155" r="24" stroke="#262626" strokeWidth="4" />
-            <circle cx="50" cy="155" r="5" fill="#262626" />
-            <circle cx="150" cy="155" r="5" fill="#262626" />
-            <path
-              d="M50 155 L90 155 L130 115 L70 115 Z"
-              stroke="#262626"
-              strokeWidth="4"
-              strokeLinejoin="round"
-            />
-            <path d="M90 155 L85 105" stroke="#262626" strokeWidth="4" strokeLinecap="round" />
-            {/* Saddle */}
-            <path d="M75 105 Q85 102 95 105" stroke="#262626" strokeWidth="6" strokeLinecap="round" />
-            {/* Handlebar */}
-            <path d="M130 115 L140 85 L130 80 M140 85 L150 82" stroke="#262626" strokeWidth="4" strokeLinecap="round" />
+            <circle cx="45" cy="195" r="22" stroke="#2E2824" strokeWidth="3" />
+            <circle cx="155" cy="195" r="22" stroke="#2E2824" strokeWidth="3" />
+            <circle cx="45" cy="195" r="4" fill="#2E2824" />
+            <circle cx="155" cy="195" r="4" fill="#2E2824" />
+            <line x1="45" y1="173" x2="45" y2="217" stroke="#7A726A" strokeWidth="1.2" />
+            <line x1="23" y1="195" x2="67" y2="195" stroke="#7A726A" strokeWidth="1.2" />
+            <line x1="155" y1="173" x2="155" y2="217" stroke="#7A726A" strokeWidth="1.2" />
+            <line x1="133" y1="195" x2="177" y2="195" stroke="#7A726A" strokeWidth="1.2" />
+            <path d="M45 195 L88 195 L130 150 L75 150 Z" stroke="#2E2824" strokeWidth="3.2" strokeLinejoin="round" />
+            <path d="M88 195 L82 144" stroke="#2E2824" strokeWidth="3.2" />
+            <path d="M72 144 Q82 140 94 144" stroke="#2E2824" strokeWidth="5" strokeLinecap="round" />
+            <path d="M130 150 L140 125 L130 122 M140 125 L152 123" stroke="#2E2824" strokeWidth="3.2" strokeLinecap="round" />
           </g>
         )}
 
-        {/* Transit Mode: Car */}
-        {activity === 'transit' && transportMethod === 'car' && (
-          <g className="animate-bounce" style={{ animationDuration: '0.8s' }}>
-            {/* Cute Box Car */}
-            <path
-              d="M30 150 L170 150 Q180 150 180 135 L175 110 Q170 95 140 90 L80 90 Q50 95 40 115 L30 130 Z"
-              fill="#fef3c7"
-              stroke="#262626"
-              strokeWidth="4"
-              strokeLinejoin="round"
-            />
-            <rect x="60" y="98" width="35" height="22" rx="4" fill="#ffffff" stroke="#262626" strokeWidth="3" />
-            <rect x="105" y="98" width="40" height="22" rx="4" fill="#ffffff" stroke="#262626" strokeWidth="3" />
-            {/* Headlight */}
-            <circle cx="172" cy="130" r="5" fill="#fbbf24" stroke="#262626" strokeWidth="2" />
-            {/* Wheels */}
-            <circle cx="65" cy="155" r="16" fill="#404040" stroke="#262626" strokeWidth="4" />
-            <circle cx="65" cy="155" r="5" fill="#f5f5f5" />
-            <circle cx="145" cy="155" r="16" fill="#404040" stroke="#262626" strokeWidth="4" />
-            <circle cx="145" cy="155" r="5" fill="#f5f5f5" />
-          </g>
-        )}
-
-        {/* Transit Mode: Jinbei-nyan Cloud Flight */}
-        {activity === 'transit' && transportMethod === 'jinbei_nyan' && (
-          <g className="animate-pulse" style={{ animationDuration: '2s' }}>
-            {/* Cloud shape */}
-            <path
-              d="M40 160 Q30 140 50 135 Q60 115 90 120 Q110 105 135 120 Q160 115 170 135 Q185 145 175 160 Z"
-              fill="#e0f2fe"
-              stroke="#0284c7"
-              strokeWidth="3"
-              strokeLinecap="round"
-            />
-            <text x="145" y="152" fontSize="16">🐱</text>
-            <text x="165" y="140" fontSize="12" fill="#0369a1" fontWeight="bold">じんべえ</text>
-          </g>
-        )}
-
-        {/* Kenchiko Figure */}
+        {/* Nap / Sleep Scene */}
         {activity === 'nap' ? (
-          /* Sleeping / Snoozing Kenchiko with iconic bangs & nightstand glasses */
-          <g transform="translate(10, 20)">
-            {/* Blanket / Mat */}
-            <rect x="20" y="125" width="140" height="35" rx="10" fill="#9BD5F0" stroke="#1F2937" strokeWidth="3.5" />
-            <path d="M20 135 Q90 145 160 135" stroke="#78B9DC" strokeWidth="2.5" strokeDasharray="6 6" />
-            {/* Pillow */}
-            <rect x="25" y="105" width="38" height="26" rx="8" fill="#ffffff" stroke="#1F2937" strokeWidth="3" />
+          <g transform="translate(10, 30)">
+            <rect x="20" y="130" width="140" height="34" rx="8" fill="#F0ECE4" stroke="#1F2429" strokeWidth="2.8" />
+            <rect x="24" y="108" width="40" height="24" rx="7" fill="#FFFFFF" stroke="#1F2429" strokeWidth="2.6" />
             
-            {/* Head lying down */}
-            <ellipse cx="46" cy="100" rx="22" ry="19" fill="url(#kenchikoSkin)" stroke="#1F2937" strokeWidth="3.5" />
-            
-            {/* Signature Dark Straight Bangs Hair */}
+            {/* Head resting */}
             <path
-              d="M26 95 C25 80 66 80 66 94 C60 90 55 93 48 90 C42 93 35 91 26 95 Z"
-              fill="#181B22"
-              stroke="#181B22"
+              d="M30 102 C30 84 70 84 70 102 C70 116 30 116 30 102 Z"
+              fill="#FFFDF7"
+              stroke="#1F2429"
+              strokeWidth="2.8"
+            />
+            {/* Hair */}
+            <path
+              d="M30 96 C29 80 70 80 70 95 C64 88 54 93 47 88 C40 93 35 90 30 96 Z"
+              fill="#1F2429"
+              stroke="#1F2429"
               strokeWidth="1.5"
             />
-            
-            {/* Sleeping relaxed eyes */}
-            <path d="M38 102 Q44 107 48 102" stroke="#1F2937" strokeWidth="2.5" strokeLinecap="round" />
-            
-            {/* Signature Pouty Wavy Sleeping Mouth */}
-            <path d="M48 110 Q51 108 54 110" stroke="#1F2937" strokeWidth="2" strokeLinecap="round" />
-            
-            {/* Cheeks blush */}
-            <circle cx="36" cy="108" r="4" fill="#FCA5A5" opacity="0.6" />
-            
-            {/* Glasses folded neatly on nightstand */}
-            <g transform="translate(70, 110)">
-              <rect x="0" y="0" width="14" height="11" rx="2.5" stroke="#1A202C" strokeWidth="2" fill="#E2E8F0" opacity="0.8" />
-              <rect x="17" y="0" width="14" height="11" rx="2.5" stroke="#1A202C" strokeWidth="2" fill="#E2E8F0" opacity="0.8" />
-              <line x1="14" y1="5" x2="17" y2="5" stroke="#1A202C" strokeWidth="2" />
-            </g>
+            {/* Closed eyes & blush */}
+            <path d="M38 104 Q44 108 50 104" stroke="#1F2429" strokeWidth="2.6" strokeLinecap="round" fill="none" />
+            <path d="M46 112 Q50 114 54 112" stroke="#1F2429" strokeWidth="2" strokeLinecap="round" fill="none" />
+            <circle cx="36" cy="108" r="3.5" fill="#F4A99B" opacity="0.6" />
 
-            {/* Snooze Zzz */}
-            <g className="animate-bounce" style={{ animationDuration: '2s' }}>
-              <text x="80" y="70" fontSize="20" fontWeight="900" fill="#0284c7" fontFamily="sans-serif">
-                Z
+            {/* Glasses folded on side */}
+            <rect x="80" y="112" width="18" height="12" rx="4" fill="none" stroke="#1F2429" strokeWidth="2.2" />
+            <line x1="98" y1="118" x2="104" y2="118" stroke="#1F2429" strokeWidth="2.2" />
+            <rect x="104" y="112" width="18" height="12" rx="4" fill="none" stroke="#1F2429" strokeWidth="2.2" />
+
+            <g className="animate-bounce" style={{ animationDuration: '2.5s' }}>
+              <text x="92" y="70" fontSize="14" fontWeight="bold" fill="#6A625A" className="font-handwriting">
+                すやぁ...
               </text>
-              <text x="98" y="52" fontSize="15" fontWeight="900" fill="#38bdf8" fontFamily="sans-serif">
-                z
-              </text>
-              <text x="112" y="38" fontSize="11" fontWeight="900" fill="#7dd3fc" fontFamily="sans-serif">
+              <text x="144" y="52" fontSize="18" fontWeight="bold" fill="#3E3833" className="font-handwriting">
                 z
               </text>
             </g>
           </g>
         ) : (
-          /* Upright / Active Kenchiko matching the uploaded photo */
-          <g transform={activity === 'transit' && transportMethod === 'bicycle' ? 'translate(0, -10)' : 'translate(0, 0)'}>
-            {/* Shadow */}
-            <ellipse cx="100" cy="182" rx="34" ry="6" fill="#D6D0C5" />
+          /* Standing Character matching the exact uploaded image */
+          <g transform={activity === 'transit' && transportMethod === 'bicycle' ? 'translate(0, -18)' : 'translate(0, 0)'}>
+            {/* Ground Shadow */}
+            <ellipse cx="100" cy="226" rx="46" ry="6" fill="#E2DDD5" opacity="0.8" />
 
-            {/* Legs */}
+            {/* Khaki Pants / Legs */}
             <path
-              d={
-                activity === 'transit'
-                  ? 'M86 148 L80 176 M114 148 L120 176'
-                  : 'M88 148 L88 176 M112 148 L112 176'
-              }
-              stroke="#1F2937"
-              strokeWidth="4.5"
+              d="M84 175 L82 216 M116 175 L118 216"
+              stroke="#1F2429"
+              strokeWidth="2.8"
               strokeLinecap="round"
             />
-            {/* Shoes */}
-            <ellipse cx="86" cy="177" rx="9" ry="4.5" fill="#4B5563" stroke="#1F2937" strokeWidth="2" />
-            <ellipse cx="114" cy="177" rx="9" ry="4.5" fill="#4B5563" stroke="#1F2937" strokeWidth="2" />
-
-            {/* Torso / Signature Sky-Blue Knit Sweater */}
+            {/* Pants Shape Fill */}
             <path
-              d="M72 96 Q62 144 76 148 L124 148 Q138 144 128 96 Z"
-              fill="url(#kenchikoSweater)"
-              stroke="#1F2937"
-              strokeWidth="3.5"
+              d="M80 174 L84 216 L98 216 L100 185 L102 216 L116 216 L120 174 Z"
+              fill="#C4B499"
+              stroke="#1F2429"
+              strokeWidth="2.8"
               strokeLinejoin="round"
             />
-            {/* Sweater Knit Texture Detail & Collar */}
-            <path d="M88 96 Q100 106 112 96" stroke="#1F2937" strokeWidth="3" fill="#E0F2FE" strokeLinecap="round" />
-            <path d="M80 142 L120 142" stroke="#68A5C6" strokeWidth="2" strokeDasharray="3 3" />
+
+            {/* Brown Shoes with Soles */}
+            <ellipse cx="90" cy="218" rx="10" ry="5.5" fill="#9E8D7A" stroke="#1F2429" strokeWidth="2.4" />
+            <ellipse cx="110" cy="218" rx="10" ry="5.5" fill="#9E8D7A" stroke="#1F2429" strokeWidth="2.4" />
+
+            {/* White T-shirt under jacket */}
+            <path
+              d="M90 120 L110 120 L110 176 L90 176 Z"
+              fill="#FFFFFF"
+              stroke="#1F2429"
+              strokeWidth="2.4"
+            />
+
+            {/* Denim Blue Jacket */}
+            <path
+              d="M68 122 C68 116 80 114 100 114 C120 114 132 116 132 122 L136 174 L114 174 L114 126 L100 134 L86 126 L86 174 L64 174 Z"
+              fill="#52799C"
+              stroke="#1F2429"
+              strokeWidth="2.8"
+              strokeLinejoin="round"
+            />
+            {/* Denim Jacket details (Collar, pockets, seams) */}
+            <path d="M86 122 L76 138 L86 142" stroke="#1F2429" strokeWidth="2.4" fill="#436686" />
+            <path d="M114 122 L124 138 L114 142" stroke="#1F2429" strokeWidth="2.4" fill="#436686" />
+            <rect x="70" y="145" width="12" height="11" rx="1.5" fill="#436686" stroke="#1F2429" strokeWidth="1.8" />
+            <rect x="118" y="145" width="12" height="11" rx="1.5" fill="#436686" stroke="#1F2429" strokeWidth="1.8" />
 
             {/* Arms */}
             {activity === 'snacking' ? (
-              // Holding snack to mouth
               <g>
-                <path d="M72 108 Q84 116 94 106" stroke="#1F2937" strokeWidth="4" strokeLinecap="round" />
-                <path d="M128 108 Q116 118 106 106" stroke="#1F2937" strokeWidth="4" strokeLinecap="round" />
-                {/* Snack item in hands */}
-                <circle cx="100" cy="104" r="7.5" fill="#B45309" stroke="#1F2937" strokeWidth="2" />
-                <path d="M96 101 L104 101" stroke="#FEF08A" strokeWidth="2" />
+                <path d="M68 124 Q60 148 78 152" stroke="#1F2429" strokeWidth="2.8" fill="#52799C" />
+                <path d="M132 124 Q140 148 122 152" stroke="#1F2429" strokeWidth="2.8" fill="#52799C" />
+                {/* Coffee Cup */}
+                <path d="M93 148 L96 168 L104 168 L107 148 Z" fill="#FFFDF7" stroke="#1F2429" strokeWidth="2" />
+                <ellipse cx="100" cy="148" rx="7" ry="2.5" fill="#D9CCBA" stroke="#1F2429" strokeWidth="2" />
+                <text x="115" y="152" fontSize="10" fontWeight="bold" fill="#6A625A" className="font-handwriting">
+                  ほっ
+                </text>
               </g>
             ) : (
               <g>
-                <path d="M72 105 Q60 125 68 135" stroke="#1F2937" strokeWidth="4" strokeLinecap="round" />
-                <path d="M128 105 Q140 125 132 135" stroke="#1F2937" strokeWidth="4" strokeLinecap="round" />
-                {/* Hands */}
-                <circle cx="68" cy="135" r="4.5" fill="#FFF2EB" stroke="#1F2937" strokeWidth="2" />
-                <circle cx="132" cy="135" r="4.5" fill="#FFF2EB" stroke="#1F2937" strokeWidth="2" />
+                {/* Left Arm & Hand */}
+                <path d="M68 124 L60 166 L68 172 L74 132" fill="#52799C" stroke="#1F2429" strokeWidth="2.6" strokeLinejoin="round" />
+                <path d="M60 166 C56 172 62 186 68 184 C72 182 72 174 68 172" fill="#FFFDF7" stroke="#1F2429" strokeWidth="2.2" strokeLinejoin="round" />
+                {/* Right Arm & Hand */}
+                <path d="M132 124 L140 166 L132 172 L126 132" fill="#52799C" stroke="#1F2429" strokeWidth="2.6" strokeLinejoin="round" />
+                <path d="M140 166 C144 172 138 186 132 184 C128 182 128 174 132 172" fill="#FFFDF7" stroke="#1F2429" strokeWidth="2.2" strokeLinejoin="round" />
               </g>
             )}
 
-            {/* Head (Chubby & Endearing Oval) */}
-            <ellipse cx="100" cy="65" rx="30" ry="32" fill="url(#kenchikoSkin)" stroke="#1F2937" strokeWidth="3.5" />
+            {/* Neck */}
+            <rect x="94" y="108" width="12" height="10" fill="#FFFDF7" stroke="#1F2429" strokeWidth="2.2" />
 
-            {/* Cheeks Blush */}
-            <ellipse cx="76" cy="74" rx="6" ry="4" fill="#FCA5A5" opacity="0.6" />
-            <ellipse cx="124" cy="74" rx="6" ry="4" fill="#FCA5A5" opacity="0.6" />
-
-            {/* Droopy Eyebrows above glasses */}
-            <path d="M77 44 Q84 48 91 50" stroke="#1F2937" strokeWidth="2.8" strokeLinecap="round" />
-            <path d="M109 50 Q116 48 123 44" stroke="#1F2937" strokeWidth="2.8" strokeLinecap="round" />
-
-            {/* Eyes (Iconic Droopy / Melancholic Puppy Eyes) */}
-            {activity === 'snacking' ? (
-              // Joyful munching crescent eyes
-              <g>
-                <path d="M78 61 Q85 54 92 61" stroke="#1F2937" strokeWidth="3.5" strokeLinecap="round" />
-                <path d="M108 61 Q115 54 122 61" stroke="#1F2937" strokeWidth="3.5" strokeLinecap="round" />
-              </g>
-            ) : (
-              // The exact signature droopy eyes from the photo
-              <g>
-                {/* Left Eye */}
-                {/* Droopy Upper Eyelid */}
-                <path d="M77 58 C80 54 89 57 93 62" stroke="#1F2937" strokeWidth="3.2" strokeLinecap="round" />
-                {/* Pupil */}
-                <ellipse cx="85" cy="62" rx="4" ry="4.5" fill="#181B22" />
-                {/* Pupil Light Glint */}
-                <circle cx="83.5" cy="60.5" r="1.3" fill="#FFFFFF" />
-                {/* Lower Droopy Under-Eye Line */}
-                <path d="M78 66 Q85 69 92 65" stroke="#9CA3AF" strokeWidth="1.8" strokeLinecap="round" />
-
-                {/* Right Eye */}
-                {/* Droopy Upper Eyelid */}
-                <path d="M107 62 C111 57 120 54 123 58" stroke="#1F2937" strokeWidth="3.2" strokeLinecap="round" />
-                {/* Pupil */}
-                <ellipse cx="115" cy="62" rx="4" ry="4.5" fill="#181B22" />
-                {/* Pupil Light Glint */}
-                <circle cx="113.5" cy="60.5" r="1.3" fill="#FFFFFF" />
-                {/* Lower Droopy Under-Eye Line */}
-                <path d="M108 65 Q115 69 122 66" stroke="#9CA3AF" strokeWidth="1.8" strokeLinecap="round" />
-              </g>
-            )}
-
-            {/* Signature Dark Rectangular Eyeglasses */}
-            <g>
-              {/* Left Lens Frame */}
-              <rect
-                x="73"
-                y="50"
-                width="22"
-                height="19"
-                rx="4.5"
-                stroke="#1A202C"
-                strokeWidth="3.5"
-                fill="none"
-              />
-              {/* Right Lens Frame */}
-              <rect
-                x="105"
-                y="50"
-                width="22"
-                height="19"
-                rx="4.5"
-                stroke="#1A202C"
-                strokeWidth="3.5"
-                fill="none"
-              />
-              {/* Glasses Center Bridge */}
-              <line x1="95" y1="58" x2="105" y2="58" stroke="#1A202C" strokeWidth="3.8" strokeLinecap="round" />
-              {/* Glasses Side Temple Hinges */}
-              <line x1="68" y1="58" x2="73" y2="58" stroke="#1A202C" strokeWidth="3.5" strokeLinecap="round" />
-              <line x1="127" y1="58" x2="132" y2="58" stroke="#1A202C" strokeWidth="3.5" strokeLinecap="round" />
-              {/* Subtle Lens Glare Reflection */}
-              <line x1="76" y1="53" x2="81" y2="53" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-              <line x1="108" y1="53" x2="113" y2="53" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-            </g>
-
-            {/* Cute Small Nose under glasses bridge */}
-            <g>
-              <ellipse cx="100" cy="69" rx="3.5" ry="3" fill="#F87171" opacity="0.6" />
-              <path d="M98 70 Q100 72 102 70" stroke="#1F2937" strokeWidth="2" strokeLinecap="round" />
-            </g>
-
-            {/* Signature Wavy / Pouty Lips from the photo */}
-            {activity === 'snacking' ? (
-              // Munching open mouth
-              <path d="M95 76 Q100 84 105 76 Z" fill="#EF4444" stroke="#1F2937" strokeWidth="2.5" />
-            ) : (
-              // Exact signature wavy mouth: ( ~ )
-              <g>
-                <path
-                  d="M93 78 Q96.5 75.5 100 78 Q103.5 80.5 107 78"
-                  stroke="#1F2937"
-                  strokeWidth="2.8"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                {/* Soft subtle chin line */}
-                <path d="M97 86 Q100 88 103 86" stroke="#D1D5DB" strokeWidth="1.8" strokeLinecap="round" />
-              </g>
-            )}
-
-            {/* Signature Dark Straight Bangs & Hair */}
-            {/* Cut neatly across forehead, framing the top and sides */}
+            {/* Head Shape */}
             <path
-              d="M68 56 C67 36 133 36 132 56 C128 50 120 54 114 47 C108 52 100 48 94 52 C88 47 80 53 74 49 C70 54 68 56 68 56 Z"
-              fill="#181B22"
-              stroke="#181B22"
-              strokeWidth="2"
+              d="M62 68 C62 38 78 30 100 30 C122 30 138 38 138 68 C138 96 122 112 100 112 C78 112 62 96 62 68 Z"
+              fill="#FFFDF7"
+              stroke="#1F2429"
+              strokeWidth="3.2"
               strokeLinejoin="round"
             />
-            {/* Hair highlight shimmer */}
+
+            {/* Soft pink blush */}
+            <ellipse cx="68" cy="77" rx="5.5" ry="4" fill="#F4A99B" opacity="0.65" />
+            <ellipse cx="132" cy="77" rx="5.5" ry="4" fill="#F4A99B" opacity="0.65" />
+
+            {/* Distinctive Droopy 八の字 (Hachinoji) Eyebrows */}
+            {/* Left Brow: starts low on outside, arcs up towards nose */}
+            <path d="M69 57 C73 49 82 45 93 47" stroke="#1F2429" strokeWidth="3.2" strokeLinecap="round" fill="none" />
+            {/* Right Brow: arcs down towards outside */}
+            <path d="M107 47 C118 45 127 49 131 57" stroke="#1F2429" strokeWidth="3.2" strokeLinecap="round" fill="none" />
+
+            {/* Cute Dot Eyes (点目) */}
+            <g>
+              {/* Left Dot Eye */}
+              <circle cx="82" cy="65" r="3.4" fill="#1F2429" />
+              {/* Right Dot Eye */}
+              <circle cx="118" cy="65" r="3.4" fill="#1F2429" />
+            </g>
+
+            {/* Black Rounded Rectangular Glasses with Thick Frames - angled slightly to match droop */}
+            <g>
+              <rect x="67" y="53" width="31" height="25" rx="9" fill="none" stroke="#1F2429" strokeWidth="3.6" />
+              <rect x="102" y="53" width="31" height="25" rx="9" fill="none" stroke="#1F2429" strokeWidth="3.6" />
+              <line x1="98" y1="65" x2="102" y2="65" stroke="#1F2429" strokeWidth="3.8" strokeLinecap="round" />
+              <line x1="61" y1="65" x2="67" y2="65" stroke="#1F2429" strokeWidth="3.4" strokeLinecap="round" />
+              <line x1="133" y1="65" x2="139" y2="65" stroke="#1F2429" strokeWidth="3.4" strokeLinecap="round" />
+            </g>
+
+            {/* Gentle Calm Smile */}
+            <path d="M91 87 Q100 94 109 87" stroke="#1F2429" strokeWidth="2.8" strokeLinecap="round" fill="none" />
+
+            {/* Black Hair with Side-Swept Bangs */}
             <path
-              d="M80 41 Q100 37 120 41"
-              stroke="#374151"
-              strokeWidth="2"
-              strokeLinecap="round"
-              fill="none"
+              d="M58 64 C56 30 76 16 100 16 C124 16 144 30 142 64 C136 50 128 40 118 41 C108 42 98 34 86 38 C74 42 66 52 58 64 Z"
+              fill="#1F2429"
+              stroke="#1F2429"
+              strokeWidth="2.8"
+              strokeLinejoin="round"
+            />
+            {/* Curving fringe */}
+            <path
+              d="M74 34 C90 46 116 38 136 52 C126 38 106 32 74 34 Z"
+              fill="#1F2429"
             />
           </g>
         )}

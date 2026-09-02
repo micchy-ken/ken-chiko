@@ -2,27 +2,57 @@
 
 @layer base {
   body {
-    background-color: #F5F2EA;
-    color: #4A443F;
+    background-color: #F4F1EA;
+    color: #3C3631;
+    font-family: 'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif;
+    /* Subtle sketchbook paper grain texture */
+    background-image: radial-gradient(#D8D2C4 0.65px, transparent 0.65px), radial-gradient(#E8E3D7 0.65px, #F4F1EA 0.65px);
+    background-size: 24px 24px;
+    background-position: 0 0, 12px 12px;
   }
+}
+
+/* Hand-drawn organic border for cards and sketch panels */
+.sketch-card {
+  background-color: #FAF8F4;
+  border: 1.5px solid #2E2824;
+  border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  box-shadow: 2px 3px 0px rgba(46, 40, 36, 0.15);
+}
+
+.sketch-card-subtle {
+  background-color: #FAF8F4;
+  border: 1.2px solid #3E3833;
+  border-radius: 20px 8px 18px 10px;
+  box-shadow: 1.5px 2px 0px rgba(46, 40, 36, 0.08);
+}
+
+.sketch-tag {
+  border: 1.2px solid #2E2824;
+  border-radius: 120px 10px 100px 12px/10px 100px 12px 120px;
+}
+
+/* Handwritten caption font */
+.font-handwriting {
+  font-family: 'Yomogi', 'Zen Kurenaido', cursive, sans-serif;
 }
 
 /* Custom smooth scrollbars with natural tone styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #EFECE4;
+  background: #EAE6DC;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #CCC4B2;
+  background: #C4BCAB;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #B8AF9C;
+  background: #ADA390;
 }
