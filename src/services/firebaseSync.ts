@@ -54,10 +54,35 @@ let firestoreDb: Firestore | null = null;
 let unsubscribeSnapshot: Unsubscribe | null = null;
 
 // Quota & Rate Limit Protection State
-let quotaExhaustedUntil: number = 0;
+const QUOTA_STORAGE_KEY = 'kenchiko_firestore_quota_until';
+
+function getPersistedQuotaUntil(): number {
+  try {
+    const val = localStorage.getItem(QUOTA_STORAGE_KEY);
+    return val ? parseInt(val, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setPersistedQuotaUntil(until: number): void {
+  try {
+    localStorage.setItem(QUOTA_STORAGE_KEY, String(until));
+  } catch {}
+}
+
+let quotaExhaustedUntil: number = getPersistedQuotaUntil();
 let lastSuccessfulWriteTime: number = 0;
-let isQuotaCurrentlyExhausted: boolean = false;
+let isQuotaCurrentlyExhausted: boolean = Date.now() < quotaExhaustedUntil;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
+
+export function markQuotaExhausted(durationMs: number = 60 * 60 * 1000): void {
+  isQuotaCurrentlyExhausted = true;
+  quotaExhaustedUntil = Date.now() + durationMs;
+  setPersistedQuotaUntil(quotaExhaustedUntil);
+  if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
+  notifyConnectionStatusChange(false, 'Firebase無料枠上限到達（ローカル保護モードで動作中）');
+}
 
 // Connection Status Tracking
 export interface FirebaseConnectionStatus {
@@ -73,11 +98,12 @@ const connectionStatusListeners = new Set<(status: FirebaseConnectionStatus) => 
 
 export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
   const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
+  const isQuota = isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
   return {
-    isConnected: !isOffline && isCurrentlyConnected,
-    isOffline: isOffline || !isCurrentlyConnected,
-    lastError: lastConnectionError,
-    isQuotaExhausted: isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil,
+    isConnected: !isOffline && isCurrentlyConnected && !isQuota,
+    isOffline: isOffline || !isCurrentlyConnected || isQuota,
+    lastError: isQuota ? 'Firestoreの1日無料枠上限に達しました（データはローカルで安全に保護されています）' : lastConnectionError,
+    isQuotaExhausted: isQuota,
   };
 }
 
@@ -251,6 +277,11 @@ export async function fetchInitialFirebaseState(
       return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
     }
 
+    if (getIsQuotaExhausted()) {
+      notifyConnectionStatusChange(false, 'Firebase無料枠上限のためローカルデータで動作中');
+      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE };
+    }
+
     if (!firestoreDb) {
       const initRes = initFirebase(config);
       if (!initRes.success) {
@@ -303,14 +334,12 @@ export async function fetchInitialFirebaseState(
         }
       }
     } catch (readErr: any) {
-      console.warn('Firestore initial read notice:', readErr);
-      if (readErr?.code === 'resource-exhausted' || String(readErr?.message).includes('Quota')) {
-        isQuotaCurrentlyExhausted = true;
-        quotaExhaustedUntil = Date.now() + 60 * 1000;
-        if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
-        notifyConnectionStatusChange(false, 'Firestore無料クォータ上限到達');
+      const errMsg = String(readErr?.message || readErr);
+      if (readErr?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
+        markQuotaExhausted();
       } else {
-        notifyConnectionStatusChange(false, readErr?.message || String(readErr));
+        console.warn('Firestore initial read note:', readErr);
+        notifyConnectionStatusChange(false, errMsg);
       }
     }
 
@@ -318,7 +347,6 @@ export async function fetchInitialFirebaseState(
     saveLocalBackup(fallbackState);
     return { success: true, data: fallbackState, isNew: false };
   } catch (err: any) {
-    console.error('Error fetching initial Firestore state', err);
     notifyConnectionStatusChange(false, err?.message || String(err));
     return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: err.message };
   }
@@ -332,8 +360,11 @@ async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
-  if (isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil) {
-    return { success: false, error: 'Firestore無料書き込み上限のため待機中（ローカル保持）' };
+  // Always protect data in local storage
+  saveLocalBackup(data);
+
+  if (getIsQuotaExhausted()) {
+    return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
   isWritingToFirestore = true;
@@ -369,6 +400,7 @@ async function executeFirestoreWrite(
     notifyConnectionStatusChange(true);
     if (isQuotaCurrentlyExhausted) {
       isQuotaCurrentlyExhausted = false;
+      setPersistedQuotaUntil(0);
       if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
     }
     isWritingToFirestore = false;
@@ -376,12 +408,9 @@ async function executeFirestoreWrite(
   } catch (err: any) {
     isWritingToFirestore = false;
     const errMsg = err?.message || String(err);
-    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
-      isQuotaCurrentlyExhausted = true;
-      quotaExhaustedUntil = Date.now() + 120 * 1000;
-      if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
-      notifyConnectionStatusChange(false, 'Firebaseの書き込み上限に達しました（ローカル保持中）');
-      return { success: false, error: 'Firebaseの書き込み上限に達しました。' };
+    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted') || errMsg.includes('Free daily write units')) {
+      markQuotaExhausted();
+      return { success: true, error: 'Firebaseの書き込み上限に達しました。ローカル保存で継続しています。' };
     }
     notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
@@ -452,6 +481,11 @@ export function subscribeToFirebaseState(
     unsubscribeSnapshot = null;
   }
 
+  if (getIsQuotaExhausted()) {
+    notifyConnectionStatusChange(false, 'Firebase無料枠上限のためローカル保護モード中');
+    return () => {};
+  }
+
   if (!firestoreDb) {
     const initRes = initFirebase(config);
     if (!initRes.success) {
@@ -495,21 +529,28 @@ export function subscribeToFirebaseState(
         }
       },
       (err) => {
-        if (err?.code === 'resource-exhausted' || String(err?.message).includes('Quota')) {
-          isQuotaCurrentlyExhausted = true;
-          quotaExhaustedUntil = Date.now() + 120 * 1000;
-          if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
-          notifyConnectionStatusChange(false, 'Firebaseクォータ上限');
+        const errMsg = String(err?.message || err);
+        if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
+          markQuotaExhausted();
+          if (unsubscribeSnapshot) {
+            unsubscribeSnapshot();
+            unsubscribeSnapshot = null;
+          }
         } else {
           console.warn('Firebase snapshot listener note:', err);
-          notifyConnectionStatusChange(false, err?.message || String(err));
+          notifyConnectionStatusChange(false, errMsg);
         }
         if (onError) onError(err);
       }
     );
   } catch (listenErr: any) {
-    console.warn('Firebase subscription init note:', listenErr);
-    notifyConnectionStatusChange(false, listenErr?.message || String(listenErr));
+    const errMsg = String(listenErr?.message || listenErr);
+    if (listenErr?.code === 'resource-exhausted' || errMsg.includes('Quota')) {
+      markQuotaExhausted();
+    } else {
+      console.warn('Firebase subscription init note:', listenErr);
+      notifyConnectionStatusChange(false, errMsg);
+    }
   }
 
   return () => {
