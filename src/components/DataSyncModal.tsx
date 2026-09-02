@@ -63,8 +63,11 @@ import {
   AlertTriangle,
   Search,
   Filter,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { compressAndResizeImage, saveLocalKenchikoImage, loadLocalKenchikoImage } from '../services/imageCompression';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -94,11 +97,63 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Tab navigation
-  const [activeTab, setActiveTab] = useState<'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv'>('asobi');
+  const [activeTab, setActiveTab] = useState<'avatar' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv'>('avatar');
   const [dragActive, setDragActive] = useState(false);
+  const [avatarDragActive, setAvatarDragActive] = useState(false);
+  const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
+  const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
+  const [currentAvatarPreview, setCurrentAvatarPreview] = useState<string>(() => {
+    return saveData.kenchiko.customImageUrl || loadLocalKenchikoImage() || '';
+  });
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [copiedWorkflow, setCopiedWorkflow] = useState(false);
   const [githubWorkflowType, setGithubWorkflowType] = useState<'pages' | 'firebase' | 'data'>('pages');
+
+  const handleKenchikoAvatarUpload = async (file: File) => {
+    try {
+      setIsProcessingAvatar(true);
+      setAvatarStatus('イラスト画像を最適化・圧縮中...');
+
+      // Compress and resize for ultra-fast load and reliable Firestore storage
+      const compressedDataUrl = await compressAndResizeImage(file, 600, 600, 0.9);
+      
+      // Save locally to guarantee persistence across sessions and reloads
+      saveLocalKenchikoImage(compressedDataUrl);
+      setCurrentAvatarPreview(compressedDataUrl);
+
+      // Save to GameState & Firebase
+      onUpdateSaveData((prev) => ({
+        ...prev,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...prev.kenchiko,
+          customImageUrl: compressedDataUrl,
+        },
+      }));
+
+      setIsProcessingAvatar(false);
+      setAvatarStatus('✅ けんちこのイラスト画像を登録しました！ステージ・全画面に反映されています。');
+      confetti({ particleCount: 45, spread: 80, origin: { y: 0.5 } });
+    } catch (err: any) {
+      setIsProcessingAvatar(false);
+      setAvatarStatus(`❌ 画像の読み込みに失敗しました: ${err.message || '別の画像をお試しください'}`);
+    }
+  };
+
+  const handleResetKenchikoAvatar = () => {
+    if (!window.confirm('登録したけんちこのイラストを削除して未登録状態に戻しますか？')) return;
+    saveLocalKenchikoImage('');
+    setCurrentAvatarPreview('');
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      lastSaved: Date.now(),
+      kenchiko: {
+        ...prev.kenchiko,
+        customImageUrl: undefined,
+      },
+    }));
+    setAvatarStatus('イラストをリセットしました。');
+  };
 
   // Google Docs Auto-Sync State
   const [googleDocUrl, setGoogleDocUrl] = useState<string>(() => getSavedGoogleDocUrl());
@@ -593,6 +648,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-[#DDD7C8] bg-[#EFECE4] px-4 sm:px-6 pt-3 gap-1.5 overflow-x-auto">
+          {/* TAB 0: Kenchiko Avatar (けんちこ画像設定) */}
+          <button
+            onClick={() => setActiveTab('avatar')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'avatar'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <Camera className="w-4 h-4 text-[#C8744E]" />
+            <span>けんちこ画像登録</span>
+          </button>
+
           {/* TAB 1: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
@@ -674,6 +742,113 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Tab Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]">
+          {/* ========================================================= */}
+          {/* TAB 0: KENCHIKO AVATAR IMAGE SETTING */}
+          {/* ========================================================= */}
+          {activeTab === 'avatar' && (
+            <div className="space-y-4 animate-fadeIn">
+              <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3]">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-[#C8744E]" />
+                    けんちこのイラスト画像 完全差し替え
+                  </h4>
+                  <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    永続保存 & Firebase同期
+                  </span>
+                </div>
+                <p className="text-xs text-[#9E5D3B]">
+                  けんちこのイラストをアップロードして設定します。SVGは一切使われず、登録した画像がステージ・全画面に常時表示されます。
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Left: Current Active Image Preview */}
+                <div className="bg-[#FAF8F4] p-5 rounded-2xl border border-[#DDD7C8] flex flex-col items-center justify-center text-center">
+                  <span className="text-xs font-bold text-[#7D756D] mb-3">現在のけんちこ画像</span>
+                  <div className="w-44 h-44 rounded-2xl bg-[#EAE5D9] border-2 border-[#2E2824] p-2 flex items-center justify-center overflow-hidden shadow-inner relative">
+                    {currentAvatarPreview ? (
+                      <img
+                        src={currentAvatarPreview}
+                        alt="けんちこ"
+                        className="max-w-full max-h-full object-contain filter drop-shadow-md"
+                      />
+                    ) : (
+                      <div className="text-center p-3">
+                        <ImageIcon className="w-8 h-8 text-[#9E958C] mx-auto mb-1" />
+                        <span className="text-[11px] text-[#6B6259] font-bold">未登録</span>
+                      </div>
+                    )}
+                  </div>
+                  {currentAvatarPreview && (
+                    <button
+                      onClick={handleResetKenchikoAvatar}
+                      className="mt-3 text-xs text-[#BA4D4D] hover:underline flex items-center gap-1 font-bold"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      画像をリセット
+                    </button>
+                  )}
+                </div>
+
+                {/* Right: Upload Dropzone & Controls */}
+                <div className="md:col-span-2 space-y-3">
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setAvatarDragActive(true);
+                    }}
+                    onDragLeave={() => setAvatarDragActive(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setAvatarDragActive(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleKenchikoAvatarUpload(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`p-6 border-2 border-dashed rounded-2xl text-center transition flex flex-col items-center justify-center min-h-[180px] ${
+                      avatarDragActive
+                        ? 'border-[#C8744E] bg-[#FAF2EB]'
+                        : 'border-[#DDD7C8] bg-white hover:border-[#C8744E]'
+                    }`}
+                  >
+                    <Upload className="w-8 h-8 mx-auto text-[#C8744E] mb-2" />
+                    <p className="text-xs font-bold text-[#3A342F]">
+                      けんちこのイラスト画像をここにドラッグ＆ドロップ
+                    </p>
+                    <p className="text-[11px] text-[#7D756D] mt-1">
+                      PNG, JPEG, WebP (背景透過PNG推奨)
+                    </p>
+                    <label className="mt-3 inline-block px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white font-bold text-xs rounded-xl cursor-pointer transition shadow-sm">
+                      {isProcessingAvatar ? '処理中...' : '画像ファイルを選択'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        disabled={isProcessingAvatar}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleKenchikoAvatarUpload(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {avatarStatus && (
+                    <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn">
+                      {avatarStatus}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#DDD7C8] text-[11px] text-[#6B6259] leading-relaxed">
+                    💡 <strong>ワンポイント:</strong> アップロードした画像は自動で最適化（軽量化・圧縮）され、端末ストレージおよびFirebaseへ安全に保存されます。ブラウザをリロードしても消えません。
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ========================================================= */}
           {/* TAB 1: ALL EVENTS & ASOBI CONFIGURATION (全イベント・あそび編集) */}
           {/* ========================================================= */}

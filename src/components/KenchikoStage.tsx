@@ -214,31 +214,6 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                   ({kenchiko.currentActivity === 'nap' ? '睡眠中' : kenchiko.currentActivity === 'snacking' ? 'カフェ休憩' : '活動中'})
                 </span>
               </div>
-
-              {onUpdateKenchikoImage && (
-                <label
-                  title="けんちこの画像をアップロード・変更"
-                  className="cursor-pointer p-1 bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] sketch-tag shadow-sm transition"
-                >
-                  <Camera className="w-3.5 h-3.5 text-[#487560]" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              )}
-
-              {kenchiko.customImageUrl && onUpdateKenchikoImage && (
-                <button
-                  onClick={() => onUpdateKenchikoImage('')}
-                  title="デフォルトイラストに戻す"
-                  className="text-[10px] text-[#C85A53] hover:underline font-bold px-1"
-                >
-                  リセット
-                </button>
-              )}
             </div>
           </div>
 

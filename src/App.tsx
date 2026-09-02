@@ -45,6 +45,7 @@ import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
 import { DataSyncModal } from './components/DataSyncModal';
 import { PencilSketchFilters } from './utils/pencilFilters';
+import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 
 import {
   Eye,
@@ -101,15 +102,45 @@ export default function App() {
         if (!isMounted) return;
         if (res.success && res.data) {
           isRemoteUpdateRef.current = true;
-          setSaveData(res.data);
+          const mergedData = { ...res.data };
+          // If remote image is absent but locally saved, prioritize local image
+          const localImg = loadLocalKenchikoImage();
+          if (!mergedData.kenchiko.customImageUrl && localImg) {
+            mergedData.kenchiko.customImageUrl = localImg;
+          } else if (mergedData.kenchiko.customImageUrl) {
+            saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
+          }
+          setSaveData(mergedData);
           const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
           setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
           setIsFirebaseSynced(true);
+        } else {
+          // If no remote data, check if local image exists
+          const localImg = loadLocalKenchikoImage();
+          if (localImg) {
+            setSaveData((prev) => ({
+              ...prev,
+              kenchiko: {
+                ...prev.kenchiko,
+                customImageUrl: localImg,
+              },
+            }));
+          }
         }
         setIsLoadingFirebase(false);
       })
       .catch((err) => {
         console.warn('Firebase initial load note:', err);
+        const localImg = loadLocalKenchikoImage();
+        if (localImg) {
+          setSaveData((prev) => ({
+            ...prev,
+            kenchiko: {
+              ...prev.kenchiko,
+              customImageUrl: localImg,
+            },
+          }));
+        }
         if (isMounted) setIsLoadingFirebase(false);
       });
 
@@ -119,7 +150,16 @@ export default function App() {
       (remoteData) => {
         if (!isMounted) return;
         isRemoteUpdateRef.current = true;
-        setSaveData(remoteData);
+        const merged = { ...remoteData };
+        if (merged.kenchiko.customImageUrl) {
+          saveLocalKenchikoImage(merged.kenchiko.customImageUrl);
+        } else {
+          const localImg = loadLocalKenchikoImage();
+          if (localImg) {
+            merged.kenchiko.customImageUrl = localImg;
+          }
+        }
+        setSaveData(merged);
         setIsFirebaseSynced(true);
         setIsLoadingFirebase(false);
       },
@@ -594,6 +634,7 @@ export default function App() {
 
   // User Actions: Update Kenchiko custom image
   const handleUpdateKenchikoImage = (imageUrl: string) => {
+    saveLocalKenchikoImage(imageUrl);
     setSaveData((prev) => {
       const nextData: GameSaveData = {
         ...prev,
