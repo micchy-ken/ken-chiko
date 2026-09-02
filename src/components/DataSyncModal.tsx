@@ -65,9 +65,24 @@ import {
   Filter,
   Camera,
   Image as ImageIcon,
+  Wand2,
+  Table,
+  PlusCircle,
+  Files,
+  ArrowUpDown,
+  CheckSquare,
+  Square,
+  CornerDownLeft,
+  ListPlus,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { compressAndResizeImage, saveLocalKenchikoImage, loadLocalKenchikoImage } from '../services/imageCompression';
+import {
+  compressAndResizeImage,
+  saveLocalKenchikoImage,
+  loadLocalKenchikoImage,
+  loadLocalKenchikoRawImage,
+  TransparencyOptions,
+} from '../services/imageCompression';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -102,6 +117,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [avatarDragActive, setAvatarDragActive] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
   const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
+  const [rawAvatarSource, setRawAvatarSource] = useState<string>(() => {
+    return loadLocalKenchikoRawImage() || saveData.kenchiko.customImageUrl || loadLocalKenchikoImage() || '';
+  });
   const [currentAvatarPreview, setCurrentAvatarPreview] = useState<string>(() => {
     return saveData.kenchiko.customImageUrl || loadLocalKenchikoImage() || '';
   });
@@ -109,17 +127,30 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [copiedWorkflow, setCopiedWorkflow] = useState(false);
   const [githubWorkflowType, setGithubWorkflowType] = useState<'pages' | 'firebase' | 'data'>('pages');
 
-  const handleKenchikoAvatarUpload = async (file: File) => {
+  // Background transparency options
+  const [autoTransparent, setAutoTransparent] = useState(true);
+  const [transparencyTolerance, setTransparencyTolerance] = useState(30);
+  const [trimPadding, setTrimPadding] = useState(true);
+
+  // Process and apply avatar image with transparency settings
+  const processAndApplyAvatar = async (sourceImage: string | File, rawSourceForSave?: string) => {
     try {
       setIsProcessingAvatar(true);
-      setAvatarStatus('イラスト画像を最適化・圧縮中...');
+      setAvatarStatus('イラスト画像の背景透過・最適化を実行中...');
 
-      // Compress and resize for ultra-fast load and reliable Firestore storage
-      const compressedDataUrl = await compressAndResizeImage(file, 600, 600, 0.9);
+      const opts: TransparencyOptions = {
+        enableTransparency: autoTransparent,
+        tolerance: transparencyTolerance,
+        feather: 2,
+        trimPadding: trimPadding,
+      };
+
+      const processedDataUrl = await compressAndResizeImage(sourceImage, 600, 600, 0.92, opts);
       
-      // Save locally to guarantee persistence across sessions and reloads
-      saveLocalKenchikoImage(compressedDataUrl);
-      setCurrentAvatarPreview(compressedDataUrl);
+      const rawToSave = rawSourceForSave || (typeof sourceImage === 'string' ? sourceImage : processedDataUrl);
+      setRawAvatarSource(rawToSave);
+      saveLocalKenchikoImage(processedDataUrl, rawToSave);
+      setCurrentAvatarPreview(processedDataUrl);
 
       // Save to GameState & Firebase
       onUpdateSaveData((prev) => ({
@@ -127,22 +158,43 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
-          customImageUrl: compressedDataUrl,
+          customImageUrl: processedDataUrl,
         },
       }));
 
       setIsProcessingAvatar(false);
-      setAvatarStatus('✅ けんちこのイラスト画像を登録しました！ステージ・全画面に反映されています。');
-      confetti({ particleCount: 45, spread: 80, origin: { y: 0.5 } });
+      setAvatarStatus(
+        autoTransparent
+          ? '✨ 背景を綺麗に自動透過して登録しました！'
+          : '✅ イラスト画像を登録しました！'
+      );
+      confetti({ particleCount: 35, spread: 70, origin: { y: 0.5 } });
     } catch (err: any) {
       setIsProcessingAvatar(false);
-      setAvatarStatus(`❌ 画像の読み込みに失敗しました: ${err.message || '別の画像をお試しください'}`);
+      setAvatarStatus(`❌ 処理に失敗しました: ${err.message || '別の画像をお試しください'}`);
     }
+  };
+
+  const handleKenchikoAvatarUpload = async (file: File) => {
+    // Read raw file to DataURL first so we can re-process if user adjusts sliders
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const rawDataUrl = (e.target?.result as string) || '';
+      setRawAvatarSource(rawDataUrl);
+      await processAndApplyAvatar(rawDataUrl, rawDataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleReprocessWithSettings = async () => {
+    if (!rawAvatarSource) return;
+    await processAndApplyAvatar(rawAvatarSource, rawAvatarSource);
   };
 
   const handleResetKenchikoAvatar = () => {
     if (!window.confirm('登録したけんちこのイラストを削除して未登録状態に戻しますか？')) return;
-    saveLocalKenchikoImage('');
+    saveLocalKenchikoImage('', '');
+    setRawAvatarSource('');
     setCurrentAvatarPreview('');
     onUpdateSaveData((prev) => ({
       ...prev,
@@ -183,13 +235,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   // Asobi Editor State
   const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
   const [editingAsobiId, setEditingAsobiId] = useState<string | null>(null);
+  const [asobiViewMode, setAsobiViewMode] = useState<'sheet' | 'cards' | 'batch'>('sheet');
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCondition, setNewCondition] = useState<AsobiConditionScope>('all');
   const [newFrequency, setNewFrequency] = useState<AsobiFrequency>('normal');
+  const [batchRawText, setBatchRawText] = useState('');
+  const [batchDefaultCondition, setBatchDefaultCondition] = useState<AsobiConditionScope>('all');
+  const [batchDefaultFrequency, setBatchDefaultFrequency] = useState<AsobiFrequency>('normal');
   const [asobiNotice, setAsobiNotice] = useState<string | null>(null);
   const [filterCondition, setFilterCondition] = useState<string>('all');
   const [searchEventQuery, setSearchEventQuery] = useState('');
+  const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
 
   // Database Inspector State
   const [dbSubTab, setDbSubTab] = useState<'characters' | 'inventory' | 'stats'>('characters');
@@ -375,6 +432,178 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setNewCondition(preset.condition);
     setNewFrequency('normal');
     setAsobiNotice(`💡 テンプレート「${preset.name}」をフォームにセットしました。内容を調整して保存してください。`);
+  };
+
+  // Duplicate an existing event to create a quick variation
+  const handleDuplicateAsobi = (item: KenchikoAsobi) => {
+    const newItem: KenchikoAsobi = {
+      id: `asobi_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      title: `${item.title} (コピー)`,
+      content: item.content,
+      condition: item.condition,
+      frequency: item.frequency,
+      createdAt: Date.now(),
+    };
+    const updatedList = [newItem, ...asobiList];
+    setAsobiList(updatedList);
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
+    setAsobiNotice(`📋 「${item.title}」を複製しました。リスト上部でセリフを編集できます。`);
+  };
+
+  // Quick Inline cell update for Spreadsheet Table
+  const handleInlineUpdateAsobi = (id: string, field: keyof KenchikoAsobi, value: any) => {
+    const updatedList = asobiList.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            [field]: value,
+            updatedAt: Date.now(),
+          }
+        : item
+    );
+    setAsobiList(updatedList);
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
+  };
+
+  // Add blank row at top of spreadsheet
+  const handleAddBlankSpreadsheetRow = () => {
+    const newItem: KenchikoAsobi = {
+      id: `asobi_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      title: '新しい行動タイトル',
+      content: 'けんちこのセリフを入力してください',
+      condition: 'all',
+      frequency: 'normal',
+      createdAt: Date.now(),
+    };
+    const updatedList = [newItem, ...asobiList];
+    setAsobiList(updatedList);
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
+    setAsobiNotice('➕ 新しい行を追加しました。表のセルを直接クリックして文字を編集できます。');
+  };
+
+  // Batch Bulk Parse & Import
+  const handleExecuteBatchTextImport = () => {
+    if (!batchRawText.trim()) {
+      setAsobiNotice('⚠️ テキストを入力してください。');
+      return;
+    }
+
+    const lines = batchRawText.split('\n').filter((l) => l.trim().length > 0);
+    const newItems: KenchikoAsobi = [];
+    let count = 0;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      let title = '';
+      let content = '';
+      let condition = batchDefaultCondition;
+      let frequency = batchDefaultFrequency;
+
+      // Check delimiters: '|' or ':' or '：' or '\t' (TSV from Excel)
+      if (line.includes('\t')) {
+        const parts = line.split('\t').map((p) => p.trim());
+        title = parts[0] || 'けんちこの行動';
+        content = parts[1] || parts[0];
+        if (parts[2]) {
+          // parse condition
+          const matchLoc = Object.values(LOCATIONS).find((l) => l.name === parts[2]);
+          if (matchLoc) condition = `loc_${matchLoc.id}` as AsobiConditionScope;
+        }
+      } else if (line.includes('|')) {
+        const parts = line.split('|').map((p) => p.trim());
+        title = parts[0] || 'けんちこの行動';
+        content = parts[1] || parts[0];
+        if (parts[2]) {
+          const matchLoc = Object.values(LOCATIONS).find((l) => l.name === parts[2]);
+          if (matchLoc) condition = `loc_${matchLoc.id}` as AsobiConditionScope;
+        }
+      } else if (line.includes('：') || line.includes(':')) {
+        const delim = line.includes('：') ? '：' : ':';
+        const parts = line.split(delim).map((p) => p.trim());
+        title = parts[0] || 'けんちこの行動';
+        content = parts.slice(1).join(delim) || parts[0];
+      } else {
+        title = line;
+        content = line;
+      }
+
+      // strip quotes if present
+      content = content.replace(/^「|」$/g, '').replace(/^"|"$/g, '').trim();
+
+      newItems.push({
+        id: `asobi_${Date.now()}_${count}_${Math.random().toString(36).substr(2, 4)}`,
+        title: title || 'けんちこの行動',
+        content: content || 'るんるん♪',
+        condition,
+        frequency,
+        createdAt: Date.now(),
+      });
+      count++;
+    }
+
+    if (newItems.length === 0) {
+      setAsobiNotice('⚠️ 有効な行が見つかりませんでした。');
+      return;
+    }
+
+    const updatedList = [...newItems, ...asobiList];
+    setAsobiList(updatedList);
+    setBatchRawText('');
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
+    setAsobiViewMode('sheet');
+    setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました！スプレッドシート表で即時確認・編集できます。`);
+    confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
+  };
+
+  // Toggle selection for batch operations
+  const handleToggleSelectAsobi = (id: string) => {
+    setSelectedAsobiIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAllFilteredAsobi = () => {
+    if (selectedAsobiIds.size >= filteredEvents.length && filteredEvents.length > 0) {
+      setSelectedAsobiIds(new Set());
+    } else {
+      setSelectedAsobiIds(new Set(filteredEvents.map((e) => e.id)));
+    }
+  };
+
+  const handleDeleteSelectedAsobi = () => {
+    if (selectedAsobiIds.size === 0) return;
+    if (!window.confirm(`選択中の ${selectedAsobiIds.size} 件のイベントを一括削除しますか？`)) return;
+
+    const updatedList = asobiList.filter((item) => !selectedAsobiIds.has(item.id));
+    setAsobiList(updatedList);
+    setSelectedAsobiIds(new Set());
+    onUpdateSaveData((prev) => ({
+      ...prev,
+      asobiList: updatedList,
+      lastSaved: Date.now(),
+    }));
+    setAsobiNotice(`🗑️ 選択したイベントを一括削除しました。`);
   };
 
   // --- Firebase CRUD for Characters & Items ---
@@ -765,8 +994,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Left: Current Active Image Preview */}
                 <div className="bg-[#FAF8F4] p-5 rounded-2xl border border-[#DDD7C8] flex flex-col items-center justify-center text-center">
-                  <span className="text-xs font-bold text-[#7D756D] mb-3">現在のけんちこ画像</span>
-                  <div className="w-44 h-44 rounded-2xl bg-[#EAE5D9] border-2 border-[#2E2824] p-2 flex items-center justify-center overflow-hidden shadow-inner relative">
+                  <span className="text-xs font-bold text-[#7D756D] mb-2">現在のけんちこ画像プレビュー</span>
+                  <div
+                    className="w-48 h-48 rounded-2xl border-2 border-[#2E2824] p-2 flex items-center justify-center overflow-hidden shadow-inner relative"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(45deg, #E2DFD8 25%, transparent 25%), linear-gradient(-45deg, #E2DFD8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E2DFD8 75%), linear-gradient(-45deg, transparent 75%, #E2DFD8 75%)',
+                      backgroundSize: '16px 16px',
+                      backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+                      backgroundColor: '#F7F5F0',
+                    }}
+                  >
                     {currentAvatarPreview ? (
                       <img
                         src={currentAvatarPreview}
@@ -774,12 +1012,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                         className="max-w-full max-h-full object-contain filter drop-shadow-md"
                       />
                     ) : (
-                      <div className="text-center p-3">
+                      <div className="text-center p-3 bg-white/80 rounded-xl">
                         <ImageIcon className="w-8 h-8 text-[#9E958C] mx-auto mb-1" />
                         <span className="text-[11px] text-[#6B6259] font-bold">未登録</span>
                       </div>
                     )}
                   </div>
+                  <span className="text-[10px] text-[#9E958C] mt-1.5">
+                    ※ 市松模様の部分は透明（透過）になっています
+                  </span>
+
                   {currentAvatarPreview && (
                     <button
                       onClick={handleResetKenchikoAvatar}
@@ -791,8 +1033,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   )}
                 </div>
 
-                {/* Right: Upload Dropzone & Controls */}
+                {/* Right: Upload Dropzone & Transparency Controls */}
                 <div className="md:col-span-2 space-y-3">
+                  {/* Upload Box */}
                   <div
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -806,20 +1049,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                         handleKenchikoAvatarUpload(e.dataTransfer.files[0]);
                       }
                     }}
-                    className={`p-6 border-2 border-dashed rounded-2xl text-center transition flex flex-col items-center justify-center min-h-[180px] ${
+                    className={`p-5 border-2 border-dashed rounded-2xl text-center transition flex flex-col items-center justify-center ${
                       avatarDragActive
                         ? 'border-[#C8744E] bg-[#FAF2EB]'
                         : 'border-[#DDD7C8] bg-white hover:border-[#C8744E]'
                     }`}
                   >
-                    <Upload className="w-8 h-8 mx-auto text-[#C8744E] mb-2" />
+                    <Upload className="w-7 h-7 mx-auto text-[#C8744E] mb-1.5" />
                     <p className="text-xs font-bold text-[#3A342F]">
                       けんちこのイラスト画像をここにドラッグ＆ドロップ
                     </p>
-                    <p className="text-[11px] text-[#7D756D] mt-1">
-                      PNG, JPEG, WebP (背景透過PNG推奨)
+                    <p className="text-[11px] text-[#7D756D] mt-0.5">
+                      白背景の画像もプログラムが自動で自然に透明化します
                     </p>
-                    <label className="mt-3 inline-block px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white font-bold text-xs rounded-xl cursor-pointer transition shadow-sm">
+                    <label className="mt-2.5 inline-block px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white font-bold text-xs rounded-xl cursor-pointer transition shadow-sm">
                       {isProcessingAvatar ? '処理中...' : '画像ファイルを選択'}
                       <input
                         type="file"
@@ -835,6 +1078,69 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     </label>
                   </div>
 
+                  {/* Smart Transparency Settings Panel */}
+                  <div className="p-4 bg-[#FAF8F5] rounded-2xl border border-[#DDD7C8] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoTransparent}
+                          onChange={(e) => setAutoTransparent(e.target.checked)}
+                          className="w-4 h-4 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
+                        />
+                        <span className="text-xs font-bold text-[#3A342F] flex items-center gap-1.5">
+                          <Wand2 className="w-3.5 h-3.5 text-[#C8744E]" />
+                          プログラムによる背景自動透過（白抜き）
+                        </span>
+                      </label>
+                      <span className="text-[10px] bg-[#EFECE4] text-[#6B6259] px-2 py-0.5 rounded-full font-bold">
+                        外側余白のみ安全抽出
+                      </span>
+                    </div>
+
+                    {autoTransparent && (
+                      <div className="space-y-2 pt-1 border-t border-[#EAE5D9]">
+                        <div className="flex items-center justify-between text-xs text-[#5A524A]">
+                          <span className="font-bold">透過の強さ（色の許容しきい値）: {transparencyTolerance}</span>
+                          <span className="text-[10px] text-[#9E958C]">標準: 30 (20〜45推奨)</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="10"
+                          max="65"
+                          step="1"
+                          value={transparencyTolerance}
+                          onChange={(e) => setTransparencyTolerance(Number(e.target.value))}
+                          className="w-full h-1.5 bg-[#DDD7C8] rounded-lg appearance-none cursor-pointer accent-[#C8744E]"
+                        />
+
+                        <div className="flex items-center justify-between pt-1">
+                          <label className="flex items-center gap-1.5 text-xs text-[#5A524A] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={trimPadding}
+                              onChange={(e) => setTrimPadding(e.target.checked)}
+                              className="w-3.5 h-3.5 text-[#C8744E] rounded border-[#DDD7C8]"
+                            />
+                            <span>余白の自動トリミング（綺麗に中央配置）</span>
+                          </label>
+
+                          {rawAvatarSource && (
+                            <button
+                              type="button"
+                              onClick={handleReprocessWithSettings}
+                              disabled={isProcessingAvatar}
+                              className="flex items-center gap-1 px-3 py-1 bg-[#2E2824] hover:bg-[#453D37] text-white text-xs font-bold rounded-lg transition shadow-xs disabled:opacity-50"
+                            >
+                              <Sparkles className="w-3 h-3 text-[#E8C28A]" />
+                              設定を再適用
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {avatarStatus && (
                     <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn">
                       {avatarStatus}
@@ -842,7 +1148,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   )}
 
                   <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#DDD7C8] text-[11px] text-[#6B6259] leading-relaxed">
-                    💡 <strong>ワンポイント:</strong> アップロードした画像は自動で最適化（軽量化・圧縮）され、端末ストレージおよびFirebaseへ安全に保存されます。ブラウザをリロードしても消えません。
+                    💡 <strong>スマート透過の特長:</strong> 外側（背景）から繋がっている白やクリーム色の余白のみを自動認識して抜くため、けんちこの白いTシャツやメガネ・目の白い反射は消えずにそのまま残ります。
                   </div>
                 </div>
               </div>
@@ -854,161 +1160,317 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* ========================================================= */}
           {activeTab === 'asobi' && (
             <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3]">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
-                    <Smile className="w-4 h-4 text-[#C8744E]" />
-                    全イベント・行動・セリフ設定コンソール
-                  </h4>
-                  <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    Firebase即時同期
-                  </span>
-                </div>
-                <p className="text-xs text-[#874A2E] leading-relaxed">
-                  現在アプリに実装されている<strong>「すべてのイベント（おやつ・睡眠・仕事・温泉・買い物・移動・歌・散歩など）」</strong>の内容、タイトル、発生条件、出現頻度をここで直接編集・追加・削除できます。変更内容はFirebase Firestoreへ即時反映されます。
-                </p>
-              </div>
-
-              {/* Event Quick Preset Bar */}
-              <div className="bg-[#F5EBE1] p-3 rounded-2xl border border-[#E8D7C7] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-black text-[#874A2E] flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-[#C8744E]" />
-                    クイックイベント作成テンプレート
-                  </span>
-                  <span className="text-[10px] text-[#A66C52]">クリックでフォームに入力</span>
-                </div>
-                <div className="flex gap-1.5 overflow-x-auto pb-1">
-                  {EVENT_PRESET_TEMPLATES.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleApplyPresetTemplate(preset)}
-                      className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#FAF2EB] text-[#874A2E] border border-[#E8D7C7] text-[11px] font-bold whitespace-nowrap transition shadow-xs"
-                      title={preset.description}
-                    >
-                      {preset.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Add / Edit Form */}
-              <div id="asobi-form-anchor" className="bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8] space-y-3">
-                <div className="flex items-center justify-between border-b border-[#DDD7C8] pb-2">
-                  <span className="text-xs font-black text-[#3A342F] flex items-center gap-1.5">
-                    {editingAsobiId ? <Edit3 className="w-4 h-4 text-[#C8744E]" /> : <Plus className="w-4 h-4 text-[#728C7E]" />}
-                    {editingAsobiId ? '選択中のイベントを編集' : '新しいイベント・あそびを追加'}
-                  </span>
-                  {editingAsobiId && (
-                    <button
-                      onClick={handleCancelAsobiEdit}
-                      className="text-[11px] text-[#7D756D] hover:text-[#3A342F] underline"
-                    >
-                      編集をキャンセル
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      イベント名 / 行動タイトル (例: けんちこはうたをうたった)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="例: けんちこはうたをうたった"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
-                    />
+              {/* Header & Mode Switcher */}
+              <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3] flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
+                      <Smile className="w-4 h-4 text-[#C8744E]" />
+                      全イベント・行動・セリフ設定コンソール
+                    </h4>
+                    <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Firestore即時同期
+                    </span>
                   </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      内容・セリフ・つぶやき (例: 素敵なけんちこさん♪)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="例: 素敵なけんちこさん♪"
-                      value={newContent}
-                      onChange={(e) => setNewContent(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
-                    />
-                  </div>
+                  <p className="text-xs text-[#874A2E] leading-relaxed">
+                    けんちこの行動・セリフ・場所を<strong>スプレッドシート形式</strong>で表から直接編集・追加・複製できます。
+                  </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      発生条件（場所・移動手段）
-                    </label>
-                    <select
-                      value={newCondition}
-                      onChange={(e) => setNewCondition(e.target.value as AsobiConditionScope)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
-                    >
-                      <optgroup label="全般条件">
-                        <option value="all">すべて（滞在・移動を問わず常時）</option>
-                        <option value="all_locations">すべての場所（滞在中ならどこでも）</option>
-                        <option value="all_transports">すべての移動手段（移動中ならなんでも）</option>
-                      </optgroup>
-                      <optgroup label="特定の場所（滞在中）">
-                        {Object.values(LOCATIONS).map((loc) => (
-                          <option key={loc.id} value={`loc_${loc.id}`}>
-                            場所: {loc.name}（{loc.reading}）
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="特定の移動手段（移動中）">
-                        {TRANSPORT_METHODS.map((t) => (
-                          <option key={t.id} value={`trans_${t.id}`}>
-                            移動手段: {t.name}（{t.reading}）
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      頻度（出現割合）
-                    </label>
-                    <select
-                      value={newFrequency}
-                      onChange={(e) => setNewFrequency(e.target.value as AsobiFrequency)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
-                    >
-                      <option value="high">高頻度（とてもよく出る）</option>
-                      <option value="normal">通常（標準的な頻度）</option>
-                      <option value="rare">レア（めったに出ない特別な行動）</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-1 flex justify-end">
+                {/* View Mode Tabs */}
+                <div className="flex items-center bg-[#EFECE4] p-1 rounded-xl border border-[#DDD7C8] shrink-0 self-start md:self-center">
                   <button
-                    onClick={handleAddOrUpdateAsobi}
-                    className="flex items-center gap-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition"
+                    onClick={() => setAsobiViewMode('sheet')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      asobiViewMode === 'sheet'
+                        ? 'bg-[#2E2824] text-white shadow-xs'
+                        : 'text-[#6B6259] hover:text-[#2E2824]'
+                    }`}
                   >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>{editingAsobiId ? 'イベントを更新して保存' : 'イベントを追加して保存'}</span>
+                    <Table className="w-3.5 h-3.5" />
+                    <span>スプレッドシート表</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAsobiViewMode('batch')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      asobiViewMode === 'batch'
+                        ? 'bg-[#2E2824] text-white shadow-xs'
+                        : 'text-[#6B6259] hover:text-[#2E2824]'
+                    }`}
+                  >
+                    <ListPlus className="w-3.5 h-3.5 text-[#E8C28A]" />
+                    <span>テキスト一括追加</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAsobiViewMode('cards')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      asobiViewMode === 'cards'
+                        ? 'bg-[#2E2824] text-white shadow-xs'
+                        : 'text-[#6B6259] hover:text-[#2E2824]'
+                    }`}
+                  >
+                    <Files className="w-3.5 h-3.5" />
+                    <span>カード詳細一覧</span>
                   </button>
                 </div>
               </div>
 
-              {asobiNotice && (
-                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn">
-                  {asobiNotice}
+              {/* Mode: TEXT BATCH BULK IMPORT */}
+              {asobiViewMode === 'batch' && (
+                <div className="bg-[#FAF8F5] p-5 rounded-2xl border-2 border-[#C8744E] space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between border-b border-[#DDD7C8] pb-2">
+                    <span className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
+                      <ListPlus className="w-4 h-4 text-[#C8744E]" />
+                      テキスト・メモの一括まとめて登録モード
+                    </span>
+                    <button
+                      onClick={() => setAsobiViewMode('sheet')}
+                      className="text-xs text-[#7D756D] hover:text-[#2E2824] font-bold"
+                    >
+                      スプレッドシートへ戻る
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-[#6B6259] leading-relaxed">
+                    メモ帳やExcelから<strong>1行に1つずつ</strong>貼り付けるだけで、一気に10〜30件登録できます。<br />
+                    区切り文字（<code>|</code> または <code>:</code> または <code>タブ</code>）を使って「行動タイトル | セリフ」の形式で入力できます。
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-[#DDD7C8]">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                        共通の発生場所（未指定行に適用）
+                      </label>
+                      <select
+                        value={batchDefaultCondition}
+                        onChange={(e) => setBatchDefaultCondition(e.target.value as AsobiConditionScope)}
+                        className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#DDD7C8] rounded-lg text-xs text-[#3A342F]"
+                      >
+                        <option value="all">すべて（どこでも）</option>
+                        <option value="all_locations">すべての場所（滞在中）</option>
+                        <option value="all_transports">すべての移動手段（移動中）</option>
+                        {Object.values(LOCATIONS).map((l) => (
+                          <option key={l.id} value={`loc_${l.id}`}>
+                            場所: {l.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                        共通の出現頻度
+                      </label>
+                      <select
+                        value={batchDefaultFrequency}
+                        onChange={(e) => setBatchDefaultFrequency(e.target.value as AsobiFrequency)}
+                        className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#DDD7C8] rounded-lg text-xs text-[#3A342F]"
+                      >
+                        <option value="normal">通常</option>
+                        <option value="high">高頻度（出やすい）</option>
+                        <option value="rare">レア</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1 flex items-center justify-between">
+                      <span>テキスト貼り付けエリア (1行 = 1つのあそび)</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBatchRawText(
+                            `縁側で日向ぼっこ | ぽかぽかして気持ちいいなぁ…\n冷たい麦茶を飲む | ごくごく…ぷはーっ！\nお気に入りの本を読む | このページすごくワクワクする！\n鼻歌を口ずさむ | フンフンフ〜ン♪ 素敵な日〜\n猫じゃらしを振る | にゃんこ寄ってくるかな？`
+                          );
+                        }}
+                        className="text-[11px] text-[#C8744E] hover:underline font-bold"
+                      >
+                        📋 サンプルを入力
+                      </button>
+                    </label>
+                    <textarea
+                      rows={8}
+                      placeholder={`例:\n縁側で日向ぼっこ | ぽかぽかして気持ちいいなぁ…\n冷たい麦茶を飲む | ごくごく…ぷはーっ！\nお散歩に出かける | いい風が吹いてるね`}
+                      value={batchRawText}
+                      onChange={(e) => setBatchRawText(e.target.value)}
+                      className="w-full p-3 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setBatchRawText('')}
+                      className="px-3 py-1.5 text-xs text-[#7D756D] hover:text-[#2E2824]"
+                    >
+                      クリア
+                    </button>
+                    <button
+                      onClick={handleExecuteBatchTextImport}
+                      className="flex items-center gap-1.5 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-bold px-5 py-2 rounded-xl shadow-sm transition"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      <span>上記の内容を一括登録する</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Event Filter & Search Bar */}
+              {/* Quick Input Bar with Chips & Live Speech Bubble Preview */}
+              <div id="asobi-form-anchor" className="bg-[#F7F4EC] p-4 rounded-2xl border border-[#DDD7C8] space-y-3">
+                <div className="flex items-center justify-between border-b border-[#DDD7C8] pb-2">
+                  <span className="text-xs font-black text-[#3A342F] flex items-center gap-1.5">
+                    {editingAsobiId ? <Edit3 className="w-4 h-4 text-[#C8744E]" /> : <PlusCircle className="w-4 h-4 text-[#728C7E]" />}
+                    {editingAsobiId ? '選択中のイベントを編集' : 'クイック追加フォーム（ワンタップ選択＆吹き出し確認）'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {editingAsobiId && (
+                      <button
+                        onClick={handleCancelAsobiEdit}
+                        className="text-[11px] text-[#7D756D] hover:text-[#3A342F] underline"
+                      >
+                        編集をキャンセル
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Location Quick Select Chips */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-[#7D756D]">発生場所のクイック選択チップ:</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewCondition('all')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 ${
+                        newCondition === 'all'
+                          ? 'bg-[#2E2824] text-white shadow-xs'
+                          : 'bg-white border border-[#DDD7C8] text-[#6B6259] hover:bg-[#FAF2EB]'
+                      }`}
+                    >
+                      🌟 常時（どこでも）
+                    </button>
+                    {Object.values(LOCATIONS).map((loc) => (
+                      <button
+                        key={loc.id}
+                        type="button"
+                        onClick={() => setNewCondition(`loc_${loc.id}` as AsobiConditionScope)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 ${
+                          newCondition === `loc_${loc.id}`
+                            ? 'bg-[#C8744E] text-white shadow-xs'
+                            : 'bg-white border border-[#DDD7C8] text-[#6B6259] hover:bg-[#FAF2EB]'
+                        }`}
+                      >
+                        {loc.name}
+                      </button>
+                    ))}
+                    {TRANSPORT_METHODS.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setNewCondition(`trans_${t.id}` as AsobiConditionScope)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 ${
+                          newCondition === `trans_${t.id}`
+                            ? 'bg-[#728C7E] text-white shadow-xs'
+                            : 'bg-white border border-[#DDD7C8] text-[#6B6259] hover:bg-[#FAF2EB]'
+                        }`}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Inputs & Live Speech Bubble Preview */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                  <div className="md:col-span-2 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#6B6259] mb-0.5">
+                          行動タイトル
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="例: けんちこは鼻歌をうたった"
+                          value={newTitle}
+                          onChange={(e) => setNewTitle(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#6B6259] mb-0.5">
+                          出現頻度
+                        </label>
+                        <select
+                          value={newFrequency}
+                          onChange={(e) => setNewFrequency(e.target.value as AsobiFrequency)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F]"
+                        >
+                          <option value="normal">通常（標準的な頻度）</option>
+                          <option value="high">高頻度（とてもよく出る）</option>
+                          <option value="rare">レア（特別な行動）</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#6B6259] mb-0.5">
+                        けんちこのセリフ・つぶやき
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="例: ルンルン気分〜♪ 今日もいい天気！"
+                        value={newContent}
+                        onChange={(e) => setNewContent(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Speech Bubble Live Preview Card */}
+                  <div className="bg-white p-3 rounded-2xl border border-[#DDD7C8] flex flex-col justify-center shadow-xs">
+                    <span className="text-[10px] font-bold text-[#7D756D] mb-1">💬 リアルタイム吹き出し見本</span>
+                    <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EAE5D9] relative">
+                      <span className="text-[10px] font-bold text-[#C8744E] block">
+                        {newTitle.trim() || 'けんちこの行動'}
+                      </span>
+                      <p className="text-xs text-[#2E2824] font-serif italic mt-0.5">
+                        「{newContent.trim() || 'るんるん…♪'}」
+                      </p>
+                      <div className="mt-1.5 flex items-center justify-between text-[9px] text-[#9E958C]">
+                        <span>{getConditionLabel(newCondition)}</span>
+                        <span>{getFrequencyLabel(newFrequency)}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleAddOrUpdateAsobi}
+                      className="mt-2.5 w-full flex items-center justify-center gap-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white font-bold text-xs py-2 rounded-xl shadow-xs transition"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{editingAsobiId ? '更新して保存' : '行を追加して保存'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {asobiNotice && (
+                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn flex items-center justify-between">
+                  <span>{asobiNotice}</span>
+                  <button onClick={() => setAsobiNotice(null)} className="text-[#7D756D] hover:text-[#2E2824] text-xs">
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Search, Filter & Bulk Action Toolbar */}
               <div className="flex flex-col sm:flex-row gap-2 items-center justify-between bg-white p-3 rounded-2xl border border-[#DDD7C8]">
                 <div className="relative flex-1 w-full">
                   <Search className="w-3.5 h-3.5 text-[#7D756D] absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="イベント名やセリフで絞り込み..."
+                    placeholder="表のタイトルやセリフを検索..."
                     value={searchEventQuery}
                     onChange={(e) => setSearchEventQuery(e.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 bg-[#FAF8F5] border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
@@ -1036,16 +1498,184 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       </option>
                     ))}
                   </select>
+
+                  <button
+                    onClick={handleAddBlankSpreadsheetRow}
+                    className="flex items-center gap-1 bg-[#2E2824] hover:bg-[#453D37] text-white text-xs font-bold px-3 py-1.5 rounded-xl transition shadow-xs shrink-0"
+                    title="表の先頭に空行を挿入"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">空行追加</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Registered Events List */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-black text-[#6B6259] px-1">
-                  <span>登録済みイベント一覧 ({filteredEvents.length}件 / 全{asobiList.length}件)</span>
-                  <span className="text-[10px] text-[#7D756D]">クリックで編集・削除</span>
+              {/* Bulk Selected Actions Bar */}
+              {selectedAsobiIds.size > 0 && (
+                <div className="bg-[#FAF2EB] px-4 py-2.5 rounded-2xl border border-[#F0D5C3] flex items-center justify-between animate-fadeIn">
+                  <span className="text-xs font-bold text-[#874A2E]">
+                    {selectedAsobiIds.size} 件を選択中
+                  </span>
+                  <button
+                    onClick={handleDeleteSelectedAsobi}
+                    className="flex items-center gap-1 bg-[#D05A3F] hover:bg-[#B3452C] text-white text-xs font-bold px-3 py-1 rounded-lg transition shadow-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>選択した行を一括削除</span>
+                  </button>
                 </div>
+              )}
 
+              {/* ========================================================= */}
+              {/* SPREADSHEET TABLE VIEW (インライン直接編集) */}
+              {/* ========================================================= */}
+              {asobiViewMode === 'sheet' && (
+                <div className="bg-white rounded-2xl border border-[#DDD7C8] overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto max-h-[500px]">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead className="bg-[#F7F4EC] text-[#6B6259] font-bold sticky top-0 z-10 border-b border-[#DDD7C8]">
+                        <tr>
+                          <th className="p-2.5 w-10 text-center">
+                            <button
+                              onClick={handleSelectAllFilteredAsobi}
+                              className="text-[#6B6259] hover:text-[#2E2824]"
+                              title="すべて選択/解除"
+                            >
+                              {selectedAsobiIds.size >= filteredEvents.length && filteredEvents.length > 0 ? (
+                                <CheckSquare className="w-4 h-4 text-[#C8744E]" />
+                              ) : (
+                                <Square className="w-4 h-4" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="p-2.5 min-w-[180px]">行動タイトル (クリックして編集)</th>
+                          <th className="p-2.5 min-w-[260px]">セリフ・つぶやき (クリックして編集)</th>
+                          <th className="p-2.5 min-w-[130px]">発生場所・条件</th>
+                          <th className="p-2.5 min-w-[100px]">出現頻度</th>
+                          <th className="p-2.5 w-24 text-center">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EAE5D9]">
+                        {filteredEvents.map((item, idx) => (
+                          <tr
+                            key={item.id}
+                            className={`hover:bg-[#FAF8F5] transition ${
+                              selectedAsobiIds.has(item.id) ? 'bg-[#FAF2EB]' : idx % 2 === 0 ? 'bg-white' : 'bg-[#FAF9F6]'
+                            }`}
+                          >
+                            {/* Checkbox */}
+                            <td className="p-2.5 text-center">
+                              <button
+                                onClick={() => handleToggleSelectAsobi(item.id)}
+                                className="text-[#9E958C] hover:text-[#C8744E]"
+                              >
+                                {selectedAsobiIds.has(item.id) ? (
+                                  <CheckSquare className="w-4 h-4 text-[#C8744E]" />
+                                ) : (
+                                  <Square className="w-4 h-4" />
+                                )}
+                              </button>
+                            </td>
+
+                            {/* Title Cell */}
+                            <td className="p-2">
+                              <input
+                                type="text"
+                                value={item.title}
+                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'title', e.target.value)}
+                                className="w-full px-2 py-1 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-[#DDD7C8] focus:border-[#C8744E] rounded-md text-xs font-bold text-[#3A342F] focus:outline-none transition"
+                              />
+                            </td>
+
+                            {/* Content / Dialogue Cell */}
+                            <td className="p-2">
+                              <input
+                                type="text"
+                                value={item.content}
+                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'content', e.target.value)}
+                                className="w-full px-2 py-1 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-[#DDD7C8] focus:border-[#C8744E] rounded-md text-xs text-[#5A524A] font-serif focus:outline-none transition"
+                              />
+                            </td>
+
+                            {/* Condition Dropdown */}
+                            <td className="p-2">
+                              <select
+                                value={item.condition}
+                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'condition', e.target.value as AsobiConditionScope)}
+                                className="w-full px-2 py-1 bg-white border border-[#DDD7C8] rounded-md text-[11px] text-[#3A342F] font-bold focus:outline-none focus:border-[#C8744E]"
+                              >
+                                <option value="all">🌟 すべて（常時）</option>
+                                <option value="all_locations">すべての場所</option>
+                                <option value="all_transports">すべての移動</option>
+                                {Object.values(LOCATIONS).map((loc) => (
+                                  <option key={loc.id} value={`loc_${loc.id}`}>
+                                    {loc.name}
+                                  </option>
+                                ))}
+                                {TRANSPORT_METHODS.map((t) => (
+                                  <option key={t.id} value={`trans_${t.id}`}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Frequency Dropdown */}
+                            <td className="p-2">
+                              <select
+                                value={item.frequency}
+                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'frequency', e.target.value as AsobiFrequency)}
+                                className="w-full px-2 py-1 bg-white border border-[#DDD7C8] rounded-md text-[11px] text-[#3A342F] font-bold focus:outline-none focus:border-[#C8744E]"
+                              >
+                                <option value="normal">通常</option>
+                                <option value="high">高頻度</option>
+                                <option value="rare">レア</option>
+                              </select>
+                            </td>
+
+                            {/* Action Buttons */}
+                            <td className="p-2 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => handleDuplicateAsobi(item)}
+                                  className="p-1 text-[#7D756D] hover:text-[#C8744E] hover:bg-[#FAF2EB] rounded-md transition"
+                                  title="この行を複製（コピー）"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAsobi(item.id, item.title)}
+                                  className="p-1 text-[#D05A3F] hover:bg-[#FAF0ED] rounded-md transition"
+                                  title="削除"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table Footer */}
+                  <div className="bg-[#FAF8F5] p-3 border-t border-[#DDD7C8] flex items-center justify-between text-xs text-[#7D756D]">
+                    <span>表示中: {filteredEvents.length} 件 / 全 {asobiList.length} 件</span>
+                    <button
+                      onClick={handleAddBlankSpreadsheetRow}
+                      className="flex items-center gap-1 text-[#C8744E] hover:underline font-bold"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      一番下に新しい行を追加
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================= */}
+              {/* CARD DETAILED VIEW (カード形式) */}
+              {/* ========================================================= */}
+              {asobiViewMode === 'cards' && (
                 <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                   {filteredEvents.map((item) => (
                     <div
@@ -1081,6 +1711,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
                       <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                         <button
+                          onClick={() => handleDuplicateAsobi(item)}
+                          className="p-1.5 bg-[#FAF2EB] hover:bg-[#F3E3D6] text-[#C8744E] rounded-lg transition"
+                          title="複製して追加"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => handleEditAsobi(item)}
                           className="p-1.5 bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#4A443F] rounded-lg transition"
                           title="編集"
@@ -1104,7 +1741,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     </div>
                   )}
                 </div>
-              </div>
+              )}
             </div>
           )}
 
