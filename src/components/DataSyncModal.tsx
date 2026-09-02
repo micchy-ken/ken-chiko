@@ -90,7 +90,7 @@ interface DataSyncModalProps {
   onClose: () => void;
   onImportNyans: (updated: NyanCharacter[], addedCount: number, updatedCount: number) => void;
   onSaveFirebaseConfig: (config: FirebaseCustomConfig) => void;
-  onUpdateSaveData: (updater: (prev: GameSaveData) => GameSaveData) => void;
+  onUpdateSaveData: (updater: (prev: GameSaveData) => GameSaveData, isImmediate?: boolean) => void;
 }
 
 const DEFAULT_AUTH_PASSWORD = 'wakaro';
@@ -253,13 +253,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [searchCharQuery, setSearchCharQuery] = useState('');
   const [dbNotice, setDbNotice] = useState<string | null>(null);
 
-  // Sync asobiList state if remote Firestore updates while modal is open
-  React.useEffect(() => {
-    if (saveData.asobiList && !editingAsobiId) {
-      setAsobiList(saveData.asobiList);
-    }
-  }, [saveData.asobiList, editingAsobiId]);
-
   // Password Authentication Handler
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,7 +310,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     onSaveFirebaseConfig(config);
 
     const dataToSync = customSaveData || saveData;
-    const res = await syncSaveDataToFirebase(dataToSync, config);
+    const res = await syncSaveDataToFirebase(dataToSync, true, config);
     setIsSyncing(false);
     if (res.success) {
       setFbSyncStatus(
@@ -383,7 +376,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
   };
 
   const handleEditAsobi = (item: KenchikoAsobi) => {
@@ -408,13 +401,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setNewTitle('');
       setNewContent('');
     }
-    setAsobiNotice(`🗑️ イベント「${title}」を削除しました。Firebaseへ反映中...`);
+    setAsobiNotice(`🗑️ イベント「${title}」を削除しました。`);
 
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
   };
 
   const handleCancelAsobiEdit = () => {
@@ -450,7 +443,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
     setAsobiNotice(`📋 「${item.title}」を複製しました。リスト上部でセリフを編集できます。`);
   };
 
@@ -470,7 +463,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
   };
 
   // Add blank row at top of spreadsheet
@@ -489,7 +482,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
     setAsobiNotice('➕ 新しい行を追加しました。表のセルを直接クリックして文字を編集できます。');
   };
 
@@ -501,7 +494,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
 
     const lines = batchRawText.split('\n').filter((l) => l.trim().length > 0);
-    const newItems: KenchikoAsobi = [];
+    const newItems: KenchikoAsobi[] = [];
     let count = 0;
 
     for (const rawLine of lines) {
@@ -567,7 +560,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
     setAsobiViewMode('sheet');
     setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました！スプレッドシート表で即時確認・編集できます。`);
     confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
@@ -602,7 +595,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }));
+    }), true);
     setAsobiNotice(`🗑️ 選択したイベントを一括削除しました。`);
   };
 

@@ -122,8 +122,8 @@ export function getRandomMonologue(
   // Check if matching custom asobi exists
   const matchedAsobi = getMatchingAsobiList(asobiList, currentLocation, transportMethod);
 
-  // If matched custom asobi found, weighted random pick (high=3x, normal=1.5x, rare=0.5x)
-  if (matchedAsobi.length > 0 && Math.random() < 0.65) {
+  // If matched custom asobi found, ALWAYS prioritize custom asobi entries
+  if (matchedAsobi.length > 0) {
     const weightedPool: KenchikoAsobi[] = [];
     matchedAsobi.forEach((a) => {
       const weight = a.frequency === 'high' ? 4 : a.frequency === 'normal' ? 2 : 1;
@@ -141,7 +141,7 @@ export function getRandomMonologue(
     }
   }
 
-  // Fallback to standard monologues
+  // Fallback to standard monologues only if no custom asobi matched
   const pool = MONOLOGUES[activity] || MONOLOGUES.spacing_out;
   let quote = pool[Math.floor(Math.random() * pool.length)];
   if (companionName && Math.random() > 0.5) {
@@ -205,10 +205,17 @@ export function generateNextActivity(
     }
   }
 
-  // Check if custom asobi should trigger as an activity
+  // Check if custom asobi should trigger as an activity (prioritize user custom activities)
   const matchedAsobi = getMatchingAsobiList(asobiList, currentLoc, null);
-  if (matchedAsobi.length > 0 && Math.random() < 0.35) {
-    const chosenAsobi = matchedAsobi[Math.floor(Math.random() * matchedAsobi.length)];
+  if (matchedAsobi.length > 0 && Math.random() < 0.8) {
+    const weightedPool: KenchikoAsobi[] = [];
+    matchedAsobi.forEach((a) => {
+      const weight = a.frequency === 'high' ? 4 : a.frequency === 'normal' ? 2 : 1;
+      for (let i = 0; i < weight; i++) {
+        weightedPool.push(a);
+      }
+    });
+    const chosenAsobi = weightedPool[Math.floor(Math.random() * weightedPool.length)];
     return {
       type: 'custom_action',
       title: chosenAsobi.title,

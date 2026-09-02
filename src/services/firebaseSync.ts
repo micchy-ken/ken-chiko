@@ -157,6 +157,32 @@ export async function testFirebaseConnection(
   }
 }
 
+// Local Backup Safety Net Key
+const LOCAL_BACKUP_KEY = 'kenchiko_save_state_backup_v2';
+
+export function saveLocalBackup(data: GameSaveData): void {
+  try {
+    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore quota or private browsing errors
+  }
+}
+
+export function loadLocalBackup(): GameSaveData | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.kenchiko) {
+        return parsed as GameSaveData;
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+}
+
 // Purge all legacy local storage data
 export function purgeLocalData(): void {
   try {
@@ -217,22 +243,24 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
 export async function fetchInitialFirebaseState(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
+  const localBackup = loadLocalBackup();
+
   try {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       notifyConnectionStatusChange(false, 'オフライン状態です');
-      return { success: false, data: DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
+      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
     }
 
     if (!firestoreDb) {
       const initRes = initFirebase(config);
       if (!initRes.success) {
         notifyConnectionStatusChange(false, initRes.error);
-        return { success: false, data: DEFAULT_INITIAL_STATE, error: initRes.error };
+        return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: initRes.error };
       }
     }
     if (!firestoreDb) {
       notifyConnectionStatusChange(false, 'Firestore is not ready');
-      return { success: false, data: DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
+      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
     }
 
     const docId = config.syncDocId || 'ken-chiko-global-state';
@@ -244,7 +272,34 @@ export async function fetchInitialFirebaseState(
       if (snap.exists()) {
         const remoteData = snap.data() as GameSaveData;
         if (remoteData && remoteData.kenchiko) {
-          return { success: true, data: remoteData, isNew: false };
+          // Robust merge: preserve custom asobiList and non-empty sub-arrays
+          const mergedAsobiList =
+            remoteData.asobiList && remoteData.asobiList.length > 0
+              ? remoteData.asobiList
+              : localBackup?.asobiList && localBackup.asobiList.length > 0
+              ? localBackup.asobiList
+              : DEFAULT_INITIAL_STATE.asobiList;
+
+          const mergedData: GameSaveData = {
+            ...DEFAULT_INITIAL_STATE,
+            ...remoteData,
+            asobiList: mergedAsobiList,
+            characters:
+              remoteData.characters && remoteData.characters.length > 0
+                ? remoteData.characters
+                : localBackup?.characters || DEFAULT_INITIAL_STATE.characters,
+            inventory:
+              remoteData.inventory && remoteData.inventory.length > 0
+                ? remoteData.inventory
+                : localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory,
+            diary:
+              remoteData.diary && remoteData.diary.length > 0
+                ? remoteData.diary
+                : localBackup?.diary || DEFAULT_INITIAL_STATE.diary,
+          };
+
+          saveLocalBackup(mergedData);
+          return { success: true, data: mergedData, isNew: false };
         }
       }
     } catch (readErr: any) {
@@ -259,39 +314,41 @@ export async function fetchInitialFirebaseState(
       }
     }
 
-    return { success: true, data: DEFAULT_INITIAL_STATE, isNew: false };
+    const fallbackState = localBackup || DEFAULT_INITIAL_STATE;
+    saveLocalBackup(fallbackState);
+    return { success: true, data: fallbackState, isNew: false };
   } catch (err: any) {
     console.error('Error fetching initial Firestore state', err);
     notifyConnectionStatusChange(false, err?.message || String(err));
-    return { success: false, data: DEFAULT_INITIAL_STATE, error: err.message };
+    return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: err.message };
   }
 }
 
-export async function syncSaveDataToFirebase(
+let pendingWriteTimeout: any = null;
+let latestPendingData: GameSaveData | null = null;
+let isWritingToFirestore = false;
+
+async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
-  // If quota is currently exceeded, skip network write and operate in memory
   if (isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil) {
-    return { success: false, error: 'Firestore無料書き込み上限のため待機中（メモリ動作）' };
+    return { success: false, error: 'Firestore無料書き込み上限のため待機中（ローカル保持）' };
   }
 
-  // Throttle writes: minimum 3 seconds between writes from a single client
-  const now = Date.now();
-  if (now - lastSuccessfulWriteTime < 3000) {
-    return { success: true };
-  }
-
+  isWritingToFirestore = true;
   try {
     if (!firestoreDb) {
       const initRes = initFirebase(config);
       if (!initRes.success) {
         notifyConnectionStatusChange(false, initRes.error);
+        isWritingToFirestore = false;
         return initRes;
       }
     }
     if (!firestoreDb) {
       notifyConnectionStatusChange(false, 'Firestore is not initialized');
+      isWritingToFirestore = false;
       return { success: false, error: 'Firestore is not initialized' };
     }
 
@@ -314,22 +371,75 @@ export async function syncSaveDataToFirebase(
       isQuotaCurrentlyExhausted = false;
       if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
     }
-
+    isWritingToFirestore = false;
     return { success: true };
   } catch (err: any) {
+    isWritingToFirestore = false;
     const errMsg = err?.message || String(err);
     if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
       isQuotaCurrentlyExhausted = true;
-      quotaExhaustedUntil = Date.now() + 120 * 1000; // Pause for 2 minutes to respect backend
+      quotaExhaustedUntil = Date.now() + 120 * 1000;
       if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
-      notifyConnectionStatusChange(false, 'Firebaseの書き込み上限に達しました（メモリ動作中）');
-      console.warn('[Firestore] Daily quota limit reached. Gracefully operating in memory.');
-      return { success: false, error: 'Firebaseの書き込み上限に達しました。ローカルメモリ上で継続します。' };
+      notifyConnectionStatusChange(false, 'Firebaseの書き込み上限に達しました（ローカル保持中）');
+      return { success: false, error: 'Firebaseの書き込み上限に達しました。' };
     }
-    console.warn('Sync to Firestore note:', err);
     notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
   }
+}
+
+// Flush pending writes on page unload / hide
+if (typeof window !== 'undefined') {
+  const flushPending = () => {
+    if (latestPendingData) {
+      saveLocalBackup(latestPendingData);
+      executeFirestoreWrite(latestPendingData).catch(() => {});
+    }
+  };
+  window.addEventListener('beforeunload', flushPending);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPending();
+  });
+}
+
+export async function syncSaveDataToFirebase(
+  data: GameSaveData,
+  isImmediate = false,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; error?: string }> {
+  // Always update local backup synchronously so local state is instantly protected
+  saveLocalBackup(data);
+  latestPendingData = data;
+
+  if (isImmediate) {
+    if (pendingWriteTimeout) {
+      clearTimeout(pendingWriteTimeout);
+      pendingWriteTimeout = null;
+    }
+    return executeFirestoreWrite(data, config);
+  }
+
+  // If already scheduled, wait for debounce
+  if (pendingWriteTimeout) {
+    return { success: true };
+  }
+
+  const now = Date.now();
+  const timeSinceLast = now - lastSuccessfulWriteTime;
+
+  if (timeSinceLast >= 1500 && !isWritingToFirestore) {
+    return executeFirestoreWrite(data, config);
+  }
+
+  // Schedule trailing debounced write
+  pendingWriteTimeout = setTimeout(() => {
+    pendingWriteTimeout = null;
+    if (latestPendingData) {
+      executeFirestoreWrite(latestPendingData, config).catch(() => {});
+    }
+  }, Math.max(300, 1500 - timeSinceLast));
+
+  return { success: true };
 }
 
 export function subscribeToFirebaseState(
@@ -364,7 +474,23 @@ export function subscribeToFirebaseState(
         if (snapshot.exists()) {
           const remoteData = snapshot.data() as GameSaveData;
           if (remoteData && remoteData.kenchiko) {
-            onRemoteUpdate(remoteData);
+            // If local write is currently pending or within 2 seconds of local write, don't overwrite
+            if (pendingWriteTimeout || Date.now() - lastSuccessfulWriteTime < 2000) {
+              return;
+            }
+            const local = loadLocalBackup();
+            const mergedAsobiList =
+              remoteData.asobiList && remoteData.asobiList.length > 0
+                ? remoteData.asobiList
+                : local?.asobiList || DEFAULT_INITIAL_STATE.asobiList;
+
+            const safeData: GameSaveData = {
+              ...DEFAULT_INITIAL_STATE,
+              ...remoteData,
+              asobiList: mergedAsobiList,
+            };
+            saveLocalBackup(safeData);
+            onRemoteUpdate(safeData);
           }
         }
       },

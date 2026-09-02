@@ -948,10 +948,10 @@ export default function App() {
               onClose={() => setActiveTab('stage')}
               onImportNyans={handleImportNyans}
               onSaveFirebaseConfig={(_cfg) => {}}
-              onUpdateSaveData={(updater) => {
+              onUpdateSaveData={(updater, isImmediate = false) => {
                 setSaveData((prev) => {
                   const next = updater(prev);
-                  syncSaveDataToFirebase(next).catch(() => {});
+                  syncSaveDataToFirebase(next, isImmediate).catch(() => {});
                   return next;
                 });
               }}
@@ -998,10 +998,10 @@ export default function App() {
           onClose={() => setShowSyncModal(false)}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater) => {
+          onUpdateSaveData={(updater, isImmediate = false) => {
             setSaveData((prev) => {
               const next = updater(prev);
-              syncSaveDataToFirebase(next).catch(() => {});
+              syncSaveDataToFirebase(next, isImmediate).catch(() => {});
               return next;
             });
           }}
