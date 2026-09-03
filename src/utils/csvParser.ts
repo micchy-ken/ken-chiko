@@ -1,7 +1,40 @@
 import { NyanCharacter } from '../types';
 
+/**
+ * Normalizes Google Drive links or image URLs to direct-viewable image endpoints.
+ * Handles:
+ * - https://drive.google.com/file/d/{ID}/view -> https://lh3.googleusercontent.com/d/{ID}
+ * - https://drive.google.com/open?id={ID} -> https://lh3.googleusercontent.com/d/{ID}
+ * - https://drive.google.com/uc?id={ID} -> https://lh3.googleusercontent.com/d/{ID}
+ * - Direct HTTP(S) image URLs or data URLs
+ */
+export function normalizeImageUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  const url = rawUrl.trim();
+  if (!url) return '';
+
+  // Google Drive file link match
+  if (url.includes('drive.google.com')) {
+    const fileIdMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]{20,})/);
+    if (fileIdMatch && fileIdMatch[1]) {
+      return `https://lh3.googleusercontent.com/d/${fileIdMatch[1]}`;
+    }
+    const idParamMatch = url.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+    if (idParamMatch && idParamMatch[1]) {
+      return `https://lh3.googleusercontent.com/d/${idParamMatch[1]}`;
+    }
+  }
+
+  // Already a direct lh3 or other image link
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image')) {
+    return url;
+  }
+
+  return url;
+}
+
 export function exportNyansToCsv(nyans: NyanCharacter[]): string {
-  const header = 'No.,キャラクター名,よみ,モチーフ・元ネタ,初登場時期,設定・主なエピソード,画像生成プロンプト（日本語：B-1 ゆるかわ脱力ペン画風）,画像生成プロンプト（英語：ImageFX / Midjourney等）\n';
+  const header = 'No.,キャラクター名,よみ,モチーフ・元ネタ,初登場時期,設定・主なエピソード,画像生成プロンプト（日本語：B-1 ゆるかわ脱力ペン画風）,画像生成プロンプト（英語：ImageFX / Midjourney等）,画像URL（Googleドライブ等のリンク）\n';
 
   const escapeCsv = (str: string) => {
     if (!str) return '""';
@@ -21,6 +54,7 @@ export function exportNyansToCsv(nyans: NyanCharacter[]): string {
       escapeCsv(n.episode),
       escapeCsv(n.promptJa),
       escapeCsv(n.promptEn),
+      escapeCsv(n.customImageUrl || ''),
     ].join(',');
   });
 
@@ -86,9 +120,18 @@ export function mergeImportedCsv(
       const promptJa = tokens[6] || '';
       const promptEn = tokens[7] || '';
 
+      // Check for image URL in column 8 (or any token containing a URL / Google Drive link)
+      let rawImageUrl = tokens[8] || '';
+      if (!rawImageUrl) {
+        // Look through remaining tokens or any token with http / drive
+        const urlCandidate = tokens.slice(8).find((t) => t && (t.includes('http') || t.includes('drive.google.com')));
+        if (urlCandidate) rawImageUrl = urlCandidate;
+      }
+      const importedImageUrl = normalizeImageUrl(rawImageUrl);
+
       const existing = existingMap.get(no);
       if (existing) {
-        // Keep progress & custom image, update lore/prompts
+        // Keep progress & update custom image if provided, update lore/prompts
         existingMap.set(no, {
           ...existing,
           name,
@@ -98,6 +141,7 @@ export function mergeImportedCsv(
           episode: episode || existing.episode,
           promptJa: promptJa || existing.promptJa,
           promptEn: promptEn || existing.promptEn,
+          customImageUrl: importedImageUrl || existing.customImageUrl,
         });
         updatedCount++;
       } else {
@@ -114,6 +158,7 @@ export function mergeImportedCsv(
           discovered: false,
           playCount: 0,
           friendshipLevel: 0,
+          customImageUrl: importedImageUrl || undefined,
         });
         addedCount++;
       }

@@ -2032,6 +2032,30 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               </div>
 
+              {/* Guide Card for Image Column & Base+Decoration Fallback */}
+              <div className="p-4 bg-[#FAF8F5] rounded-2xl border border-[#DDD7C8] space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">✨</span>
+                  <h5 className="text-xs font-bold text-[#3A342F]">
+                    スプレッドシートの画像連携 ＆「きほんのにゃんこ」自動装飾について
+                  </h5>
+                </div>
+                <div className="space-y-2 text-[11px] text-[#5C554E] leading-relaxed">
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-[#DDD7C8]">
+                    <span className="font-bold text-[#728C7E] shrink-0">① 右端の画像列:</span>
+                    <span>
+                      スプレッドシートの右端列に<strong>Googleドライブの画像共有リンク</strong>（例: <code>https://drive.google.com/file/d/◯◯/view</code>）を貼ると、アプリが自動でWeb表示用URLに変換して各にゃんこの画像として読み込みます。
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-[#DDD7C8]">
+                    <span className="font-bold text-[#728C7E] shrink-0">② 画像未登録の自動装飾:</span>
+                    <span>
+                      まだ画像URLのないにゃんこは、公式の<strong>「きほんのにゃんこ」の手描き原画</strong>をベースに、モチーフ（たいやき、おでん、ピノ、みかん、メガネ、マフラー等）に合わせた可愛い小物が自動でトッピングされて表示されます。
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {googleDocStatus && (
                 <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn">
                   {googleDocStatus}
