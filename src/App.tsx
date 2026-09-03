@@ -43,7 +43,7 @@ import { ZukanDetailModal } from './components/ZukanDetailModal';
 import { GiftItemModal } from './components/GiftItemModal';
 import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
-import { DataSyncModal } from './components/DataSyncModal';
+import { DataSyncModal, AdminTab } from './components/DataSyncModal';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 
@@ -77,7 +77,52 @@ export default function App() {
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
   const [showTravelModal, setShowTravelModal] = useState<boolean>(false);
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
+  const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+
+  // URL Query Parameter Handling on App Launch
+  // Supports: ?admin=true, ?admin=asobi, ?tab=zukan, ?tab=diary, ?pass=wakaro, etc.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') || params.get('page') || params.get('view');
+      const modalParam = params.get('modal');
+      const adminParam = params.get('admin');
+      const modeParam = params.get('mode');
+      const subtabParam = params.get('subtab') || params.get('admintab') || params.get('section');
+
+      const validAdminTabs: AdminTab[] = ['avatar', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+
+      // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
+      if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
+        setActiveTab(tabParam);
+      }
+
+      // Admin console direct navigation
+      // Triggers: ?admin=true, ?admin=1, ?admin=asobi, ?modal=admin, ?mode=admin, ?tab=admin, ?tab=sync
+      const isAdminTrigger =
+        adminParam !== null ||
+        modalParam === 'admin' ||
+        modalParam === 'settings' ||
+        modalParam === 'sync' ||
+        modeParam === 'admin' ||
+        tabParam === 'admin' ||
+        tabParam === 'sync';
+
+      if (isAdminTrigger) {
+        if (adminParam && validAdminTabs.includes(adminParam as AdminTab)) {
+          setAdminInitialTab(adminParam as AdminTab);
+        } else if (subtabParam && validAdminTabs.includes(subtabParam as AdminTab)) {
+          setAdminInitialTab(subtabParam as AdminTab);
+        }
+        setShowSyncModal(true);
+      }
+    } catch (_e) {
+      // Ignore URL parsing errors
+    }
+  }, []);
 
   // Reference for avoiding echo saves from remote snapshot updates
   const isRemoteUpdateRef = useRef<boolean>(false);
@@ -945,6 +990,7 @@ export default function App() {
             <DataSyncModal
               characters={saveData.characters}
               saveData={saveData}
+              initialTab={adminInitialTab}
               onClose={() => setActiveTab('stage')}
               onImportNyans={handleImportNyans}
               onSaveFirebaseConfig={(_cfg) => {}}
@@ -995,7 +1041,25 @@ export default function App() {
         <DataSyncModal
           characters={saveData.characters}
           saveData={saveData}
-          onClose={() => setShowSyncModal(false)}
+          initialTab={adminInitialTab}
+          onClose={() => {
+            setShowSyncModal(false);
+            if (typeof window !== 'undefined') {
+              try {
+                const url = new URL(window.location.href);
+                let changed = false;
+                ['admin', 'modal', 'mode', 'subtab', 'admintab', 'section', 'pass', 'key', 'password'].forEach((k) => {
+                  if (url.searchParams.has(k)) {
+                    url.searchParams.delete(k);
+                    changed = true;
+                  }
+                });
+                if (changed) {
+                  window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+                }
+              } catch (_e) {}
+            }
+          }}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
           onUpdateSaveData={(updater, isImmediate = false) => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   NyanCharacter,
   GameSaveData,
@@ -86,6 +86,8 @@ import {
   TransparencyOptions,
 } from '../services/imageCompression';
 
+export type AdminTab = 'avatar' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+
 interface DataSyncModalProps {
   characters: NyanCharacter[];
   saveData: GameSaveData;
@@ -93,6 +95,8 @@ interface DataSyncModalProps {
   onImportNyans: (updated: NyanCharacter[], addedCount: number, updatedCount: number) => void;
   onSaveFirebaseConfig: (config: FirebaseCustomConfig) => void;
   onUpdateSaveData: (updater: (prev: GameSaveData) => GameSaveData, isImmediate?: boolean) => void;
+  initialTab?: AdminTab;
+  initialPass?: string;
 }
 
 const DEFAULT_AUTH_PASSWORD = 'wakaro';
@@ -105,10 +109,26 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onImportNyans,
   onSaveFirebaseConfig,
   onUpdateSaveData,
+  initialTab,
+  initialPass,
 }) => {
-  // Password protection state
+  // Password protection state - supports session storage, initialPass prop, or query params (?pass=wakaro or ?admin=wakaro)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return sessionStorage.getItem(AUTH_SESSION_KEY) === 'true';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlPass = params.get('pass') || params.get('key') || params.get('password');
+      const adminParam = params.get('admin');
+      if (
+        (initialPass && initialPass === DEFAULT_AUTH_PASSWORD) ||
+        urlPass === DEFAULT_AUTH_PASSWORD ||
+        adminParam === DEFAULT_AUTH_PASSWORD
+      ) {
+        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        return true;
+      }
+      return sessionStorage.getItem(AUTH_SESSION_KEY) === 'true';
+    }
+    return false;
   });
   const [inputPassword, setInputPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
@@ -138,8 +158,27 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     });
   };
 
-  // Tab navigation
-  const [activeTab, setActiveTab] = useState<'avatar' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv'>('avatar');
+  // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    const validTabs: AdminTab[] = ['avatar', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    if (initialTab && validTabs.includes(initialTab)) {
+      return initialTab;
+    }
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const adminVal = params.get('admin') as AdminTab;
+      const subVal = (params.get('subtab') || params.get('admintab') || params.get('section')) as AdminTab;
+      if (adminVal && validTabs.includes(adminVal)) return adminVal;
+      if (subVal && validTabs.includes(subVal)) return subVal;
+    }
+    return 'avatar';
+  });
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [dragActive, setDragActive] = useState(false);
   const [avatarDragActive, setAvatarDragActive] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
