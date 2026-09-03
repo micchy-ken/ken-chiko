@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityType, TransportMethod } from '../types';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
+import { KihonNyanCat } from './KihonNyanCat';
 
 interface KenchikoFigureProps {
   activity: ActivityType;
@@ -14,6 +15,7 @@ interface KenchikoFigureProps {
 export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
   activity,
   customImageUrl,
+  mood,
   className = '',
   size = 230,
 }) => {
@@ -46,21 +48,13 @@ export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
     );
   }
 
-  // Pure clean frame if no image uploaded yet (Prompting upload in Settings)
+  // Official default: 「きほんのにゃんこ」
   return (
-    <div
-      className={`relative inline-flex items-center justify-center rounded-3xl overflow-hidden bg-[#FAF8F4] border-2 border-dashed border-[#DDD7C8] p-6 text-center select-none shadow-xs ${className}`}
-      style={{ width: size, height: size * 0.95 }}
-    >
-      <div className="flex flex-col items-center justify-center space-y-2">
-        <span className="text-2xl">🎨</span>
-        <p className="text-xs font-bold text-[#6B6259] font-handwriting">
-          けんちこのイラスト画像未登録
-        </p>
-        <span className="text-[10px] text-[#9E958C]">
-          「設定」からイラスト画像をアップロードしてください
-        </span>
-      </div>
-    </div>
+    <KihonNyanCat
+      activity={activity}
+      mood={mood}
+      size={size}
+      className={className}
+    />
   );
 };

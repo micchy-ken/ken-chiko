@@ -172,8 +172,11 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             </div>
             <div className="flex-1">
               <div className="flex items-center justify-between text-[11px] text-[#7A726A] font-bold mb-0.5 font-handwriting">
-                <span>けんちこの心のこえ</span>
-                <span className="text-[#487560] group-hover:underline flex items-center gap-1">
+                <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[280px]">
+                  <span className="w-2 h-2 rounded-full bg-[#487560] shrink-0" />
+                  {kenchiko.currentActivityTitle || 'まったり中'}
+                </span>
+                <span className="text-[#487560] group-hover:underline flex items-center gap-1 shrink-0 ml-2">
                   <Sparkles className="w-3 h-3" /> つぶやき更新
                 </span>
               </div>

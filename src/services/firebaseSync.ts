@@ -367,6 +367,21 @@ async function executeFirestoreWrite(
     return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
+  const now = Date.now();
+  // Enforce a hard throttle: never write to Firestore if less than 3500ms since last write
+  if (now - lastSuccessfulWriteTime < 3500) {
+    if (!pendingWriteTimeout) {
+      latestPendingData = data;
+      pendingWriteTimeout = setTimeout(() => {
+        pendingWriteTimeout = null;
+        if (latestPendingData) {
+          executeFirestoreWrite(latestPendingData, config).catch(() => {});
+        }
+      }, 3500 - (now - lastSuccessfulWriteTime));
+    }
+    return { success: true };
+  }
+
   isWritingToFirestore = true;
   try {
     if (!firestoreDb) {
@@ -440,7 +455,14 @@ export async function syncSaveDataToFirebase(
   saveLocalBackup(data);
   latestPendingData = data;
 
-  if (isImmediate) {
+  if (getIsQuotaExhausted()) {
+    return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
+  }
+
+  const now = Date.now();
+  const timeSinceLast = now - lastSuccessfulWriteTime;
+
+  if (isImmediate && timeSinceLast >= 3500 && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -448,25 +470,18 @@ export async function syncSaveDataToFirebase(
     return executeFirestoreWrite(data, config);
   }
 
-  // If already scheduled, wait for debounce
+  // If already scheduled, wait for trailing debounce
   if (pendingWriteTimeout) {
     return { success: true };
   }
 
-  const now = Date.now();
-  const timeSinceLast = now - lastSuccessfulWriteTime;
-
-  if (timeSinceLast >= 1500 && !isWritingToFirestore) {
-    return executeFirestoreWrite(data, config);
-  }
-
-  // Schedule trailing debounced write
+  // Schedule trailing debounced write with a minimum 4-second window
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config).catch(() => {});
     }
-  }, Math.max(300, 1500 - timeSinceLast));
+  }, Math.max(1000, 4000 - timeSinceLast));
 
   return { success: true };
 }

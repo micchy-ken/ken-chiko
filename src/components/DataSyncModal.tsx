@@ -34,6 +34,8 @@ import {
 } from '../services/googleDocSync';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
+import { KihonNyanCat } from './KihonNyanCat';
+import { ConfirmModal } from './ConfirmModal';
 import {
   X,
   Upload,
@@ -110,6 +112,31 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   });
   const [inputPassword, setInputPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // App-side Custom Confirm Modal state
+  const [confirmModalConfig, setConfirmModalConfig] = useState<{
+    isOpen: boolean;
+    title?: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const openConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmModalConfig({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
 
   // Tab navigation
   const [activeTab, setActiveTab] = useState<'avatar' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv'>('avatar');
@@ -192,19 +219,24 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   };
 
   const handleResetKenchikoAvatar = () => {
-    if (!window.confirm('登録したけんちこのイラストを削除して未登録状態に戻しますか？')) return;
-    saveLocalKenchikoImage('', '');
-    setRawAvatarSource('');
-    setCurrentAvatarPreview('');
-    onUpdateSaveData((prev) => ({
-      ...prev,
-      lastSaved: Date.now(),
-      kenchiko: {
-        ...prev.kenchiko,
-        customImageUrl: undefined,
-      },
-    }));
-    setAvatarStatus('イラストをリセットしました。');
+    openConfirm(
+      'イラストのリセット',
+      '登録したけんちこのイラストを削除して「きほんのにゃんこ」に戻しますか？',
+      () => {
+        saveLocalKenchikoImage('', '');
+        setRawAvatarSource('');
+        setCurrentAvatarPreview('');
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          lastSaved: Date.now(),
+          kenchiko: {
+            ...prev.kenchiko,
+            customImageUrl: undefined,
+          },
+        }));
+        setAvatarStatus('イラストを「きほんのにゃんこ」にリセットしました。');
+      }
+    );
   };
 
   // Google Docs Auto-Sync State
@@ -392,22 +424,26 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   };
 
   const handleDeleteAsobi = (id: string, title: string) => {
-    if (!window.confirm(`イベント「${title}」を削除してもよろしいですか？`)) return;
+    openConfirm(
+      'イベントの削除',
+      `イベント「${title}」を削除してもよろしいですか？`,
+      () => {
+        const updatedList = asobiList.filter((item) => item.id !== id);
+        setAsobiList(updatedList);
+        if (editingAsobiId === id) {
+          setEditingAsobiId(null);
+          setNewTitle('');
+          setNewContent('');
+        }
+        setAsobiNotice(`🗑️ イベント「${title}」を削除しました。`);
 
-    const updatedList = asobiList.filter((item) => item.id !== id);
-    setAsobiList(updatedList);
-    if (editingAsobiId === id) {
-      setEditingAsobiId(null);
-      setNewTitle('');
-      setNewContent('');
-    }
-    setAsobiNotice(`🗑️ イベント「${title}」を削除しました。`);
-
-    onUpdateSaveData((prev) => ({
-      ...prev,
-      asobiList: updatedList,
-      lastSaved: Date.now(),
-    }), true);
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          asobiList: updatedList,
+          lastSaved: Date.now(),
+        }), true);
+      }
+    );
   };
 
   const handleCancelAsobiEdit = () => {
@@ -447,7 +483,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setAsobiNotice(`📋 「${item.title}」を複製しました。リスト上部でセリフを編集できます。`);
   };
 
-  // Quick Inline cell update for Spreadsheet Table
+  // Quick Inline cell update for Spreadsheet Table (Debounced, does not hammer Firestore on every keystroke)
   const handleInlineUpdateAsobi = (id: string, field: keyof KenchikoAsobi, value: any) => {
     const updatedList = asobiList.map((item) =>
       item.id === id
@@ -459,11 +495,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         : item
     );
     setAsobiList(updatedList);
+    // Use debounced sync (isImmediate: false) so keystrokes are batched and don't consume write quota
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }), true);
+    }), false);
   };
 
   // Add blank row at top of spreadsheet
@@ -586,17 +623,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const handleDeleteSelectedAsobi = () => {
     if (selectedAsobiIds.size === 0) return;
-    if (!window.confirm(`選択中の ${selectedAsobiIds.size} 件のイベントを一括削除しますか？`)) return;
-
-    const updatedList = asobiList.filter((item) => !selectedAsobiIds.has(item.id));
-    setAsobiList(updatedList);
-    setSelectedAsobiIds(new Set());
-    onUpdateSaveData((prev) => ({
-      ...prev,
-      asobiList: updatedList,
-      lastSaved: Date.now(),
-    }), true);
-    setAsobiNotice(`🗑️ 選択したイベントを一括削除しました。`);
+    openConfirm(
+      '一括削除の確認',
+      `選択中の ${selectedAsobiIds.size} 件のイベントを一括削除しますか？`,
+      () => {
+        const updatedList = asobiList.filter((item) => !selectedAsobiIds.has(item.id));
+        setAsobiList(updatedList);
+        setSelectedAsobiIds(new Set());
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          asobiList: updatedList,
+          lastSaved: Date.now(),
+        }), true);
+        setAsobiNotice(`🗑️ 選択したイベントを一括削除しました。`);
+      }
+    );
   };
 
   // --- Firebase CRUD for Characters & Items ---
@@ -621,17 +662,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   };
 
   const handleDeleteNyan = (no: number, name: string) => {
-    if (!window.confirm(`本当に「No.${no} ${name}」を削除しますか？\n（Firebaseおよび図鑑から完全に削除されます）`)) return;
-
-    onUpdateSaveData((prev) => {
-      const updatedChars = prev.characters.filter((c) => c.no !== no);
-      return {
-        ...prev,
-        characters: updatedChars,
-        lastSaved: Date.now(),
-      };
-    });
-    setDbNotice(`🗑️ No.${no} ${name} を削除しました。Firebaseを更新しました。`);
+    openConfirm(
+      'にゃんこの削除',
+      `本当に「No.${no} ${name}」を削除しますか？\n（Firebaseおよび図鑑から完全に削除されます）`,
+      () => {
+        onUpdateSaveData((prev) => {
+          const updatedChars = prev.characters.filter((c) => c.no !== no);
+          return {
+            ...prev,
+            characters: updatedChars,
+            lastSaved: Date.now(),
+          };
+        });
+        setDbNotice(`🗑️ No.${no} ${name} を削除しました。Firebaseを更新しました。`);
+      }
+    );
   };
 
   const handleUpdateItemCount = (id: string, delta: number) => {
@@ -1005,14 +1050,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                         className="max-w-full max-h-full object-contain filter drop-shadow-md"
                       />
                     ) : (
-                      <div className="text-center p-3 bg-white/80 rounded-xl">
-                        <ImageIcon className="w-8 h-8 text-[#9E958C] mx-auto mb-1" />
-                        <span className="text-[11px] text-[#6B6259] font-bold">未登録</span>
+                      <div className="flex flex-col items-center justify-center p-2 text-center w-full h-full">
+                        <KihonNyanCat size={140} />
+                        <span className="text-[10px] text-[#487560] font-bold bg-[#EAF5EC] px-2 py-0.5 rounded-full mt-1">
+                          きほんのにゃんこ（デフォルト）
+                        </span>
                       </div>
                     )}
                   </div>
                   <span className="text-[10px] text-[#9E958C] mt-1.5">
-                    ※ 市松模様の部分は透明（透過）になっています
+                    {currentAvatarPreview
+                      ? '※ 市松模様の部分は透明（透過）になっています'
+                      : '※ 画像未登録時は「きほんのにゃんこ」が自動表示されます'}
                   </span>
 
                   {currentAvatarPreview && (
@@ -1021,7 +1070,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       className="mt-3 text-xs text-[#BA4D4D] hover:underline flex items-center gap-1 font-bold"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      画像をリセット
+                      「きほんのにゃんこ」に戻す
                     </button>
                   )}
                 </div>
@@ -2296,6 +2345,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Custom App-side Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModalConfig.isOpen}
+        title={confirmModalConfig.title}
+        message={confirmModalConfig.message}
+        onConfirm={confirmModalConfig.onConfirm}
+        onCancel={() => setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };
