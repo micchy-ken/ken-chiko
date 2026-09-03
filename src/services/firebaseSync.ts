@@ -76,7 +76,7 @@ let lastSuccessfulWriteTime: number = 0;
 let isQuotaCurrentlyExhausted: boolean = Date.now() < quotaExhaustedUntil;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
 
-export function markQuotaExhausted(durationMs: number = 60 * 60 * 1000): void {
+export function markQuotaExhausted(durationMs: number = 24 * 60 * 60 * 1000): void {
   isQuotaCurrentlyExhausted = true;
   quotaExhaustedUntil = Date.now() + durationMs;
   setPersistedQuotaUntil(quotaExhaustedUntil);
@@ -432,17 +432,12 @@ async function executeFirestoreWrite(
   }
 }
 
-// Flush pending writes on page unload / hide
+// Protect state in local storage on page unload (NEVER send network write to Firestore on background/visibilitychange)
 if (typeof window !== 'undefined') {
-  const flushPending = () => {
+  window.addEventListener('beforeunload', () => {
     if (latestPendingData) {
       saveLocalBackup(latestPendingData);
-      executeFirestoreWrite(latestPendingData).catch(() => {});
     }
-  };
-  window.addEventListener('beforeunload', flushPending);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushPending();
   });
 }
 
@@ -462,7 +457,8 @@ export async function syncSaveDataToFirebase(
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  if (isImmediate && timeSinceLast >= 3500 && !isWritingToFirestore) {
+  // Minimum 10 seconds throttle between Firestore writes
+  if (isImmediate && timeSinceLast >= 10000 && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -475,13 +471,13 @@ export async function syncSaveDataToFirebase(
     return { success: true };
   }
 
-  // Schedule trailing debounced write with a minimum 4-second window
+  // Schedule trailing debounced write with a minimum 15-second window
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config).catch(() => {});
     }
-  }, Math.max(1000, 4000 - timeSinceLast));
+  }, Math.max(2000, 15000 - timeSinceLast));
 
   return { success: true };
 }

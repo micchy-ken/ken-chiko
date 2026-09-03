@@ -19,10 +19,9 @@ import {
 import { LOCATIONS, TRANSPORT_METHODS } from './data/locations';
 import {
   loadSavedFirebaseConfig,
-  subscribeToFirebaseState,
   syncSaveDataToFirebase,
   fetchInitialFirebaseState,
-  purgeLocalData,
+  saveLocalBackup,
   setQuotaStatusCallback,
   getIsQuotaExhausted,
   getFirebaseConnectionStatus,
@@ -127,10 +126,8 @@ export default function App() {
   // Reference for avoiding echo saves from remote snapshot updates
   const isRemoteUpdateRef = useRef<boolean>(false);
 
-  // 1. Initial Load & Realtime Firestore Subscription (Zero Local Cache)
+  // 1. Initial Load from Firestore (One-time fetch with graceful local backup fallback)
   useEffect(() => {
-    purgeLocalData();
-
     setQuotaStatusCallback((exhausted) => {
       setIsQuotaLimited(exhausted);
     });
@@ -141,7 +138,7 @@ export default function App() {
 
     let isMounted = true;
 
-    // Fetch initial state from Firestore
+    // Fetch initial state once from Firestore on launch
     fetchInitialFirebaseState()
       .then((res) => {
         if (!isMounted) return;
@@ -189,35 +186,8 @@ export default function App() {
         if (isMounted) setIsLoadingFirebase(false);
       });
 
-    // Realtime listener with echo prevention
-    const unsub = subscribeToFirebaseState(
-      loadSavedFirebaseConfig(),
-      (remoteData) => {
-        if (!isMounted) return;
-        isRemoteUpdateRef.current = true;
-        const merged = { ...remoteData };
-        if (merged.kenchiko.customImageUrl) {
-          saveLocalKenchikoImage(merged.kenchiko.customImageUrl);
-        } else {
-          const localImg = loadLocalKenchikoImage();
-          if (localImg) {
-            merged.kenchiko.customImageUrl = localImg;
-          }
-        }
-        setSaveData(merged);
-        setIsFirebaseSynced(true);
-        setIsLoadingFirebase(false);
-      },
-      (err) => {
-        if (err?.name === 'FirebaseError' && (err.message.includes('Quota') || err.message.includes('resource-exhausted'))) {
-          setIsQuotaLimited(true);
-        }
-      }
-    );
-
     return () => {
       isMounted = false;
-      unsub();
       unsubStatus();
     };
   }, []);
@@ -500,7 +470,7 @@ export default function App() {
         }
       }
 
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveLocalBackup(nextData);
       return nextData;
     });
   };
@@ -818,7 +788,7 @@ export default function App() {
             ) : (
               <div
                 className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sketch-tag bg-[#FAF8F4] text-[#487560] text-xs font-bold"
-                title="Firebase Firestore クラウド同期中（オンライン）"
+                title="Firebase Firestore 自動クラウド同期中"
               >
                 <span className="relative flex h-2 w-2">
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-[#487560]"></span>
