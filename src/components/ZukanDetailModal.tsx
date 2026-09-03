@@ -3,8 +3,6 @@ import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
   X,
-  Copy,
-  Check,
   Upload,
   Heart,
   Calendar,
@@ -26,24 +24,10 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   onUpdateCustomImage,
   onGiftToNyan,
 }) => {
-  const [copiedJa, setCopiedJa] = useState(false);
-  const [copiedEn, setCopiedEn] = useState(false);
   const [customUrlInput, setCustomUrlInput] = useState('');
   const [showImageInput, setShowImageInput] = useState(false);
 
   if (!nyan) return null;
-
-  const handleCopyJa = () => {
-    navigator.clipboard.writeText(nyan.promptJa);
-    setCopiedJa(true);
-    setTimeout(() => setCopiedJa(false), 2000);
-  };
-
-  const handleCopyEn = () => {
-    navigator.clipboard.writeText(nyan.promptEn);
-    setCopiedEn(true);
-    setTimeout(() => setCopiedEn(false), 2000);
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -202,41 +186,6 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
             <p className="text-sm font-medium text-[#2E2824] leading-relaxed font-handwriting whitespace-pre-wrap">
               {nyan.episode || 'けんちこがセカイのどこかで出会った、ゆるくて愛らしい仲間。'}
             </p>
-          </div>
-
-          {/* Generation Prompts */}
-          <div className="space-y-3">
-            <div className="p-3.5 bg-[#FFFDF9] sketch-card-subtle space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-[#7A726A] font-handwriting">日本語プロンプト</span>
-                <button
-                  onClick={handleCopyJa}
-                  className="flex items-center gap-1 text-[11px] text-[#487560] hover:underline font-bold font-handwriting"
-                >
-                  {copiedJa ? <Check className="w-3 h-3 text-[#487560]" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedJa ? 'コピー完了' : 'コピー'}</span>
-                </button>
-              </div>
-              <p className="text-xs text-[#5A524A] font-mono bg-[#FAF8F4] p-2 rounded-lg border border-[#EAE6DC] break-all select-all">
-                {nyan.promptJa}
-              </p>
-            </div>
-
-            <div className="p-3.5 bg-[#FFFDF9] sketch-card-subtle space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-[#7A726A] font-handwriting">English Prompt</span>
-                <button
-                  onClick={handleCopyEn}
-                  className="flex items-center gap-1 text-[11px] text-[#3C5C7A] hover:underline font-bold font-handwriting"
-                >
-                  {copiedEn ? <Check className="w-3 h-3 text-[#3C5C7A]" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedEn ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
-              <p className="text-xs text-[#5A524A] font-mono bg-[#FAF8F4] p-2 rounded-lg border border-[#EAE6DC] break-all select-all">
-                {nyan.promptEn}
-              </p>
-            </div>
           </div>
         </div>
       </div>

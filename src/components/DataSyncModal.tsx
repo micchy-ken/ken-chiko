@@ -257,26 +257,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     await processAndApplyAvatar(rawAvatarSource, rawAvatarSource);
   };
 
-  const handleResetKenchikoAvatar = () => {
-    openConfirm(
-      'イラストのリセット',
-      '登録したけんちこのイラストを削除して「きほんのにゃんこ」に戻しますか？',
-      () => {
-        saveLocalKenchikoImage('', '');
-        setRawAvatarSource('');
-        setCurrentAvatarPreview('');
-        onUpdateSaveData((prev) => ({
-          ...prev,
-          lastSaved: Date.now(),
-          kenchiko: {
-            ...prev.kenchiko,
-            customImageUrl: undefined,
-          },
-        }));
-        setAvatarStatus('イラストを「きほんのにゃんこ」にリセットしました。');
-      }
-    );
-  };
+
 
   // Google Docs Auto-Sync State
   const [googleDocUrl, setGoogleDocUrl] = useState<string>(() => getSavedGoogleDocUrl());
@@ -875,7 +856,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <div>
               <input
                 type="password"
-                placeholder="パスワードを入力 (初期: wakaro)"
+                placeholder="パスワードを入力"
                 value={inputPassword}
                 onChange={(e) => setInputPassword(e.target.value)}
                 autoFocus
@@ -1103,15 +1084,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       : '※ 画像未登録時は「きほんのにゃんこ」が自動表示されます'}
                   </span>
 
-                  {currentAvatarPreview && (
-                    <button
-                      onClick={handleResetKenchikoAvatar}
-                      className="mt-3 text-xs text-[#BA4D4D] hover:underline flex items-center gap-1 font-bold"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      「きほんのにゃんこ」に戻す
-                    </button>
-                  )}
+                  {/* Avatar reset button has been retired */}
                 </div>
 
                 {/* Right: Upload Dropzone & Transparency Controls */}
