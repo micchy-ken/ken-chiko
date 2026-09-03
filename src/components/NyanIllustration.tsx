@@ -1,6 +1,7 @@
 import React from 'react';
 import { NyanCharacter } from '../types';
 import { getNyanComposition } from '../utils/nyanAssetComposer';
+import { loadLocalKihonNyanImage } from '../services/imageCompression';
 
 interface NyanIllustrationProps {
   nyan: NyanCharacter;
@@ -66,6 +67,9 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
 
   const hasDecoration = headProp !== 'none' || handProp !== 'none' || Boolean(soundEffect);
 
+  const baseCatImage = loadLocalKihonNyanImage() || '/images/base-nyanko-square.jpg';
+  const hasCustomTransparent = Boolean(loadLocalKihonNyanImage());
+
   return (
     <div
       className={`relative inline-flex flex-col items-center justify-center select-none ${className}`}
@@ -74,9 +78,13 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
       <div className="relative w-full aspect-square rounded-2xl overflow-hidden border border-[#C4BCAB]/50 bg-[#FAF8F5] shadow-sm flex items-center justify-center">
         {/* Authentic Original Hand-Drawn Base Cat */}
         <img
-          src="/images/base-nyanko-square.jpg"
+          src={baseCatImage}
           alt={nyan.name}
-          className="w-full h-full object-cover select-none pointer-events-none"
+          className={`select-none pointer-events-none ${
+            hasCustomTransparent
+              ? 'max-w-full max-h-full object-contain filter drop-shadow-xs'
+              : 'w-full h-full object-cover'
+          }`}
         />
 
         {/* Decorative Overlay for ◯◯-nyan variations */}

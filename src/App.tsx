@@ -92,7 +92,7 @@ export default function App() {
       const modeParam = params.get('mode');
       const subtabParam = params.get('subtab') || params.get('admintab') || params.get('section');
 
-      const validAdminTabs: AdminTab[] = ['avatar', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+      const validAdminTabs: AdminTab[] = ['avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {

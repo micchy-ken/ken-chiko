@@ -8,6 +8,9 @@
 const LOCAL_KENCHIKO_IMAGE_KEY = 'kenchiko_custom_avatar_image';
 const LOCAL_KENCHIKO_RAW_IMAGE_KEY = 'kenchiko_raw_original_image';
 
+const LOCAL_KIHON_NYAN_IMAGE_KEY = 'kihon_nyan_custom_base_image';
+const LOCAL_KIHON_NYAN_RAW_IMAGE_KEY = 'kihon_nyan_raw_original_image';
+
 export function saveLocalKenchikoImage(dataUrl: string, rawDataUrl?: string): void {
   try {
     if (dataUrl) {
@@ -35,6 +38,38 @@ export function loadLocalKenchikoImage(): string | null {
 export function loadLocalKenchikoRawImage(): string | null {
   try {
     return localStorage.getItem(LOCAL_KENCHIKO_RAW_IMAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function saveLocalKihonNyanImage(dataUrl: string, rawDataUrl?: string): void {
+  try {
+    if (dataUrl) {
+      localStorage.setItem(LOCAL_KIHON_NYAN_IMAGE_KEY, dataUrl);
+      if (rawDataUrl) {
+        localStorage.setItem(LOCAL_KIHON_NYAN_RAW_IMAGE_KEY, rawDataUrl);
+      }
+    } else {
+      localStorage.removeItem(LOCAL_KIHON_NYAN_IMAGE_KEY);
+      localStorage.removeItem(LOCAL_KIHON_NYAN_RAW_IMAGE_KEY);
+    }
+  } catch (e) {
+    console.warn('LocalStorage save note:', e);
+  }
+}
+
+export function loadLocalKihonNyanImage(): string | null {
+  try {
+    return localStorage.getItem(LOCAL_KIHON_NYAN_IMAGE_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function loadLocalKihonNyanRawImage(): string | null {
+  try {
+    return localStorage.getItem(LOCAL_KIHON_NYAN_RAW_IMAGE_KEY);
   } catch (e) {
     return null;
   }
@@ -244,12 +279,15 @@ export function processBackgroundTransparency(
       const cropW = Math.min(width - cropX, maxX - minX + pad * 2);
       const cropH = Math.min(height - cropY, maxY - minY + pad * 2);
 
+      const maxDim = Math.max(cropW, cropH);
       const trimmedCanvas = document.createElement('canvas');
-      trimmedCanvas.width = cropW;
-      trimmedCanvas.height = cropH;
+      trimmedCanvas.width = maxDim;
+      trimmedCanvas.height = maxDim;
       const trimCtx = trimmedCanvas.getContext('2d');
       if (trimCtx) {
-        trimCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        const destX = Math.round((maxDim - cropW) / 2);
+        const destY = Math.round((maxDim - cropH) / 2);
+        trimCtx.drawImage(canvas, cropX, cropY, cropW, cropH, destX, destY, cropW, cropH);
         return trimmedCanvas;
       }
     }

@@ -83,10 +83,13 @@ import {
   saveLocalKenchikoImage,
   loadLocalKenchikoImage,
   loadLocalKenchikoRawImage,
+  saveLocalKihonNyanImage,
+  loadLocalKihonNyanImage,
+  loadLocalKihonNyanRawImage,
   TransparencyOptions,
 } from '../services/imageCompression';
 
-export type AdminTab = 'avatar' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'avatar' | 'kihon_nyan' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -160,7 +163,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['avatar', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -255,6 +258,120 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const handleReprocessWithSettings = async () => {
     if (!rawAvatarSource) return;
     await processAndApplyAvatar(rawAvatarSource, rawAvatarSource);
+  };
+
+  // ==========================================
+  // Kihon Nyan (きほんのにゃんこ) Image & Transparency State
+  // ==========================================
+  const [kihonNyanDragActive, setKihonNyanDragActive] = useState(false);
+  const [kihonNyanStatus, setKihonNyanStatus] = useState<string | null>(null);
+  const [isProcessingKihonNyan, setIsProcessingKihonNyan] = useState(false);
+  const [rawKihonNyanSource, setRawKihonNyanSource] = useState<string>(() => {
+    return loadLocalKihonNyanRawImage() || saveData.kihonNyanCustomImageUrl || loadLocalKihonNyanImage() || '';
+  });
+  const [currentKihonNyanPreview, setCurrentKihonNyanPreview] = useState<string>(() => {
+    return saveData.kihonNyanCustomImageUrl || loadLocalKihonNyanImage() || '';
+  });
+
+  const [kihonNyanAutoTransparent, setKihonNyanAutoTransparent] = useState(true);
+  const [kihonNyanTolerance, setKihonNyanTolerance] = useState(30);
+  const [kihonNyanTrimPadding, setKihonNyanTrimPadding] = useState(true);
+
+  // Process and apply Kihon Nyan image with transparency settings
+  const processAndApplyKihonNyan = async (sourceImage: string | File, rawSourceForSave?: string) => {
+    try {
+      setIsProcessingKihonNyan(true);
+      setKihonNyanStatus('きほんのにゃんこ原画の背景透過・余白トリミングを実行中...');
+
+      const opts: TransparencyOptions = {
+        enableTransparency: kihonNyanAutoTransparent,
+        tolerance: kihonNyanTolerance,
+        feather: 2,
+        trimPadding: kihonNyanTrimPadding,
+      };
+
+      const processedDataUrl = await compressAndResizeImage(sourceImage, 600, 600, 0.92, opts);
+      
+      const rawToSave = rawSourceForSave || (typeof sourceImage === 'string' ? sourceImage : processedDataUrl);
+      setRawKihonNyanSource(rawToSave);
+      saveLocalKihonNyanImage(processedDataUrl, rawToSave);
+      setCurrentKihonNyanPreview(processedDataUrl);
+
+      // Save to GameState & Firebase
+      onUpdateSaveData((prev) => ({
+        ...prev,
+        lastSaved: Date.now(),
+        kihonNyanCustomImageUrl: processedDataUrl,
+      }));
+
+      setIsProcessingKihonNyan(false);
+      setKihonNyanStatus(
+        kihonNyanAutoTransparent
+          ? '✨ 余分な外枠をカットし、手描き線を活かして綺麗に透過登録しました！'
+          : '✅ きほんのにゃんこ画像を登録しました！'
+      );
+      confetti({ particleCount: 35, spread: 70, origin: { y: 0.5 } });
+    } catch (err: any) {
+      setIsProcessingKihonNyan(false);
+      setKihonNyanStatus(`❌ 処理に失敗しました: ${err.message || '別の画像をお試しください'}`);
+    }
+  };
+
+  const handleKihonNyanUpload = async (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const rawDataUrl = (e.target?.result as string) || '';
+      setRawKihonNyanSource(rawDataUrl);
+      await processAndApplyKihonNyan(rawDataUrl, rawDataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Helper to load and process existing default /images/base-nyanko-square.jpg
+  const handleProcessDefaultBaseImage = async () => {
+    try {
+      setIsProcessingKihonNyan(true);
+      setKihonNyanStatus('公式手描き原画（/images/base-nyanko-square.jpg）を読み込み中...');
+      
+      const response = await fetch('/images/base-nyanko-square.jpg');
+      const blob = await response.blob();
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const rawDataUrl = (e.target?.result as string) || '';
+        setRawKihonNyanSource(rawDataUrl);
+        await processAndApplyKihonNyan(rawDataUrl, rawDataUrl);
+      };
+      reader.readAsDataURL(blob);
+    } catch (err: any) {
+      setIsProcessingKihonNyan(false);
+      setKihonNyanStatus(`❌ 原画読み込みに失敗しました: ${err.message}`);
+    }
+  };
+
+  const handleKihonNyanReprocess = async () => {
+    if (rawKihonNyanSource) {
+      await processAndApplyKihonNyan(rawKihonNyanSource, rawKihonNyanSource);
+    } else {
+      await handleProcessDefaultBaseImage();
+    }
+  };
+
+  const handleResetKihonNyan = () => {
+    openConfirm(
+      'きほんのにゃんこ画像の初期化',
+      '登録した透過画像を解除し、初期の手描き正方形原画（未透過）に戻しますか？',
+      () => {
+        saveLocalKihonNyanImage('');
+        setRawKihonNyanSource('');
+        setCurrentKihonNyanPreview('');
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          lastSaved: Date.now(),
+          kihonNyanCustomImageUrl: undefined,
+        }));
+        setKihonNyanStatus('🔄 初期のきほんのにゃんこ原画に戻しました。');
+      }
+    );
   };
 
 
@@ -948,6 +1065,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>けんちこ画像登録</span>
           </button>
 
+          {/* TAB 0.5: Kihon Nyan Base Avatar (きほんのにゃんこ画像登録) */}
+          <button
+            onClick={() => setActiveTab('kihon_nyan')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'kihon_nyan'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#438363] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-[#438363]" />
+            <span>きほんのにゃんこ画像登録</span>
+          </button>
+
           {/* TAB 1: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
@@ -1203,6 +1333,243 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
                   <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#DDD7C8] text-[11px] text-[#6B6259] leading-relaxed">
                     💡 <strong>スマート透過の特長:</strong> 外側（背景）から繋がっている白やクリーム色の余白のみを自動認識して抜くため、けんちこの白いTシャツやメガネ・目の白い反射は消えずにそのまま残ります。
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 0.5: KIHON NYAN (きほんのにゃんこ) IMAGE & SMART TRANSPARENCY */}
+          {/* ========================================================= */}
+          {activeTab === 'kihon_nyan' && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Header Box */}
+              <div className="bg-[#EEF5F1] p-4 rounded-2xl border border-[#D0E2D8] flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="text-xs font-black text-[#2D5A43] flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-[#438363]" />
+                      きほんのにゃんこ公式原画の背景透過＆画像登録
+                    </h4>
+                    <span className="bg-[#438363] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      余白自動トリミング対応
+                    </span>
+                    <span className="bg-[#3A342F] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Firebase同期
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#4F6C5D] leading-relaxed">
+                    ユーザー様の手描き原画から<strong>余分な外枠・背景を自動で綺麗に透過＆トリミング</strong>。
+                    登録された透過原画は、お部屋ステージ・図鑑・全にゃんこ（◯◯にゃん）の公式ベースとして即座に美しく反映されます。
+                  </p>
+                </div>
+              </div>
+
+              {/* Main Content Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-[#FAF8F5] p-5 rounded-2xl border border-[#DDD7C8]">
+                {/* Left: Current Preview on Transparency Checkerboard */}
+                <div className="flex flex-col items-center justify-center p-4 bg-[#F2EFE9] rounded-2xl border border-[#DDD7C8]">
+                  <p className="text-xs font-bold text-[#5A524A] mb-3 text-center">
+                    {currentKihonNyanPreview
+                      ? '✨ 透過処理済みきほんのにゃんこ'
+                      : '手描き原画（未透過・初期状態）'}
+                  </p>
+
+                  <div
+                    className="w-48 h-48 rounded-2xl border-2 border-dashed border-[#C4BCAB] overflow-hidden flex items-center justify-center relative shadow-inner p-2"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(45deg, #e5e0d8 25%, transparent 25%), linear-gradient(-45deg, #e5e0d8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e0d8 75%), linear-gradient(-45deg, transparent 75%, #e5e0d8 75%)',
+                      backgroundSize: '16px 16px',
+                      backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
+                      backgroundColor: '#FAF8F5',
+                    }}
+                  >
+                    <img
+                      src={currentKihonNyanPreview || '/images/base-nyanko-square.jpg'}
+                      alt="きほんのにゃんこプレビュー"
+                      className="max-w-full max-h-full object-contain filter drop-shadow-md select-none"
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-[#7D756D] mt-2 text-center leading-tight">
+                    ※ 市松模様は透明（透過）部分です。<br />余分な外枠がカットされ、自然に表示されます。
+                  </p>
+
+                  {/* Reset button if custom preview exists */}
+                  {currentKihonNyanPreview && (
+                    <button
+                      onClick={handleResetKihonNyan}
+                      className="mt-3 px-3 py-1 bg-white hover:bg-[#FBEBEB] text-[#A63D2F] border border-[#E8C2BD] text-[11px] font-bold rounded-lg transition cursor-pointer"
+                    >
+                      初期の手描き原画（未透過）に戻す
+                    </button>
+                  )}
+                </div>
+
+                {/* Right: Actions and Sliders */}
+                <div className="md:col-span-2 space-y-4">
+                  {/* Action 1: One-click process existing official hand-drawn image */}
+                  <div className="p-4 bg-[#F2F7F4] rounded-2xl border border-[#CDE3D6] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🚀</span>
+                        <h5 className="text-xs font-black text-[#2D5A43]">
+                          既存の公式手描き原画をワンクリックで透過＆トリミング
+                        </h5>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#438363] bg-white px-2 py-0.5 rounded-full border border-[#CDE3D6]">
+                        おすすめ
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#4F6C5D] leading-relaxed">
+                      アプリ内に組み込まれている公式原画（/images/base-nyanko-square.jpg）から、<strong>広い外枠の余白をカットし、紙の地色を自動透過</strong>してステージに馴染むキャラクター姿に仕上げます。
+                    </p>
+                    <button
+                      onClick={handleProcessDefaultBaseImage}
+                      disabled={isProcessingKihonNyan}
+                      className="w-full py-2.5 px-4 bg-[#438363] hover:bg-[#346B50] text-white text-xs font-black rounded-xl shadow-xs transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isProcessingKihonNyan ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>透過・トリミング処理中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>【今すぐ公式手描き原画を透過処理する】</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Action 2: Or Upload New Custom Image File */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-[#4A443F]">
+                      または別の原画・写真をアップロード
+                    </label>
+                    <div
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setKihonNyanDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        setKihonNyanDragActive(false);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setKihonNyanDragActive(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                          handleKihonNyanUpload(e.dataTransfer.files[0]);
+                        }
+                      }}
+                      className={`relative border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition flex flex-col items-center justify-center gap-1.5 ${
+                        kihonNyanDragActive
+                          ? 'border-[#438363] bg-[#EAF3EE]'
+                          : 'border-[#C4BCAB] bg-white hover:bg-[#FAF8F5]'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleKihonNyanUpload(e.target.files[0]);
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <Upload className="w-5 h-5 text-[#728C7E]" />
+                      <p className="text-xs font-bold text-[#3A342F]">
+                        ここに新しい原画・イラスト画像をドラッグ＆ドロップ
+                      </p>
+                      <p className="text-[10px] text-[#7D756D]">
+                        またはクリックして画像を選択（JPG / PNG / WebP）
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Smart Transparency Settings */}
+                  <div className="p-3.5 bg-white rounded-xl border border-[#DDD7C8] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={kihonNyanAutoTransparent}
+                          onChange={(e) => setKihonNyanAutoTransparent(e.target.checked)}
+                          className="w-4 h-4 rounded text-[#438363] focus:ring-[#438363] accent-[#438363]"
+                        />
+                        <span className="text-xs font-bold text-[#3A342F]">
+                          プログラムによる背景自動透過（白抜き）
+                        </span>
+                      </label>
+                      <span className="text-[10px] text-[#7D756D] font-mono">
+                        Flood-Fill BFS
+                      </span>
+                    </div>
+
+                    {kihonNyanAutoTransparent && (
+                      <div className="space-y-3 pt-1 border-t border-[#F0EBE1]">
+                        <div>
+                          <div className="flex justify-between text-[11px] font-bold text-[#5A524A] mb-1">
+                            <span>透過の強さ（色の許容しきい値）</span>
+                            <span className="font-mono text-[#438363] bg-[#EEF5F1] px-2 py-0.5 rounded">
+                              {kihonNyanTolerance}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="10"
+                            max="65"
+                            value={kihonNyanTolerance}
+                            onChange={(e) => setKihonNyanTolerance(Number(e.target.value))}
+                            className="w-full h-1.5 bg-[#E2DDCF] rounded-lg appearance-none cursor-pointer accent-[#438363]"
+                          />
+                          <div className="flex justify-between text-[9px] text-[#8C847A] mt-0.5">
+                            <span>控えめ（線画保持）</span>
+                            <span>標準（30）</span>
+                            <span>強力（広域透過）</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={kihonNyanTrimPadding}
+                              onChange={(e) => setKihonNyanTrimPadding(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded text-[#438363] focus:ring-[#438363] accent-[#438363]"
+                            />
+                            <span className="text-[11px] font-bold text-[#5A524A]">
+                              余白の自動トリミング（余分な枠をカットして中央配置）
+                            </span>
+                          </label>
+
+                          <button
+                            onClick={handleKihonNyanReprocess}
+                            disabled={isProcessingKihonNyan}
+                            className="px-3 py-1 bg-[#3A342F] hover:bg-black text-white text-[11px] font-bold rounded-lg transition shadow-xs disabled:opacity-50 cursor-pointer"
+                          >
+                            設定を再適用
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Status Banner */}
+                  {kihonNyanStatus && (
+                    <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn">
+                      {kihonNyanStatus}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#DDD7C8] text-[11px] text-[#6B6259] leading-relaxed">
+                    💡 <strong>スマート透過の特長:</strong> 原画の外側の余白紙（白〜クリーム色）のみを外周から認識して自動消去し、余分な四角い枠線をトリミングします。にゃんこ本体の手描き鉛筆の線画やジト目、愛嬌のある二足立ち姿は美しくそのまま残ります。
                   </div>
                 </div>
               </div>

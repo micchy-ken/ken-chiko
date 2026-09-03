@@ -124,6 +124,7 @@ export interface GameSaveData {
   inventory: GiftItem[];
   diary: DiaryEntry[];
   asobiList: KenchikoAsobi[]; // カスタムあそびリスト
+  kihonNyanCustomImageUrl?: string; // きほんのにゃんこ公式ベース透過画像 (Firebase / LocalStorage同期)
   stats: {
     totalEncounters: number;
     totalSnacksEaten: number;
