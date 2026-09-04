@@ -1,5 +1,6 @@
 import React from 'react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
+import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
 
 interface KenchikoAvatarProps {
   size?: number;
@@ -12,7 +13,8 @@ export const KenchikoAvatar: React.FC<KenchikoAvatarProps> = ({
   imageUrl,
   className = '',
 }) => {
-  const activeImage = imageUrl || loadLocalKenchikoImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
+  const rawImage = imageUrl || loadLocalKenchikoImage() || ASSET_PATHS.KIHON_NYAN_SQUARE;
+  const activeImage = getAssetUrl(rawImage);
 
   return (
     <div
@@ -22,6 +24,7 @@ export const KenchikoAvatar: React.FC<KenchikoAvatarProps> = ({
       <img
         src={activeImage}
         alt="けんちこ"
+        onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
         className="w-full h-full object-cover object-[center_36%]"
       />
     </div>

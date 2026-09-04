@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityType, TransportMethod } from '../types';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { KihonNyanCat } from './KihonNyanCat';
+import { getAssetUrl, handleImageError } from '../utils/assetPath';
 
 interface KenchikoFigureProps {
   activity: ActivityType;
@@ -19,7 +20,8 @@ export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
   className = '',
   size = 230,
 }) => {
-  const activeImage = customImageUrl || loadLocalKenchikoImage() || '';
+  const rawImage = customImageUrl || loadLocalKenchikoImage() || '';
+  const activeImage = getAssetUrl(rawImage);
 
   if (activeImage) {
     return (
@@ -41,6 +43,7 @@ export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
           <img
             src={activeImage}
             alt="けんちこ"
+            onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
             className="max-w-full max-h-full object-contain filter drop-shadow-[0_6px_16px_rgba(46,40,36,0.18)]"
           />
         </div>

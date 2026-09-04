@@ -90,6 +90,7 @@ import {
   loadLocalKihonNyanRawImage,
   TransparencyOptions,
 } from '../services/imageCompression';
+import { getAssetUrl, handleImageError, ASSET_PATHS } from '../utils/assetPath';
 
 export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
@@ -335,7 +336,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setIsProcessingKihonNyan(true);
       setKihonNyanStatus('公式手描き原画（/images/base-nyanko-square.jpg）を読み込み中...');
       
-      const response = await fetch('/images/base-nyanko-square.jpg');
+      const response = await fetch(getAssetUrl('images/base-nyanko-square.jpg'));
       const blob = await response.blob();
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -1222,8 +1223,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   >
                     {currentAvatarPreview ? (
                       <img
-                        src={currentAvatarPreview}
+                        src={getAssetUrl(currentAvatarPreview)}
                         alt="けんちこ"
+                        onError={(e) => handleImageError(e, 'images/base-nyanko-square.jpg')}
                         className="max-w-full max-h-full object-contain filter drop-shadow-md"
                       />
                     ) : (
@@ -1414,8 +1416,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     }}
                   >
                     <img
-                      src={currentKihonNyanPreview || '/images/base-nyanko-square.jpg'}
+                      src={getAssetUrl(currentKihonNyanPreview || 'images/base-nyanko-square.jpg')}
                       alt="きほんのにゃんこプレビュー"
+                      onError={(e) => handleImageError(e, 'images/base-nyanko-square.jpg')}
                       className="max-w-full max-h-full object-contain filter drop-shadow-md select-none"
                     />
                   </div>

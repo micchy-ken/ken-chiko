@@ -2,6 +2,7 @@ import React from 'react';
 import { NyanCharacter } from '../types';
 import { getNyanComposition } from '../utils/nyanAssetComposer';
 import { loadLocalKihonNyanImage } from '../services/imageCompression';
+import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
 
 interface NyanIllustrationProps {
   nyan: NyanCharacter;
@@ -20,6 +21,7 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
 }) => {
   // 1. If custom image URL is provided (e.g. from Google Drive or Spreadsheet)
   if (nyan.customImageUrl && isDiscovered) {
+    const customSrc = getAssetUrl(nyan.customImageUrl);
     return (
       <div
         className={`relative inline-flex flex-col items-center justify-center select-none ${className}`}
@@ -29,8 +31,9 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
           className="relative w-full aspect-square rounded-2xl overflow-hidden border border-[#C4BCAB]/60 bg-[#FAF8F4] shadow-sm flex items-center justify-center"
         >
           <img
-            src={nyan.customImageUrl}
+            src={customSrc}
             alt={nyan.name}
+            onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
@@ -67,7 +70,8 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
 
   const hasDecoration = headProp !== 'none' || handProp !== 'none' || Boolean(soundEffect);
 
-  const baseCatImage = loadLocalKihonNyanImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
+  const rawBaseImage = loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_SQUARE;
+  const baseCatImage = getAssetUrl(rawBaseImage);
   const hasCustomTransparent = Boolean(loadLocalKihonNyanImage());
 
   return (
@@ -80,6 +84,7 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
         <img
           src={baseCatImage}
           alt={nyan.name}
+          onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
           className={`select-none pointer-events-none ${
             hasCustomTransparent
               ? 'max-w-full max-h-full object-contain filter drop-shadow-xs'

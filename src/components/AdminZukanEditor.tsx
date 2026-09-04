@@ -34,6 +34,7 @@ import {
   compressAndResizeImage,
   TransparencyOptions,
 } from '../services/imageCompression';
+import { getAssetUrl, handleImageError } from '../utils/assetPath';
 import {
   getSavedGoogleDriveFolderUrl,
   saveGoogleDriveFolderUrl,
@@ -996,8 +997,9 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                     >
                       {formCustomImageUrl ? (
                         <img
-                          src={formCustomImageUrl}
+                          src={getAssetUrl(formCustomImageUrl)}
                           alt={formName || 'にゃんこ'}
+                          onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
                           className="max-w-full max-h-full object-contain filter drop-shadow-md"
                         />
                       ) : (

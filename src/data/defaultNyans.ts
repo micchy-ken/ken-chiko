@@ -2,6 +2,7 @@ import { NyanCharacter } from '../types';
 import { RAW_CSV_PART1 } from './rawCsvPart1';
 import { RAW_CSV_PART2 } from './rawCsvPart2';
 import { RAW_CSV_PART3 } from './rawCsvPart3';
+import { getAssetUrl } from '../utils/assetPath';
 
 export const RAW_DEFAULT_CSV = `${RAW_CSV_PART1.trim()}\n${RAW_CSV_PART2.trim()}\n${RAW_CSV_PART3.trim()}`;
 
@@ -64,7 +65,7 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
       // Initially unlock character 1, 4, 5, 53, 88 as discovered or start fresh with 1 discovered
       const isInitialDiscovered = no === 1 || no === 4 || no === 5 || no === 53 || no === 88;
 
-      const customImageUrl = no === 88 ? '/images/homura-nyan-square.jpg' : undefined;
+      const customImageUrl = no === 88 ? getAssetUrl('images/homura-nyan-square.jpg') : undefined;
 
       result.push({
         no,

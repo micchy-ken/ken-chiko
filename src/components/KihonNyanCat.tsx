@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityType } from '../types';
 import { loadLocalKihonNyanImage } from '../services/imageCompression';
+import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
 
 interface KihonNyanCatProps {
   activity?: ActivityType;
@@ -30,7 +31,8 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
   const isWalking = activity === 'transit';
   const isSnacking = activity === 'snacking';
 
-  const activeImage = customImageUrl || loadLocalKihonNyanImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
+  const rawImage = customImageUrl || loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_SQUARE;
+  const activeImage = getAssetUrl(rawImage);
   const hasCustomTransparent = Boolean(customImageUrl || loadLocalKihonNyanImage());
 
   return (
@@ -58,6 +60,7 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
         <img
           src={activeImage}
           alt="きほんのにゃんこ"
+          onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
           className={`max-w-full max-h-full select-none pointer-events-none ${
             hasCustomTransparent
               ? 'object-contain filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)]'
