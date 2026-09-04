@@ -1129,6 +1129,8 @@ export default function App() {
       {showUserSettingsModal && (
         <UserSettingsModal
           currentUserId={currentUserId}
+          characters={saveData.characters}
+          onImportNyans={handleImportNyans}
           onClose={() => setShowUserSettingsModal(false)}
           onResetUserData={handleResetUserData}
           onSwitchUser={handleSwitchUser}
