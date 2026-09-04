@@ -215,18 +215,14 @@ export default function App() {
     };
   }, []);
 
-  // 2. Auto-sync Google Docs/Sheets and Google Drive Folder on launch & periodically in background
-  useEffect(() => {
-    if (isLoadingFirebase) return;
+  // 2. Controlled Google Docs/Sheets auto-sync (Runs gently on initial launch once per session, throttled)
+  const hasAttemptedInitialSyncRef = useRef<boolean>(false);
 
-    let lastSyncAttempt = 0;
+  useEffect(() => {
+    if (isLoadingFirebase || hasAttemptedInitialSyncRef.current) return;
+    hasAttemptedInitialSyncRef.current = true;
 
     const executeSheetAutoSync = async () => {
-      const now = Date.now();
-      // Throttle: don't auto-fetch more than once every 5 minutes
-      if (now - lastSyncAttempt < 5 * 60 * 1000) return;
-      lastSyncAttempt = now;
-
       // 2-a: Google Docs/Sheets auto-sync
       const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
       if (docUrl && docUrl.trim().length > 0) {
@@ -239,7 +235,7 @@ export default function App() {
                 characters: res.updatedNyans,
                 lastSaved: Date.now(),
               };
-              syncSaveDataToFirebase(nextData).catch(() => {});
+              syncSaveDataToFirebase(nextData, false).catch(() => {});
               return nextData;
             });
           }
@@ -251,7 +247,7 @@ export default function App() {
       if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
         try {
           const res = await syncImagesFromGoogleDriveFolder(driveFolderUrl, saveData.characters);
-          if (res.success && (res.matchedCount > 0 || res.kihonNyanImageUrl)) {
+          if (res.success && (res.matchedCount > 0 || (res.kihonNyanImageUrl && res.kihonNyanImageUrl !== saveData.kihonNyanCustomImageUrl))) {
             setSaveData((prev) => {
               const nextData: GameSaveData = {
                 ...prev,
@@ -260,7 +256,7 @@ export default function App() {
                 kihonNyanCustomImageUrl: res.kihonNyanImageUrl || prev.kihonNyanCustomImageUrl,
                 lastSaved: Date.now(),
               };
-              syncSaveDataToFirebase(nextData).catch(() => {});
+              syncSaveDataToFirebase(nextData, false).catch(() => {});
               return nextData;
             });
           }
@@ -268,21 +264,11 @@ export default function App() {
       }
     };
 
-    // Initial launch auto-sync
-    executeSheetAutoSync();
-
-    // Periodic background sync (every 30 minutes)
-    const periodicInterval = setInterval(executeSheetAutoSync, 30 * 60 * 1000);
-
-    // Sync on tab focus
-    const onFocus = () => {
-      executeSheetAutoSync();
-    };
-    window.addEventListener('focus', onFocus);
+    // Delay 3 seconds after launch to ensure initial render is fast and calm
+    const timer = setTimeout(executeSheetAutoSync, 3000);
 
     return () => {
-      clearInterval(periodicInterval);
-      window.removeEventListener('focus', onFocus);
+      clearTimeout(timer);
     };
   }, [isLoadingFirebase]);
 

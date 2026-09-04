@@ -336,7 +336,6 @@ export async function syncImagesFromGoogleDriveFolder(
       const matchedFile = findMatchingDriveFile(nyan, files);
 
       if (matchedFile) {
-        matchedCount++;
         const driveUrl = matchedFile.url;
 
         // Preserve existing transparency configuration if user already customized it
@@ -347,8 +346,11 @@ export async function syncImagesFromGoogleDriveFolder(
         let processedImageUrl = driveUrl;
         let transApplied = false;
 
-        // If transparency is enabled, attempt automatic background removal
-        if (transOpts.enableTransparency) {
+        // If raw image URL or custom image is already the same, keep existing processed image to avoid re-processing
+        if (nyan.rawImageUrl === driveUrl && nyan.customImageUrl) {
+          processedImageUrl = nyan.customImageUrl;
+        } else if (transOpts.enableTransparency) {
+          // If transparency is enabled, attempt automatic background removal
           try {
             const opts: TransparencyOptions = {
               enableTransparency: true,
@@ -362,6 +364,11 @@ export async function syncImagesFromGoogleDriveFolder(
             console.warn(`Could not apply transparency directly for ${nyan.name}, using raw drive URL:`, imgErr);
             processedImageUrl = driveUrl;
           }
+        }
+
+        const isNewlyChanged = nyan.rawImageUrl !== driveUrl || nyan.customImageUrl !== processedImageUrl;
+        if (isNewlyChanged) {
+          matchedCount++;
         }
 
         updatedNyans.push({

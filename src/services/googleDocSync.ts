@@ -259,20 +259,35 @@ export function parseGvizAndMergeNyans(
     const existing = existingMap.get(no);
 
     if (existing) {
-      existingMap.set(no, {
-        ...existing,
-        name: name || existing.name,
-        reading: reading || existing.reading,
-        motif: motif || existing.motif,
-        firstAppeared: firstAppeared || existing.firstAppeared,
-        episode: episode || existing.episode,
-        promptJa: promptJa || existing.promptJa,
-        promptEn: promptEn || existing.promptEn,
-        dialogue: dialogue || existing.dialogue || undefined,
-        dialogueMeaning: dialogueMeaning || existing.dialogueMeaning || undefined,
-        customImageUrl: importedImageUrl ? importedImageUrl : existing.customImageUrl,
-      });
-      updatedCount++;
+      // Precise diff check: Only mark as updated if an actual field has changed
+      const hasChanged =
+        (name && name !== existing.name && name !== `にゃん #${no}`) ||
+        (reading && reading !== existing.reading && reading !== existing.name) ||
+        (motif && motif !== existing.motif) ||
+        (firstAppeared && firstAppeared !== existing.firstAppeared) ||
+        (episode && episode !== existing.episode) ||
+        (promptJa && promptJa !== existing.promptJa) ||
+        (promptEn && promptEn !== existing.promptEn) ||
+        (dialogue && dialogue !== (existing.dialogue || '')) ||
+        (dialogueMeaning && dialogueMeaning !== (existing.dialogueMeaning || '')) ||
+        (importedImageUrl && importedImageUrl !== (existing.customImageUrl || ''));
+
+      if (hasChanged) {
+        existingMap.set(no, {
+          ...existing,
+          name: name || existing.name,
+          reading: reading || existing.reading,
+          motif: motif || existing.motif,
+          firstAppeared: firstAppeared || existing.firstAppeared,
+          episode: episode || existing.episode,
+          promptJa: promptJa || existing.promptJa,
+          promptEn: promptEn || existing.promptEn,
+          dialogue: dialogue || existing.dialogue || undefined,
+          dialogueMeaning: dialogueMeaning || existing.dialogueMeaning || undefined,
+          customImageUrl: importedImageUrl ? importedImageUrl : existing.customImageUrl,
+        });
+        updatedCount++;
+      }
     } else {
       // Newly added character in spreadsheet!
       existingMap.set(no, {

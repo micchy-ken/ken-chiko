@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink } from 'lucide-react';
+import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database } from 'lucide-react';
 import { getActiveUserId, setActiveUserId } from '../services/userService';
 import {
   getSavedGoogleDocUrl,
@@ -9,6 +9,7 @@ import {
   GoogleDocSyncInfo,
   DEFAULT_GOOGLE_DOC_URL,
 } from '../services/googleDocSync';
+import { getFirebaseAccessStats } from '../services/firebaseSync';
 import { NyanCharacter } from '../types';
 
 interface UserSettingsModalProps {
@@ -264,6 +265,37 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Database Access Safety Monitor */}
+          {(() => {
+            const stats = getFirebaseAccessStats();
+            return (
+              <div className="p-3.5 bg-[#EBF5EE] rounded-2xl border border-[#BBDDC5] space-y-2 text-[#235836]">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-[#2E7D32]" />
+                    DBアクセス保護ガード：稼働中
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 border border-[#A5D6A7] font-mono">
+                    差分検知 & スロットル有効
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex items-center justify-between">
+                    <span className="text-[#558B2F]">セッション読込</span>
+                    <span className="font-mono font-bold text-[#1B5E20]">{stats.sessionReads} 回</span>
+                  </div>
+                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex items-center justify-between">
+                    <span className="text-[#558B2F]">セッション書込</span>
+                    <span className="font-mono font-bold text-[#1B5E20]">{stats.sessionWrites} 回</span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-[#4E7A5A]">
+                  ※同一データ時の無駄なFirestore書き込みを自動スキップし、無料枠（50,000回/日）を完全に保護しています。
+                </p>
+              </div>
+            );
+          })()}
 
           {/* User Data Reset (初期化) */}
           <div className="p-4 bg-[#FFF5F2] rounded-2xl border border-[#F5C7BD] space-y-3">

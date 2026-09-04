@@ -257,6 +257,7 @@ export async function testFirebaseConnection(
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     await getDoc(docRef);
+    sessionDbReadCount++;
     notifyConnectionStatusChange(true);
     return { success: true };
   } catch (err: any) {
@@ -393,6 +394,7 @@ export async function fetchInitialFirebaseState(
     
     try {
       const snap = await getDoc(docRef);
+      sessionDbReadCount++;
       notifyConnectionStatusChange(true);
       if (snap.exists()) {
         const remoteData = snap.data() as GameSaveData;
@@ -468,6 +470,30 @@ export async function fetchInitialFirebaseState(
 let pendingWriteTimeout: any = null;
 let latestPendingData: GameSaveData | null = null;
 let isWritingToFirestore = false;
+let lastWrittenContentString: string = '';
+let sessionDbReadCount: number = 0;
+let sessionDbWriteCount: number = 0;
+
+export interface FirebaseAccessStats {
+  sessionReads: number;
+  sessionWrites: number;
+  lastWriteTime: number;
+  isWriting: boolean;
+}
+
+export function getFirebaseAccessStats(): FirebaseAccessStats {
+  return {
+    sessionReads: sessionDbReadCount,
+    sessionWrites: sessionDbWriteCount,
+    lastWriteTime: lastSuccessfulWriteTime,
+    isWriting: isWritingToFirestore,
+  };
+}
+
+export function resetFirebaseAccessStats(): void {
+  sessionDbReadCount = 0;
+  sessionDbWriteCount = 0;
+}
 
 async function executeFirestoreWrite(
   data: GameSaveData,
@@ -481,8 +507,8 @@ async function executeFirestoreWrite(
   }
 
   const now = Date.now();
-  // Enforce a hard throttle: never write to Firestore if less than 3500ms since last write
-  if (now - lastSuccessfulWriteTime < 3500) {
+  // Enforce a hard throttle: never write to Firestore if less than 10s since last write unless urgent
+  if (now - lastSuccessfulWriteTime < 10000) {
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -490,8 +516,22 @@ async function executeFirestoreWrite(
         if (latestPendingData) {
           executeFirestoreWrite(latestPendingData, config).catch(() => {});
         }
-      }, 3500 - (now - lastSuccessfulWriteTime));
+      }, 10000 - (now - lastSuccessfulWriteTime));
     }
+    return { success: true };
+  }
+
+  // Pre-serialize without dynamic timestamps to compare meaningful data diff
+  const sanitizedData = JSON.parse(
+    JSON.stringify(data, (key, value) => {
+      if (key === 'lastSaved' || key === 'updatedAt' || key === 'totalPlayTimeSec') return undefined;
+      return value === undefined ? null : value;
+    })
+  );
+  const currentContentString = JSON.stringify(sanitizedData);
+
+  // If the content has not changed compared to the last successful Firestore write, completely skip network write!
+  if (lastWrittenContentString && lastWrittenContentString === currentContentString) {
     return { success: true };
   }
 
@@ -514,16 +554,14 @@ async function executeFirestoreWrite(
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
-    const sanitizedData = JSON.parse(
-      JSON.stringify(data, (_, value) => (value === undefined ? null : value))
-    );
-
     await setDoc(docRef, {
       ...sanitizedData,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
 
+    sessionDbWriteCount++;
+    lastWrittenContentString = currentContentString;
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
     if (isQuotaCurrentlyExhausted) {

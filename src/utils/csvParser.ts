@@ -153,21 +153,35 @@ export function mergeImportedCsv(
 
       const existing = existingMap.get(no);
       if (existing) {
-        // Keep progress & update custom image if provided, update lore/prompts/dialogue
-        existingMap.set(no, {
-          ...existing,
-          name,
-          reading,
-          motif,
-          firstAppeared: firstAppeared || existing.firstAppeared,
-          episode: episode || existing.episode,
-          promptJa: promptJa || existing.promptJa,
-          promptEn: promptEn || existing.promptEn,
-          dialogue: dialogue || existing.dialogue,
-          dialogueMeaning: dialogueMeaning || existing.dialogueMeaning,
-          customImageUrl: importedImageUrl || existing.customImageUrl,
-        });
-        updatedCount++;
+        const hasChanged =
+          (name && name !== existing.name) ||
+          (reading && reading !== existing.reading) ||
+          (motif && motif !== existing.motif) ||
+          (firstAppeared && firstAppeared !== existing.firstAppeared) ||
+          (episode && episode !== existing.episode) ||
+          (promptJa && promptJa !== existing.promptJa) ||
+          (promptEn && promptEn !== existing.promptEn) ||
+          (dialogue && dialogue !== (existing.dialogue || '')) ||
+          (dialogueMeaning && dialogueMeaning !== (existing.dialogueMeaning || '')) ||
+          (importedImageUrl && importedImageUrl !== (existing.customImageUrl || ''));
+
+        if (hasChanged) {
+          // Keep progress & update custom image if provided, update lore/prompts/dialogue
+          existingMap.set(no, {
+            ...existing,
+            name: name || existing.name,
+            reading: reading || existing.reading,
+            motif: motif || existing.motif,
+            firstAppeared: firstAppeared || existing.firstAppeared,
+            episode: episode || existing.episode,
+            promptJa: promptJa || existing.promptJa,
+            promptEn: promptEn || existing.promptEn,
+            dialogue: dialogue || existing.dialogue,
+            dialogueMeaning: dialogueMeaning || existing.dialogueMeaning,
+            customImageUrl: importedImageUrl || existing.customImageUrl,
+          });
+          updatedCount++;
+        }
       } else {
         // New character added in weekly update!
         existingMap.set(no, {
