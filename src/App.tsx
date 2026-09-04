@@ -891,7 +891,6 @@ export default function App() {
               onSelectNyan={(nyan) => setSelectedZukanNyan(nyan)}
               onManualMonologue={handleManualMonologue}
               onTakeSnapshot={handleTakeSnapshot}
-              onUpdateKenchikoImage={handleUpdateKenchikoImage}
             />
 
             {/* Quick Mini Zukan Strip */}
@@ -981,7 +980,6 @@ export default function App() {
         <ZukanDetailModal
           nyan={selectedZukanNyan}
           onClose={() => setSelectedZukanNyan(null)}
-          onUpdateCustomImage={handleUpdateCustomImage}
           onGiftToNyan={(_nyan) => {
             setSelectedZukanNyan(null);
             setShowGiftModal(true);

@@ -36,6 +36,7 @@ import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
 import { KihonNyanCat } from './KihonNyanCat';
 import { ConfirmModal } from './ConfirmModal';
+import { AdminZukanEditor } from './AdminZukanEditor';
 import {
   X,
   Upload,
@@ -76,6 +77,7 @@ import {
   Square,
   CornerDownLeft,
   ListPlus,
+  BookOpen,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -89,7 +91,7 @@ import {
   TransparencyOptions,
 } from '../services/imageCompression';
 
-export type AdminTab = 'avatar' | 'kihon_nyan' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -163,7 +165,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -174,7 +176,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       if (adminVal && validTabs.includes(adminVal)) return adminVal;
       if (subVal && validTabs.includes(subVal)) return subVal;
     }
-    return 'avatar';
+    return 'zukan';
   });
 
   useEffect(() => {
@@ -1052,7 +1054,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Navigation Tabs */}
         <div className="flex border-b border-[#DDD7C8] bg-[#EFECE4] px-4 sm:px-6 pt-3 gap-1.5 overflow-x-auto">
-          {/* TAB 0: Kenchiko Avatar (けんちこ画像設定) */}
+          {/* TAB 0: Nyanko Zukan Master Editor (にゃんこ図鑑修正) */}
+          <button
+            onClick={() => setActiveTab('zukan')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'zukan'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-[#C8744E]" />
+            <span>にゃんこ図鑑修正・画像設定 ({characters.length}体)</span>
+          </button>
+
+          {/* TAB 1: Kenchiko Avatar (けんちこ画像設定) */}
           <button
             onClick={() => setActiveTab('avatar')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1065,7 +1080,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>けんちこ画像登録</span>
           </button>
 
-          {/* TAB 0.5: Kihon Nyan Base Avatar (きほんのにゃんこ画像登録) */}
+          {/* TAB 2: Kihon Nyan Base Avatar (きほんのにゃんこ画像登録) */}
           <button
             onClick={() => setActiveTab('kihon_nyan')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1078,7 +1093,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>きほんのにゃんこ画像登録</span>
           </button>
 
-          {/* TAB 1: Events & Asobi Editor (全イベント編集) */}
+          {/* TAB 3: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1091,7 +1106,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>全イベント・あそび編集 ({asobiList.length}件)</span>
           </button>
 
-          {/* TAB 2: Database CRUD */}
+          {/* TAB 4: Database CRUD */}
           <button
             onClick={() => setActiveTab('database')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1104,7 +1119,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>Firebaseデータ編集</span>
           </button>
 
-          {/* TAB 3: Google Doc Sync */}
+          {/* TAB 5: Google Doc Sync */}
           <button
             onClick={() => setActiveTab('googledoc')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1117,7 +1132,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>Google Docs 自動連携</span>
           </button>
 
-          {/* TAB 4: Firebase Config */}
+          {/* TAB 6: Firebase Config */}
           <button
             onClick={() => setActiveTab('firebase')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1130,7 +1145,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>Firebase設定</span>
           </button>
 
-          {/* TAB 5: GitHub */}
+          {/* TAB 7: GitHub */}
           <button
             onClick={() => setActiveTab('github')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1143,7 +1158,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>GitHub YAML</span>
           </button>
 
-          {/* TAB 6: CSV */}
+          {/* TAB 8: CSV */}
           <button
             onClick={() => setActiveTab('csv')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
@@ -1160,7 +1175,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {/* Tab Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]">
           {/* ========================================================= */}
-          {/* TAB 0: KENCHIKO AVATAR IMAGE SETTING */}
+          {/* TAB 0: NYANKO ZUKAN & CHARACTER MASTER EDITOR */}
+          {/* ========================================================= */}
+          {activeTab === 'zukan' && (
+            <AdminZukanEditor
+              characters={characters}
+              onUpdateSaveData={onUpdateSaveData}
+              openConfirm={openConfirm}
+            />
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 1: KENCHIKO AVATAR IMAGE SETTING */}
           {/* ========================================================= */}
           {activeTab === 'avatar' && (
             <div className="space-y-4 animate-fadeIn">

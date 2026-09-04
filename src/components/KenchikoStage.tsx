@@ -28,7 +28,6 @@ interface KenchikoStageProps {
   onSelectNyan: (nyan: NyanCharacter) => void;
   onManualMonologue: () => void;
   onTakeSnapshot: () => void;
-  onUpdateKenchikoImage?: (imageUrl: string) => void;
 }
 
 export const KenchikoStage: React.FC<KenchikoStageProps> = ({
@@ -42,35 +41,8 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   onSelectNyan,
   onManualMonologue,
   onTakeSnapshot,
-  onUpdateKenchikoImage,
 }) => {
   const [pettingEffect, setPettingEffect] = useState(false);
-  const [showImageUploader, setShowImageUploader] = useState(false);
-  const [urlInput, setUrlInput] = useState('');
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && onUpdateKenchikoImage) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        if (result) {
-          onUpdateKenchikoImage(result);
-          setShowImageUploader(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleUrlSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (urlInput.trim() && onUpdateKenchikoImage) {
-      onUpdateKenchikoImage(urlInput.trim());
-      setUrlInput('');
-      setShowImageUploader(false);
-    }
-  };
 
   const locInfo = LOCATIONS[kenchiko.currentLocation] || LOCATIONS.living;
   const targetLocInfo = kenchiko.targetLocation ? LOCATIONS[kenchiko.targetLocation] : null;

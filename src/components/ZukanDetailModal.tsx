@@ -1,60 +1,26 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
   X,
-  Upload,
   Heart,
   Calendar,
   Layers,
-  Image as ImageIcon,
   Gift,
 } from 'lucide-react';
 
 interface ZukanDetailModalProps {
   nyan: NyanCharacter | null;
   onClose: () => void;
-  onUpdateCustomImage: (nyanNo: number, imageUrl: string) => void;
   onGiftToNyan?: (nyan: NyanCharacter) => void;
 }
 
 export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   nyan,
   onClose,
-  onUpdateCustomImage,
   onGiftToNyan,
 }) => {
-  const [customUrlInput, setCustomUrlInput] = useState('');
-  const [showImageInput, setShowImageInput] = useState(false);
-
   if (!nyan) return null;
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        if (result) {
-          onUpdateCustomImage(nyan.no, result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleUrlSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (customUrlInput.trim()) {
-      onUpdateCustomImage(nyan.no, customUrlInput.trim());
-      setCustomUrlInput('');
-      setShowImageInput(false);
-    }
-  };
-
-  const handleResetImage = () => {
-    onUpdateCustomImage(nyan.no, '');
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">
@@ -85,55 +51,7 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
           {/* Main Visual & Key Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
             <div className="flex flex-col items-center justify-center p-4 bg-[#FFFDF9] sketch-card-subtle">
-              <NyanIllustration nyan={nyan} size={165} isDiscovered={true} />
-              
-              <div className="mt-3 flex items-center gap-2">
-                <label className="cursor-pointer flex items-center gap-1.5 text-xs font-bold bg-[#FAF8F4] hover:bg-white text-[#2E2824] px-3 py-1.5 sketch-tag transition font-handwriting">
-                  <Upload className="w-3.5 h-3.5 text-[#487560]" />
-                  <span>画像を更新</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-
-                <button
-                  onClick={() => setShowImageInput(!showImageInput)}
-                  className="flex items-center gap-1 text-xs font-bold bg-[#FAF8F4] hover:bg-white text-[#5A524A] px-2.5 py-1.5 sketch-tag transition font-handwriting"
-                >
-                  <ImageIcon className="w-3.5 h-3.5 text-[#3C5C7A]" />
-                  <span>URL</span>
-                </button>
-
-                {nyan.customImageUrl && (
-                  <button
-                    onClick={handleResetImage}
-                    className="text-[11px] text-[#C85A53] hover:underline font-bold"
-                  >
-                    リセット
-                  </button>
-                )}
-              </div>
-
-              {showImageInput && (
-                <form onSubmit={handleUrlSubmit} className="mt-2 w-full flex gap-1">
-                  <input
-                    type="url"
-                    value={customUrlInput}
-                    onChange={(e) => setCustomUrlInput(e.target.value)}
-                    placeholder="画像URLを入力…"
-                    className="flex-1 px-2.5 py-1 text-xs bg-[#FAF8F4] sketch-tag text-[#2E2824] focus:outline-none focus:border-[#487560]"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1 text-xs bg-[#3E3833] text-white sketch-tag font-bold font-handwriting"
-                  >
-                    適用
-                  </button>
-                </form>
-              )}
+              <NyanIllustration nyan={nyan} size={175} isDiscovered={true} />
             </div>
 
             {/* Profile Data */}
