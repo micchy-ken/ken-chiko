@@ -1,7 +1,8 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, Firestore, Unsubscribe } from 'firebase/firestore';
-import { GameSaveData } from '../types';
+import { GameSaveData, NyanCharacter } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
+import { INITIAL_NYANS } from '../data/defaultNyans';
 
 export interface FirebaseCustomConfig {
   apiKey?: string;
@@ -12,6 +13,64 @@ export interface FirebaseCustomConfig {
   appId?: string;
   firestoreDatabaseId?: string;
   syncDocId?: string; // default: "ken-chiko-global-state"
+}
+
+/**
+ * Robustly merges remote/saved character list with the baseline 231 characters (INITIAL_NYANS).
+ * Ensures:
+ * 1. All 231 characters are always present in the game (no characters ever disappear).
+ * 2. User customizations (customImageUrl, rawImageUrl, transparency settings, discovery status, friendship, playCount)
+ *    from remote or local backup are seamlessly retained and prioritized over defaults.
+ * 3. Any newly added custom characters with ID > 231 are also retained.
+ */
+export function mergeCharactersWithDefaults(
+  customCharacters?: NyanCharacter[],
+  secondaryCharacters?: NyanCharacter[]
+): NyanCharacter[] {
+  const charMap = new Map<number, NyanCharacter>();
+
+  // 1. Seed with baseline 231 nyans
+  for (const nyan of INITIAL_NYANS) {
+    charMap.set(nyan.no, { ...nyan });
+  }
+
+  // 2. Overlay secondary characters if available
+  if (secondaryCharacters && secondaryCharacters.length > 0) {
+    for (const sec of secondaryCharacters) {
+      const base = charMap.get(sec.no) || sec;
+      charMap.set(sec.no, {
+        ...base,
+        ...sec,
+        discovered: sec.discovered || base.discovered,
+        discoveryDate: sec.discoveryDate || base.discoveryDate,
+        friendshipLevel: Math.max(sec.friendshipLevel || 0, base.friendshipLevel || 0),
+        playCount: Math.max(sec.playCount || 0, base.playCount || 0),
+        customImageUrl: sec.customImageUrl || base.customImageUrl,
+        rawImageUrl: sec.rawImageUrl || base.rawImageUrl,
+        transparency: sec.transparency || base.transparency,
+      });
+    }
+  }
+
+  // 3. Overlay primary custom characters
+  if (customCharacters && customCharacters.length > 0) {
+    for (const prim of customCharacters) {
+      const base = charMap.get(prim.no) || prim;
+      charMap.set(prim.no, {
+        ...base,
+        ...prim,
+        discovered: prim.discovered !== undefined ? prim.discovered : base.discovered,
+        discoveryDate: prim.discoveryDate || base.discoveryDate,
+        friendshipLevel: prim.friendshipLevel !== undefined ? prim.friendshipLevel : base.friendshipLevel,
+        playCount: prim.playCount !== undefined ? prim.playCount : base.playCount,
+        customImageUrl: prim.customImageUrl !== undefined ? prim.customImageUrl : base.customImageUrl,
+        rawImageUrl: prim.rawImageUrl !== undefined ? prim.rawImageUrl : base.rawImageUrl,
+        transparency: prim.transparency !== undefined ? prim.transparency : base.transparency,
+      });
+    }
+  }
+
+  return Array.from(charMap.values()).sort((a, b) => a.no - b.no);
 }
 
 // Built-in Firebase configuration for the project
@@ -320,15 +379,17 @@ export async function fetchInitialFirebaseState(
               ? primarySource.asobiList
               : secondarySource.asobiList || DEFAULT_INITIAL_STATE.asobiList;
 
+          const mergedCharacters = mergeCharactersWithDefaults(
+            primarySource.characters,
+            secondarySource.characters
+          );
+
           const mergedData: GameSaveData = {
             ...DEFAULT_INITIAL_STATE,
             ...secondarySource,
             ...primarySource,
             asobiList: mergedAsobiList,
-            characters:
-              primarySource.characters && primarySource.characters.length > 0
-                ? primarySource.characters
-                : secondarySource.characters || DEFAULT_INITIAL_STATE.characters,
+            characters: mergedCharacters,
             inventory:
               primarySource.inventory && primarySource.inventory.length > 0
                 ? primarySource.inventory
@@ -546,10 +607,16 @@ export function subscribeToFirebaseState(
                 ? remoteData.asobiList
                 : local?.asobiList || DEFAULT_INITIAL_STATE.asobiList;
 
+            const mergedCharacters = mergeCharactersWithDefaults(
+              remoteData.characters,
+              local?.characters
+            );
+
             const safeData: GameSaveData = {
               ...DEFAULT_INITIAL_STATE,
               ...remoteData,
               asobiList: mergedAsobiList,
+              characters: mergedCharacters,
             };
             saveLocalBackup(safeData);
             onRemoteUpdate(safeData);

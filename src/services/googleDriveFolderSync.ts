@@ -216,7 +216,7 @@ function parseFilesFromDriveHtml(html: string, fileMap: Map<string, DriveFileInf
 }
 
 /**
- * Finds a matching Drive file for a character based on name, reading, or No.
+ * Finds a matching Drive file for a character based on name, reading, aliases, or No.
  */
 export function findMatchingDriveFile(
   nyan: NyanCharacter,
@@ -226,10 +226,16 @@ export function findMatchingDriveFile(
   const normNyanReading = normalizeNameForMatch(nyan.reading || '');
   const nyanNoStr = String(nyan.no);
 
+  // Split name parts if there are slashes or alternate names (e.g. "ほむらにゃん / ほむら")
+  const nameParts = nyan.name
+    .split(/[/／,、|]/)
+    .map((p) => normalizeNameForMatch(p.trim()))
+    .filter((p) => p.length > 0);
+
   // Check 1: Exact normalized name match
   for (const file of files) {
     const normFileName = normalizeNameForMatch(file.name);
-    if (normFileName && normFileName === normNyanName) {
+    if (normFileName && (normFileName === normNyanName || nameParts.includes(normFileName))) {
       return file;
     }
   }
@@ -239,6 +245,11 @@ export function findMatchingDriveFile(
     const rawBaseName = file.name.replace(/\.[^/.]+$/, '').trim();
     if (rawBaseName === nyan.name || rawBaseName === nyan.reading) {
       return file;
+    }
+    for (const part of nameParts) {
+      if (rawBaseName === part) {
+        return file;
+      }
     }
   }
 
@@ -252,7 +263,7 @@ export function findMatchingDriveFile(
     }
   }
 
-  // Check 4: No + Name match (e.g. "01_ほむらにゃん", "No.1 ほむらにゃん")
+  // Check 4: No + Name match (e.g. "01_ほむらにゃん", "No.1 ほむらにゃん", "088_ほむらにゃん")
   for (const file of files) {
     const raw = file.name.toLowerCase();
     const noMatch = raw.match(/^(?:no\.?|#)?0*(\d+)[\s._\-ー]/i);

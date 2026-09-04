@@ -34,6 +34,11 @@ import {
   syncNyansFromGoogleDoc,
   DEFAULT_GOOGLE_DOC_URL,
 } from './services/googleDocSync';
+import {
+  getSavedGoogleDriveFolderUrl,
+  syncImagesFromGoogleDriveFolder,
+  DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
+} from './services/googleDriveFolderSync';
 
 import { KenchikoStage } from './components/KenchikoStage';
 import { KenchikoAvatar } from './components/KenchikoAvatar';
@@ -192,21 +197,47 @@ export default function App() {
     };
   }, []);
 
-  // 2. Auto-sync Google Docs/Sheets on launch if configured (Triggered once on ready)
+  // 2. Auto-sync Google Docs/Sheets and Google Drive Folder on launch if configured (Triggered once on ready)
   useEffect(() => {
     if (isLoadingFirebase) return;
+
+    // 2-a: Google Docs/Sheets auto-sync
     const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
     if (docUrl && docUrl.trim().length > 0) {
       syncNyansFromGoogleDoc(docUrl, saveData.characters)
         .then((res) => {
           if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
-            const nextData: GameSaveData = {
-              ...saveData,
-              characters: res.updatedNyans,
-              lastSaved: Date.now(),
-            };
-            setSaveData(nextData);
-            syncSaveDataToFirebase(nextData).catch(() => {});
+            setSaveData((prev) => {
+              const nextData: GameSaveData = {
+                ...prev,
+                characters: res.updatedNyans,
+                lastSaved: Date.now(),
+              };
+              syncSaveDataToFirebase(nextData).catch(() => {});
+              return nextData;
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 2-b: Google Drive Folder image auto-sync
+    const driveFolderUrl = saveData.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl() || DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
+    if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
+      syncImagesFromGoogleDriveFolder(driveFolderUrl, saveData.characters)
+        .then((res) => {
+          if (res.success && (res.matchedCount > 0 || res.kihonNyanImageUrl)) {
+            setSaveData((prev) => {
+              const nextData: GameSaveData = {
+                ...prev,
+                characters: res.updatedNyans,
+                googleDriveFolderUrl: driveFolderUrl,
+                kihonNyanCustomImageUrl: res.kihonNyanImageUrl || prev.kihonNyanCustomImageUrl,
+                lastSaved: Date.now(),
+              };
+              syncSaveDataToFirebase(nextData).catch(() => {});
+              return nextData;
+            });
           }
         })
         .catch(() => {});
