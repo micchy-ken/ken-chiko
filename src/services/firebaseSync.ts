@@ -64,7 +64,31 @@ export interface UserProgressDoc {
 }
 
 /**
+ * Recursively removes any `undefined` values from an object or array.
+ * Firestore `setDoc` throws runtime errors if any property is `undefined`.
+ */
+export function removeUndefinedDeep<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefinedDeep) as any;
+  }
+  if (typeof obj === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(obj)) {
+      if (val !== undefined) {
+        cleaned[key] = removeUndefinedDeep(val);
+      }
+    }
+    return cleaned as any;
+  }
+  return obj;
+}
+
+/**
  * Extracts ONLY user-specific progress, discoveries, and custom image overrides.
+ * Strictly guarantees no `undefined` keys exist in the output object.
  */
 export function extractUserProgress(data: GameSaveData): UserProgressDoc {
   const nyanProgress: Record<number, NyanProgressEntry> = {};
@@ -80,15 +104,16 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
         Boolean(char.transparency);
 
       if (hasCustomization) {
-        nyanProgress[char.no] = {
-          discovered: char.discovered,
-          discoveryDate: char.discoveryDate,
-          friendshipLevel: char.friendshipLevel,
-          playCount: char.playCount,
-          customImageUrl: char.customImageUrl,
-          rawImageUrl: char.rawImageUrl,
-          transparency: char.transparency,
-        };
+        const entry: NyanProgressEntry = {};
+        if (char.discovered !== undefined) entry.discovered = char.discovered;
+        if (char.discoveryDate) entry.discoveryDate = char.discoveryDate;
+        if (char.friendshipLevel !== undefined) entry.friendshipLevel = char.friendshipLevel;
+        if (char.playCount !== undefined) entry.playCount = char.playCount;
+        if (char.customImageUrl) entry.customImageUrl = char.customImageUrl;
+        if (char.rawImageUrl) entry.rawImageUrl = char.rawImageUrl;
+        if (char.transparency) entry.transparency = char.transparency;
+
+        nyanProgress[char.no] = entry;
       }
     }
   }
@@ -96,15 +121,15 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
   // Cap diary to latest 30 entries for optimal payload size
   const cappedDiary = Array.isArray(data.diary) ? data.diary.slice(0, 30) : [];
 
-  return {
+  const rawDoc: UserProgressDoc = {
     version: data.version || 2,
     kenchiko: data.kenchiko,
     nyanProgress,
     inventory: data.inventory || [],
     diary: cappedDiary,
     asobiList: data.asobiList || [],
-    kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl,
-    googleDriveFolderUrl: data.googleDriveFolderUrl,
+    kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl || '',
+    googleDriveFolderUrl: data.googleDriveFolderUrl || '',
     stats: data.stats || {
       totalEncounters: 0,
       totalSnacksEaten: 0,
@@ -113,6 +138,8 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
     },
     lastSaved: data.lastSaved || Date.now(),
   };
+
+  return removeUndefinedDeep(rawDoc);
 }
 
 /**
@@ -339,18 +366,32 @@ export interface FirebaseConnectionStatus {
 }
 
 let isCurrentlyConnected: boolean = false;
+let isInitialPhase: boolean = true;
 let lastConnectionError: string | undefined = undefined;
+let autoReconnectTimer: any = null;
+let isAutoReconnecting: boolean = false;
 const connectionStatusListeners = new Set<(status: FirebaseConnectionStatus) => void>();
 
 export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
   const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
   const isQuota = isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
+  // During initial boot phase (first ~2.5s), do not alarm the user with an offline warning
+  const effectiveOffline = isInitialPhase ? false : (isOffline || !isCurrentlyConnected || isQuota);
+
   return {
     isConnected: !isOffline && isCurrentlyConnected && !isQuota,
-    isOffline: isOffline || !isCurrentlyConnected || isQuota,
+    isOffline: effectiveOffline,
     lastError: isQuota ? 'Firestoreの1日無料枠上限に達しました（データはローカルで安全に保護されています）' : lastConnectionError,
     isQuotaExhausted: isQuota,
   };
+}
+
+export function endInitialConnectionPhase(): void {
+  isInitialPhase = false;
+  notifyConnectionStatusChange(isCurrentlyConnected, lastConnectionError);
+  if (!isCurrentlyConnected) {
+    startAutoReconnectLoop();
+  }
 }
 
 export function subscribeFirebaseConnectionStatus(
@@ -374,6 +415,51 @@ function notifyConnectionStatusChange(connected: boolean, error?: string) {
       listener(currentStatus);
     } catch {}
   });
+
+  if (!connected && !isQuotaCurrentlyExhausted && !isInitialPhase) {
+    startAutoReconnectLoop();
+  } else if (connected) {
+    stopAutoReconnectLoop();
+  }
+}
+
+/**
+ * Automatically retries connecting to Firebase every 5 seconds until restored.
+ */
+export function startAutoReconnectLoop(): void {
+  if (autoReconnectTimer || isCurrentlyConnected || isQuotaCurrentlyExhausted) return;
+
+  autoReconnectTimer = setInterval(async () => {
+    if (isAutoReconnecting || isCurrentlyConnected || isQuotaCurrentlyExhausted) {
+      if (isCurrentlyConnected || isQuotaCurrentlyExhausted) {
+        stopAutoReconnectLoop();
+      }
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return; // Skip retry while device is offline
+    }
+
+    isAutoReconnecting = true;
+    try {
+      const res = await testFirebaseConnection();
+      if (res.success) {
+        stopAutoReconnectLoop();
+      }
+    } catch {
+      // Ignored - will retry in 5s
+    } finally {
+      isAutoReconnecting = false;
+    }
+  }, 5000);
+}
+
+export function stopAutoReconnectLoop(): void {
+  if (autoReconnectTimer) {
+    clearInterval(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
 }
 
 // Window online/offline listener setup
@@ -723,12 +809,13 @@ async function executeFirestoreWrite(
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
-    // Write the compact 2KB progress document to Firestore
-    await setDoc(docRef, {
+    // Write the compact 2KB progress document to Firestore (strictly sanitized of undefined values)
+    const payload = removeUndefinedDeep({
       ...compactProgressDoc,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
+    await setDoc(docRef, payload);
 
     sessionDbWriteCount++;
     lastWrittenContentString = currentContentString;

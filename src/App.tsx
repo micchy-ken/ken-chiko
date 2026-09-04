@@ -27,6 +27,7 @@ import {
   getFirebaseConnectionStatus,
   subscribeFirebaseConnectionStatus,
   testFirebaseConnection,
+  endInitialConnectionPhase,
   FirebaseConnectionStatus,
 } from './services/firebaseSync';
 import {
@@ -149,7 +150,7 @@ export default function App() {
   // Reference for avoiding echo saves from remote snapshot updates
   const isRemoteUpdateRef = useRef<boolean>(false);
 
-  // 1. Initial Load from Firestore (One-time fetch with graceful local backup fallback)
+  // 1. Initial Load from Firestore (Smooth startup: local backup first, then graceful delayed remote fetch)
   useEffect(() => {
     setQuotaStatusCallback((exhausted) => {
       setIsQuotaLimited(exhausted);
@@ -161,56 +162,50 @@ export default function App() {
 
     let isMounted = true;
 
-    // Fetch initial state once from Firestore on launch
-    fetchInitialFirebaseState()
-      .then((res) => {
-        if (!isMounted) return;
-        if (res.success && res.data) {
-          isRemoteUpdateRef.current = true;
-          const mergedData = { ...res.data };
-          // If remote image is absent but locally saved, prioritize local image
-          const localImg = loadLocalKenchikoImage();
-          if (!mergedData.kenchiko.customImageUrl && localImg) {
-            mergedData.kenchiko.customImageUrl = localImg;
-          } else if (mergedData.kenchiko.customImageUrl) {
-            saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
+    // A. Immediate local image hydrate
+    const localImg = loadLocalKenchikoImage();
+    if (localImg) {
+      setSaveData((prev) => ({
+        ...prev,
+        kenchiko: {
+          ...prev.kenchiko,
+          customImageUrl: prev.kenchiko.customImageUrl || localImg,
+        },
+      }));
+    }
+
+    // B. Delay initial cloud connection by ~1.5s to let UI and browser network settle
+    const initialFetchTimer = setTimeout(() => {
+      fetchInitialFirebaseState()
+        .then((res) => {
+          if (!isMounted) return;
+          if (res.success && res.data) {
+            isRemoteUpdateRef.current = true;
+            const mergedData = { ...res.data };
+            // If remote image is absent but locally saved, prioritize local image
+            if (!mergedData.kenchiko.customImageUrl && localImg) {
+              mergedData.kenchiko.customImageUrl = localImg;
+            } else if (mergedData.kenchiko.customImageUrl) {
+              saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
+            }
+            setSaveData(mergedData);
+            const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
+            setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
+            setIsFirebaseSynced(true);
           }
-          setSaveData(mergedData);
-          const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
-          setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
-          setIsFirebaseSynced(true);
-        } else {
-          // If no remote data, check if local image exists
-          const localImg = loadLocalKenchikoImage();
-          if (localImg) {
-            setSaveData((prev) => ({
-              ...prev,
-              kenchiko: {
-                ...prev.kenchiko,
-                customImageUrl: localImg,
-              },
-            }));
-          }
-        }
-        setIsLoadingFirebase(false);
-      })
-      .catch((err) => {
-        console.warn('Firebase initial load note:', err);
-        const localImg = loadLocalKenchikoImage();
-        if (localImg) {
-          setSaveData((prev) => ({
-            ...prev,
-            kenchiko: {
-              ...prev.kenchiko,
-              customImageUrl: localImg,
-            },
-          }));
-        }
-        if (isMounted) setIsLoadingFirebase(false);
-      });
+          endInitialConnectionPhase();
+          setIsLoadingFirebase(false);
+        })
+        .catch((err) => {
+          console.warn('Firebase initial load note:', err);
+          endInitialConnectionPhase();
+          if (isMounted) setIsLoadingFirebase(false);
+        });
+    }, 1500);
 
     return () => {
       isMounted = false;
+      clearTimeout(initialFetchTimer);
       unsubStatus();
     };
   }, []);
@@ -955,7 +950,7 @@ export default function App() {
                   【オフラインモードで動作中】
                 </span>
                 <span className="text-xs text-[#78281F]">
-                  Firebaseクラウドデータベースと接続できていません。ゲームの進行や観察はローカル上でそのまま継続でき、再接続時に自動保存されます。
+                  Firebaseクラウドデータベースと接続待機中、または一時的に未接続です。数秒ごとに自動で再接続を試行しています（ゲームの進行はローカル上でそのまま継続でき、接続時に自動保存されます）。
                 </span>
                 {connectionStatus.lastError && (
                   <span className="block text-[10px] text-[#A93226] font-mono mt-0.5 opacity-80 truncate max-w-xl">

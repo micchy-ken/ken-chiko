@@ -196,20 +196,22 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           {companionNyan && (
             <div
               onClick={() => onSelectNyan(companionNyan)}
-              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn max-w-[200px]"
+              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn max-w-[240px] sm:max-w-[280px]"
               title="図鑑を見る / 一緒に遊ぶ"
             >
               {/* Cat Speech Bubble (I列: セリフ, J列: 意味) */}
               {(companionNyan.dialogue || companionNyan.dialogueMeaning) ? (
-                <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3 py-1.5 shadow-sm text-center animate-fadeIn max-w-[190px]">
+                <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3.5 py-2 shadow-sm text-center animate-fadeIn max-w-[230px] sm:max-w-[260px]">
                   {companionNyan.dialogue && (
-                    <p className="text-xs font-bold text-[#2E2824] leading-snug font-handwriting">
-                      「{companionNyan.dialogue}」
+                    <p className="text-xs sm:text-sm font-bold text-[#2E2824] leading-snug font-handwriting">
+                      {companionNyan.dialogue.startsWith('「') && companionNyan.dialogue.endsWith('」')
+                        ? companionNyan.dialogue
+                        : `「${companionNyan.dialogue}」`}
                     </p>
                   )}
                   {companionNyan.dialogueMeaning && (
-                    <p className="text-[10px] text-[#7A726A] font-medium leading-tight font-handwriting mt-0.5 border-t border-[#EAE5D9] pt-0.5">
-                      （{companionNyan.dialogueMeaning}）
+                    <p className="text-xs sm:text-[13px] text-[#3E3833] font-bold leading-snug font-handwriting mt-1 border-t border-[#EAE5D9] pt-1">
+                      {companionNyan.dialogueMeaning}
                     </p>
                   )}
                   {/* Small speech balloon pointer triangle */}

@@ -104,12 +104,14 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
               </h4>
               {nyan.dialogue && (
                 <p className="text-base font-bold text-[#2E2824] leading-relaxed font-handwriting">
-                  「{nyan.dialogue}」
+                  {nyan.dialogue.startsWith('「') && nyan.dialogue.endsWith('」')
+                    ? nyan.dialogue
+                    : `「${nyan.dialogue}」`}
                 </p>
               )}
               {nyan.dialogueMeaning && (
-                <p className="text-xs font-medium text-[#7A726A] font-handwriting">
-                  意味: {nyan.dialogueMeaning}
+                <p className="text-sm font-bold text-[#3E3833] font-handwriting">
+                  {nyan.dialogueMeaning}
                 </p>
               )}
             </div>
