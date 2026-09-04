@@ -3,14 +3,17 @@ import { mergeImportedCsv } from '../utils/csvParser';
 
 const GOOGLE_DOC_CONFIG_KEY = 'kenchiko_google_doc_url_v1';
 
-// Default provided Google Docs / Sheets URL (blank by default until user configures)
-export const DEFAULT_GOOGLE_DOC_URL = '';
+// Default provided Google Docs / Sheets URL
+export const DEFAULT_GOOGLE_DOC_URL =
+  'https://docs.google.com/spreadsheets/d/1EVgPLTVb22a4ZUPVaQxbjP7IFnknBVWAYRynDixNvCA/edit?usp=sharing';
 
 export function getSavedGoogleDocUrl(): string {
   try {
-    return localStorage.getItem(GOOGLE_DOC_CONFIG_KEY) || '';
+    return (
+      localStorage.getItem(GOOGLE_DOC_CONFIG_KEY) || DEFAULT_GOOGLE_DOC_URL
+    );
   } catch {
-    return '';
+    return DEFAULT_GOOGLE_DOC_URL;
   }
 }
 
