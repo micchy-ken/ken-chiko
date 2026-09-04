@@ -215,15 +215,23 @@ export default function App() {
     };
   }, []);
 
-  // 2. Auto-sync Google Docs/Sheets and Google Drive Folder on launch if configured (Triggered once on ready)
+  // 2. Auto-sync Google Docs/Sheets and Google Drive Folder on launch & periodically in background
   useEffect(() => {
     if (isLoadingFirebase) return;
 
-    // 2-a: Google Docs/Sheets auto-sync
-    const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
-    if (docUrl && docUrl.trim().length > 0) {
-      syncNyansFromGoogleDoc(docUrl, saveData.characters)
-        .then((res) => {
+    let lastSyncAttempt = 0;
+
+    const executeSheetAutoSync = async () => {
+      const now = Date.now();
+      // Throttle: don't auto-fetch more than once every 5 minutes
+      if (now - lastSyncAttempt < 5 * 60 * 1000) return;
+      lastSyncAttempt = now;
+
+      // 2-a: Google Docs/Sheets auto-sync
+      const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
+      if (docUrl && docUrl.trim().length > 0) {
+        try {
+          const res = await syncNyansFromGoogleDoc(docUrl, saveData.characters);
           if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
             setSaveData((prev) => {
               const nextData: GameSaveData = {
@@ -235,15 +243,14 @@ export default function App() {
               return nextData;
             });
           }
-        })
-        .catch(() => {});
-    }
+        } catch {}
+      }
 
-    // 2-b: Google Drive Folder image auto-sync
-    const driveFolderUrl = saveData.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl() || DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
-    if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
-      syncImagesFromGoogleDriveFolder(driveFolderUrl, saveData.characters)
-        .then((res) => {
+      // 2-b: Google Drive Folder image auto-sync
+      const driveFolderUrl = saveData.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl() || DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
+      if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
+        try {
+          const res = await syncImagesFromGoogleDriveFolder(driveFolderUrl, saveData.characters);
           if (res.success && (res.matchedCount > 0 || res.kihonNyanImageUrl)) {
             setSaveData((prev) => {
               const nextData: GameSaveData = {
@@ -257,9 +264,26 @@ export default function App() {
               return nextData;
             });
           }
-        })
-        .catch(() => {});
-    }
+        } catch {}
+      }
+    };
+
+    // Initial launch auto-sync
+    executeSheetAutoSync();
+
+    // Periodic background sync (every 30 minutes)
+    const periodicInterval = setInterval(executeSheetAutoSync, 30 * 60 * 1000);
+
+    // Sync on tab focus
+    const onFocus = () => {
+      executeSheetAutoSync();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(periodicInterval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [isLoadingFirebase]);
 
   // Current Companion Nyan

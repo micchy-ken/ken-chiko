@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
-import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink } from 'lucide-react';
 import { getActiveUserId, setActiveUserId } from '../services/userService';
-import { getSavedGoogleDocUrl, syncNyansFromGoogleDoc } from '../services/googleDocSync';
+import {
+  getSavedGoogleDocUrl,
+  saveGoogleDocUrl,
+  syncNyansFromGoogleDoc,
+  getLastGoogleDocSyncInfo,
+  GoogleDocSyncInfo,
+  DEFAULT_GOOGLE_DOC_URL,
+} from '../services/googleDocSync';
 import { NyanCharacter } from '../types';
 
 interface UserSettingsModalProps {
@@ -26,10 +33,19 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetSuccessNotice, setResetSuccessNotice] = useState(false);
 
+  // Sheet URL State
+  const [sheetUrl, setSheetUrl] = useState<string>(() => getSavedGoogleDocUrl());
+  const [isUrlSaved, setIsUrlSaved] = useState(false);
+
   // Zukan Sync State
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [lastSyncInfo, setLastSyncInfo] = useState<GoogleDocSyncInfo | null>(() => getLastGoogleDocSyncInfo());
+
+  useEffect(() => {
+    setLastSyncInfo(getLastGoogleDocSyncInfo());
+  }, []);
 
   const handleApplyUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +66,14 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
       }
     }
     onClose();
+  };
+
+  const handleSaveSheetUrl = () => {
+    const clean = sheetUrl.trim() || DEFAULT_GOOGLE_DOC_URL;
+    saveGoogleDocUrl(clean);
+    setSheetUrl(clean);
+    setIsUrlSaved(true);
+    setTimeout(() => setIsUrlSaved(false), 2000);
   };
 
   const handleExecuteReset = () => {
@@ -74,28 +98,36 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     setSyncMessage(null);
 
     try {
-      const docUrl = getSavedGoogleDocUrl();
+      const docUrl = sheetUrl.trim() || getSavedGoogleDocUrl();
       const res = await syncNyansFromGoogleDoc(docUrl, characters);
 
       if (res.success) {
         onImportNyans(res.updatedNyans, res.addedCount, res.updatedCount);
         setSyncStatus('success');
-        setSyncMessage(`図鑑データを更新しました（${res.updatedCount}件更新 / ${res.addedCount}件追加）`);
+        setSyncMessage(`図鑑データを同期しました（${res.updatedCount}件更新 / ${res.addedCount}件追加）`);
+        setLastSyncInfo(getLastGoogleDocSyncInfo());
       } else {
         setSyncStatus('error');
         setSyncMessage(res.error || '同期に失敗しました');
+        setLastSyncInfo(getLastGoogleDocSyncInfo());
       }
     } catch (err: any) {
       setSyncStatus('error');
       setSyncMessage(err.message || 'データ同期エラー');
+      setLastSyncInfo(getLastGoogleDocSyncInfo());
     } finally {
       setIsSyncing(false);
     }
   };
 
+  const formatDate = (ts: number) => {
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-md bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col shadow-2xl">
+      <div className="relative w-full max-w-md max-h-[90vh] bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
         <div className="bg-[#ECE7DC] px-5 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
           <div className="flex items-center gap-2.5">
@@ -105,7 +137,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-[#2E2824] font-handwriting">設定</h3>
               <p className="text-[11px] text-[#7A726A] font-handwriting">
-                ユーザー設定とデータの管理
+                ユーザー設定・スプレッドシート自動同期
               </p>
             </div>
           </div>
@@ -117,7 +149,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 space-y-6">
+        <div className="p-5 space-y-5 overflow-y-auto max-h-[calc(90vh-120px)]">
           {/* Active User Status & Switcher */}
           <div className="p-4 bg-[#F2EDE2] rounded-2xl border border-[#D5CDBC] space-y-3">
             <div className="flex items-center justify-between">
@@ -155,23 +187,53 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </form>
           </div>
 
-          {/* Modest Zukan Sync (控えめな図鑑同期) */}
-          <div className="p-4 bg-[#FAF8F4] rounded-2xl border border-[#DDD7C8] space-y-2.5">
+          {/* Google Spreadsheet Auto-Sync Section (スプレッドシート自動同期) */}
+          <div className="p-4 bg-[#FAF8F4] rounded-2xl border border-[#DDD7C8] space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-black text-[#5A524A] flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5 text-[#487560]" />
-                図鑑データの同期
+                <FileSpreadsheet className="w-3.5 h-3.5 text-[#487560]" />
+                スプレッドシート自動同期
               </span>
-              {syncStatus === 'success' && (
-                <span className="text-[11px] text-[#2A7545] font-bold flex items-center gap-1 animate-fadeIn">
-                  <Check className="w-3.5 h-3.5" />
-                  同期完了
-                </span>
-              )}
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#EAF7EE] text-[#2A7545] border border-[#BDE7C7]">
+                起動時自動反映ON
+              </span>
             </div>
             <p className="text-[11px] text-[#7D756D] leading-relaxed">
-              Googleスプレッドシートの最新データ（セリフ・新キャラなど）を取り込みます。発見状況や進行度はそのまま維持されます。
+              アプリ起動時および定期的にスプレッドシートから最新のキャラクター（セリフ・新にゃん）を自動取得します。
             </p>
+
+            {/* URL Input and Save */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-[#7A726A] font-bold block">
+                連携スプレッドシートURL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={sheetUrl}
+                  onChange={(e) => setSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  className="flex-1 px-2.5 py-1 text-[11px] bg-white border border-[#C4BCAB] rounded-lg text-[#2E2824] focus:outline-none focus:border-[#487560]"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveSheetUrl}
+                  className="px-3 py-1 bg-[#ECE7DC] hover:bg-[#DDD7C8] text-[#3E3833] text-xs font-bold rounded-lg transition flex-shrink-0"
+                >
+                  {isUrlSaved ? '保存完了' : '保存'}
+                </button>
+              </div>
+            </div>
+
+            {/* Last Sync Info Badge */}
+            {lastSyncInfo && (
+              <div className="p-2 bg-[#F5F2EA] rounded-xl text-[11px] text-[#5A524A] flex items-center justify-between">
+                <span>最終同期: {formatDate(lastSyncInfo.timestamp)}</span>
+                <span className={lastSyncInfo.success ? 'text-[#2A7545] font-bold' : 'text-[#B92B1B] font-bold'}>
+                  {lastSyncInfo.success ? `同期済 (${lastSyncInfo.totalCount}匹)` : '要確認'}
+                </span>
+              </div>
+            )}
 
             {syncMessage && (
               <div
@@ -198,7 +260,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-white hover:bg-[#F2EDE2] active:scale-[0.99] border border-[#C4BCAB] hover:border-[#487560] text-[#3E3833] rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-60"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-[#487560] ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'スプレッドシートから同期中...' : '図鑑データを同期する'}</span>
+                <span>{isSyncing ? 'スプレッドシートから同期中...' : '今すぐ手動で同期する'}</span>
               </button>
             </div>
           </div>
@@ -273,3 +335,4 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     </div>
   );
 };
+

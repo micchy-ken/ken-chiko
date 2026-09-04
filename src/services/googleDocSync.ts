@@ -2,6 +2,16 @@ import { NyanCharacter } from '../types';
 import { mergeImportedCsv, normalizeImageUrl } from '../utils/csvParser';
 
 const GOOGLE_DOC_CONFIG_KEY = 'kenchiko_google_doc_url_v1';
+const GOOGLE_DOC_LAST_SYNC_KEY = 'kenchiko_google_doc_last_sync_v1';
+
+export interface GoogleDocSyncInfo {
+  timestamp: number;
+  success: boolean;
+  addedCount: number;
+  updatedCount: number;
+  totalCount: number;
+  error?: string;
+}
 
 // Default provided Google Docs / Sheets URL
 export const DEFAULT_GOOGLE_DOC_URL =
@@ -23,6 +33,21 @@ export function saveGoogleDocUrl(url: string): void {
   } catch (err) {
     console.error('Failed to save Google Doc URL', err);
   }
+}
+
+export function getLastGoogleDocSyncInfo(): GoogleDocSyncInfo | null {
+  try {
+    const raw = localStorage.getItem(GOOGLE_DOC_LAST_SYNC_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastGoogleDocSyncInfo(info: GoogleDocSyncInfo): void {
+  try {
+    localStorage.setItem(GOOGLE_DOC_LAST_SYNC_KEY, JSON.stringify(info));
+  } catch {}
 }
 
 /**
@@ -92,6 +117,64 @@ export function convertToExportUrl(inputUrl: string): string {
 }
 
 /**
+ * Helper to identify column mapping dynamically from headers or fallback
+ */
+function resolveColumnIndices(headers: string[]) {
+  let noIdx = -1;
+  let nameIdx = -1;
+  let readingIdx = -1;
+  let motifIdx = -1;
+  let firstAppearedIdx = -1;
+  let episodeIdx = -1;
+  let promptJaIdx = -1;
+  let promptEnIdx = -1;
+  let dialogueIdx = -1;
+  let dialogueMeaningIdx = -1;
+  let imageIdx = -1;
+
+  headers.forEach((header, idx) => {
+    const h = header.toLowerCase().replace(/\s+/g, '');
+    if (h.includes('no') || h.includes('番号') || h.includes('id')) {
+      if (noIdx === -1) noIdx = idx;
+    } else if (h.includes('キャラクター名') || h.includes('名前') || h.includes('キャラ名')) {
+      if (nameIdx === -1) nameIdx = idx;
+    } else if (h.includes('よみ') || h.includes('読み') || h.includes('フリガナ') || h.includes('ふりがな')) {
+      if (readingIdx === -1) readingIdx = idx;
+    } else if (h.includes('モチーフ') || h.includes('元ネタ')) {
+      if (motifIdx === -1) motifIdx = idx;
+    } else if (h.includes('初登場') || h.includes('登場時期')) {
+      if (firstAppearedIdx === -1) firstAppearedIdx = idx;
+    } else if (h.includes('設定') || h.includes('エピソード') || h.includes('主なエピソード')) {
+      if (episodeIdx === -1) episodeIdx = idx;
+    } else if (h.includes('日本語') || (h.includes('プロンプト') && h.includes('日'))) {
+      if (promptJaIdx === -1) promptJaIdx = idx;
+    } else if (h.includes('英語') || (h.includes('プロンプト') && (h.includes('英') || h.includes('imagefx')))) {
+      if (promptEnIdx === -1) promptEnIdx = idx;
+    } else if (h.includes('意味') || h.includes('セリフの意味') || h.includes('セリフ解説')) {
+      if (dialogueMeaningIdx === -1) dialogueMeaningIdx = idx;
+    } else if (h.includes('セリフ') || h.includes('台詞') || h.includes('ねこのセリフ')) {
+      if (dialogueIdx === -1) dialogueIdx = idx;
+    } else if (h.includes('画像') || h.includes('url') || h.includes('ドライブ') || h.includes('リンク')) {
+      if (imageIdx === -1) imageIdx = idx;
+    }
+  });
+
+  return {
+    noIdx: noIdx >= 0 ? noIdx : 0,
+    nameIdx: nameIdx >= 0 ? nameIdx : 1,
+    readingIdx: readingIdx >= 0 ? readingIdx : 2,
+    motifIdx: motifIdx >= 0 ? motifIdx : 3,
+    firstAppearedIdx: firstAppearedIdx >= 0 ? firstAppearedIdx : 4,
+    episodeIdx: episodeIdx >= 0 ? episodeIdx : 5,
+    promptJaIdx: promptJaIdx >= 0 ? promptJaIdx : 6,
+    promptEnIdx: promptEnIdx >= 0 ? promptEnIdx : 7,
+    dialogueIdx: dialogueIdx >= 0 ? dialogueIdx : 8,
+    dialogueMeaningIdx: dialogueMeaningIdx >= 0 ? dialogueMeaningIdx : 9,
+    imageIdx: imageIdx >= 0 ? imageIdx : -1,
+  };
+}
+
+/**
  * Parses Google Visualization API response format and merges into NyanCharacter array.
  */
 export function parseGvizAndMergeNyans(
@@ -119,6 +202,16 @@ export function parseGvizAndMergeNyans(
 
   const rows = data.table.rows;
 
+  // Attempt header column detection if cols exist
+  const headerLabels: string[] = [];
+  if (Array.isArray(data.table.cols)) {
+    data.table.cols.forEach((col: any) => {
+      headerLabels.push(col && col.label ? String(col.label).trim() : '');
+    });
+  }
+
+  const colMap = resolveColumnIndices(headerLabels);
+
   for (const row of rows) {
     if (!row || !Array.isArray(row.c)) continue;
 
@@ -129,43 +222,36 @@ export function parseGvizAndMergeNyans(
     // Skip empty rows
     if (cells.length === 0 || !cells[0]) continue;
 
-    // Check if first cell is a number (No.)
-    const no = parseInt(cells[0], 10);
+    // Check if first cell or noIdx cell is a number (No.)
+    const rawNo = cells[colMap.noIdx] || cells[0];
+    const no = parseInt(rawNo, 10);
     if (isNaN(no) || no <= 0) {
       // Header row or non-numeric label, skip
       continue;
     }
 
-    const name = cells[1] || `にゃん #${no}`;
-    const reading = cells[2] || name;
-    const motif = cells[3] || '';
-    const firstAppeared = cells[4] || '';
-    const episode = cells[5] || '';
-    const promptJa = cells[6] || '';
-    const promptEn = cells[7] || '';
-
-    const val8 = cells[8] || '';
-    const val9 = cells[9] || '';
-    const val10 = cells[10] || '';
+    const name = cells[colMap.nameIdx] || `にゃん #${no}`;
+    const reading = cells[colMap.readingIdx] || name;
+    const motif = cells[colMap.motifIdx] || '';
+    const firstAppeared = cells[colMap.firstAppearedIdx] || '';
+    const episode = cells[colMap.episodeIdx] || '';
+    const promptJa = cells[colMap.promptJaIdx] || '';
+    const promptEn = cells[colMap.promptEnIdx] || '';
 
     const isUrl = (s: string) =>
       s && (s.includes('http://') || s.includes('https://') || s.includes('drive.google.com') || s.startsWith('data:image'));
 
-    let dialogue = '';
-    let dialogueMeaning = '';
-    let rawImageUrl = '';
+    let dialogue = cells[colMap.dialogueIdx] || '';
+    let dialogueMeaning = cells[colMap.dialogueMeaningIdx] || '';
+    let rawImageUrl = colMap.imageIdx >= 0 ? cells[colMap.imageIdx] || '' : '';
 
-    if (isUrl(val8)) {
-      // Legacy format: Col 8 was Image URL
-      rawImageUrl = val8;
-      dialogue = val9;
-      dialogueMeaning = val10;
-    } else {
-      // New format: Col 8 (I列) is ねこのセリフ, Col 9 (J列) is セリフの意味
-      dialogue = val8;
-      dialogueMeaning = val9;
-      // Search for image URL in remaining columns
-      const urlCandidate = cells.slice(8).find((t: string) => isUrl(t));
+    // If dialogue happens to contain an image URL or vice versa, reconcile
+    if (isUrl(dialogue) && !rawImageUrl) {
+      rawImageUrl = dialogue;
+      dialogue = cells[9] || '';
+      dialogueMeaning = cells[10] || '';
+    } else if (!rawImageUrl) {
+      const urlCandidate = cells.find((t: string) => isUrl(t));
       if (urlCandidate) rawImageUrl = urlCandidate;
     }
 
@@ -175,19 +261,20 @@ export function parseGvizAndMergeNyans(
     if (existing) {
       existingMap.set(no, {
         ...existing,
-        name,
-        reading,
-        motif,
-        firstAppeared,
-        episode,
-        promptJa,
-        promptEn,
+        name: name || existing.name,
+        reading: reading || existing.reading,
+        motif: motif || existing.motif,
+        firstAppeared: firstAppeared || existing.firstAppeared,
+        episode: episode || existing.episode,
+        promptJa: promptJa || existing.promptJa,
+        promptEn: promptEn || existing.promptEn,
         dialogue: dialogue || existing.dialogue || undefined,
         dialogueMeaning: dialogueMeaning || existing.dialogueMeaning || undefined,
         customImageUrl: importedImageUrl ? importedImageUrl : existing.customImageUrl,
       });
       updatedCount++;
     } else {
+      // Newly added character in spreadsheet!
       existingMap.set(no, {
         no,
         name,
@@ -230,7 +317,7 @@ export async function fetchGoogleDocContent(docUrl: string): Promise<string> {
     });
     if (res.ok) {
       const text = await res.text();
-      if (text && text.trim().length > 0) return text;
+      if (text && text.trim().length > 0 && !text.includes('<!DOCTYPE html>')) return text;
     }
   } catch {
     // If direct CORS fetch is blocked, fallback to CORS proxies
@@ -242,7 +329,7 @@ export async function fetchGoogleDocContent(docUrl: string): Promise<string> {
     const proxyRes = await fetch(proxyUrl);
     if (proxyRes.ok) {
       const text = await proxyRes.text();
-      if (text && text.trim().length > 0) return text;
+      if (text && text.trim().length > 0 && !text.includes('<!DOCTYPE html>')) return text;
     }
   } catch {
     // Silently continue to next fallback
@@ -254,13 +341,13 @@ export async function fetchGoogleDocContent(docUrl: string): Promise<string> {
     const proxyRes2 = await fetch(proxyUrl2);
     if (proxyRes2.ok) {
       const text = await proxyRes2.text();
-      if (text && text.trim().length > 0) return text;
+      if (text && text.trim().length > 0 && !text.includes('<!DOCTYPE html>')) return text;
     }
   } catch {
     // Silently continue
   }
 
-  throw new Error('Googleドキュメントの取得に失敗しました。URLの公開設定（リンクを知っている全員が閲覧可）をご確認ください。');
+  throw new Error('Googleドキュメントの取得に失敗しました。スプレッドシートの共有設定（リンクを知っている全員が閲覧可）をご確認ください。');
 }
 
 /**
@@ -293,6 +380,13 @@ export async function syncNyansFromGoogleDoc(
               text,
               currentNyans
             );
+            saveLastGoogleDocSyncInfo({
+              timestamp: Date.now(),
+              success: true,
+              addedCount,
+              updatedCount,
+              totalCount: updatedNyans.length,
+            });
             return {
               success: true,
               updatedNyans,
@@ -309,6 +403,13 @@ export async function syncNyansFromGoogleDoc(
     // 2. Secondary Method: CSV / Text Export fetch fallback
     const text = await fetchGoogleDocContent(docUrl);
     const { updatedNyans, addedCount, updatedCount } = mergeImportedCsv(text, currentNyans);
+    saveLastGoogleDocSyncInfo({
+      timestamp: Date.now(),
+      success: true,
+      addedCount,
+      updatedCount,
+      totalCount: updatedNyans.length,
+    });
     return {
       success: true,
       updatedNyans,
@@ -316,6 +417,14 @@ export async function syncNyansFromGoogleDoc(
       updatedCount,
     };
   } catch (err: any) {
+    saveLastGoogleDocSyncInfo({
+      timestamp: Date.now(),
+      success: false,
+      addedCount: 0,
+      updatedCount: 0,
+      totalCount: currentNyans.length,
+      error: err.message || 'データ同期エラー',
+    });
     return {
       success: false,
       updatedNyans: currentNyans,
@@ -325,4 +434,5 @@ export async function syncNyansFromGoogleDoc(
     };
   }
 }
+
 
