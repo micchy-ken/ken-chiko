@@ -67,7 +67,7 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
 
   const hasDecoration = headProp !== 'none' || handProp !== 'none' || Boolean(soundEffect);
 
-  const baseCatImage = loadLocalKihonNyanImage() || '/images/base-nyanko-square.jpg';
+  const baseCatImage = loadLocalKihonNyanImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
   const hasCustomTransparent = Boolean(loadLocalKihonNyanImage());
 
   return (

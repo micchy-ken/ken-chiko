@@ -30,7 +30,7 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
   const isWalking = activity === 'transit';
   const isSnacking = activity === 'snacking';
 
-  const activeImage = customImageUrl || loadLocalKihonNyanImage() || '/images/base-nyanko-square.jpg';
+  const activeImage = customImageUrl || loadLocalKihonNyanImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
   const hasCustomTransparent = Boolean(customImageUrl || loadLocalKihonNyanImage());
 
   return (

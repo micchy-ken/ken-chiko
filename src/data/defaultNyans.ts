@@ -146,8 +146,10 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
       const promptJa = tokens[6] || '';
       const promptEn = tokens[7] || '';
 
-      // Initially unlock character 1, 4, 5, 53 as discovered or start fresh with 1 discovered
-      const isInitialDiscovered = no === 1 || no === 5 || no === 53;
+      // Initially unlock character 1, 4, 5, 53, 88 as discovered or start fresh with 1 discovered
+      const isInitialDiscovered = no === 1 || no === 4 || no === 5 || no === 53 || no === 88;
+
+      const customImageUrl = no === 88 ? '/images/homura-nyan-square.jpg' : undefined;
 
       result.push({
         no,
@@ -158,6 +160,7 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
         episode,
         promptJa,
         promptEn,
+        customImageUrl,
         discovered: isInitialDiscovered,
         discoveryDate: isInitialDiscovered ? '2026/08/31 12:00' : undefined,
         playCount: isInitialDiscovered ? 1 : 0,

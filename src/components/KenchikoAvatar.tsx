@@ -12,7 +12,7 @@ export const KenchikoAvatar: React.FC<KenchikoAvatarProps> = ({
   imageUrl,
   className = '',
 }) => {
-  const activeImage = imageUrl || loadLocalKenchikoImage() || '/images/base-nyanko-square.jpg';
+  const activeImage = imageUrl || loadLocalKenchikoImage() || '/images/kihon-nyan-square.jpg' || '/images/base-nyanko-square.jpg';
 
   return (
     <div
