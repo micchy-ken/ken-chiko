@@ -20,6 +20,8 @@ import { LOCATIONS, TRANSPORT_METHODS } from './data/locations';
 import {
   loadSavedFirebaseConfig,
   syncSaveDataToFirebase,
+  saveOnUserAction,
+  saveOnAppExit,
   fetchInitialFirebaseState,
   saveLocalBackup,
   setQuotaStatusCallback,
@@ -210,19 +212,48 @@ export default function App() {
     };
   }, []);
 
-  // 2. Controlled Google Docs/Sheets auto-sync (Runs gently on initial launch once per session, throttled)
+  // Master Data Refresh Interval: Checks at most once every 12 hours on launch (e.g. for Monday morning updates)
+  // CRITICAL: This is strictly READ-ONLY. It never writes to Firestore.
+  const LAST_MASTER_CHECK_KEY = 'kenchiko_last_master_check_time_v2';
   const hasAttemptedInitialSyncRef = useRef<boolean>(false);
+  const saveDataRef = useRef<GameSaveData>(saveData);
+  useEffect(() => {
+    saveDataRef.current = saveData;
+  }, [saveData]);
+
+  // Hook up exit save (beforeunload)
+  useEffect(() => {
+    const handleUnload = () => {
+      if (saveDataRef.current) {
+        saveOnAppExit(saveDataRef.current);
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
 
   useEffect(() => {
     if (isLoadingFirebase || hasAttemptedInitialSyncRef.current) return;
     hasAttemptedInitialSyncRef.current = true;
 
-    const executeSheetAutoSync = async () => {
-      // 2-a: Google Docs/Sheets auto-sync
+    const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
+    const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
+    const now = Date.now();
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+    // Only check master data if >12 hours since last check (e.g. Monday morning updates)
+    if (now - lastCheckTime < TWELVE_HOURS) {
+      return;
+    }
+
+    const executeMasterDataCheck = async () => {
+      localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
+
+      // 1. Google Docs/Sheets Master Read
       const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
       if (docUrl && docUrl.trim().length > 0) {
         try {
-          const res = await syncNyansFromGoogleDoc(docUrl, saveData.characters);
+          const res = await syncNyansFromGoogleDoc(docUrl, saveDataRef.current.characters);
           if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
             setSaveData((prev) => {
               const nextData: GameSaveData = {
@@ -230,19 +261,30 @@ export default function App() {
                 characters: res.updatedNyans,
                 lastSaved: Date.now(),
               };
-              syncSaveDataToFirebase(nextData, false).catch(() => {});
+              saveLocalBackup(nextData); // Keep local only! Zero cloud write
               return nextData;
             });
           }
         } catch {}
       }
 
-      // 2-b: Google Drive Folder image auto-sync
-      const driveFolderUrl = saveData.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl() || DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
+      // 2. Google Drive Folder Image Master Read
+      const driveFolderUrl =
+        saveDataRef.current.googleDriveFolderUrl ||
+        getSavedGoogleDriveFolderUrl() ||
+        DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
       if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
         try {
-          const res = await syncImagesFromGoogleDriveFolder(driveFolderUrl, saveData.characters);
-          if (res.success && (res.matchedCount > 0 || (res.kihonNyanImageUrl && res.kihonNyanImageUrl !== saveData.kihonNyanCustomImageUrl))) {
+          const res = await syncImagesFromGoogleDriveFolder(
+            driveFolderUrl,
+            saveDataRef.current.characters
+          );
+          if (
+            res.success &&
+            (res.matchedCount > 0 ||
+              (res.kihonNyanImageUrl &&
+                res.kihonNyanImageUrl !== saveDataRef.current.kihonNyanCustomImageUrl))
+          ) {
             setSaveData((prev) => {
               const nextData: GameSaveData = {
                 ...prev,
@@ -251,7 +293,7 @@ export default function App() {
                 kihonNyanCustomImageUrl: res.kihonNyanImageUrl || prev.kihonNyanCustomImageUrl,
                 lastSaved: Date.now(),
               };
-              syncSaveDataToFirebase(nextData, false).catch(() => {});
+              saveLocalBackup(nextData); // Keep local only! Zero cloud write
               return nextData;
             });
           }
@@ -259,12 +301,8 @@ export default function App() {
       }
     };
 
-    // Delay 3 seconds after launch to ensure initial render is fast and calm
-    const timer = setTimeout(executeSheetAutoSync, 3000);
-
-    return () => {
-      clearTimeout(timer);
-    };
+    const timer = setTimeout(executeMasterDataCheck, 3500);
+    return () => clearTimeout(timer);
   }, [isLoadingFirebase]);
 
   // Current Companion Nyan
@@ -541,12 +579,12 @@ export default function App() {
           monologue: 'なでてくれてありがとう〜！今日もいい日だなぁ。',
         },
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
   };
 
-  // User Actions: Manual Monologue update
+  // User Actions: Manual Monologue update (strictly local, zero cloud writes)
   const handleManualMonologue = () => {
     setSaveData((prev) => {
       const nextData: GameSaveData = {
@@ -563,7 +601,7 @@ export default function App() {
           ),
         },
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveLocalBackup(nextData);
       return nextData;
     });
   };
@@ -594,7 +632,7 @@ export default function App() {
           ),
         },
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
   };
@@ -657,7 +695,7 @@ export default function App() {
         },
       };
 
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
   };
@@ -673,7 +711,7 @@ export default function App() {
         characters: updated,
         lastSaved: Date.now(),
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
 
@@ -696,7 +734,7 @@ export default function App() {
         characters: updatedNyans,
         lastSaved: Date.now(),
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
   };
@@ -713,7 +751,7 @@ export default function App() {
           customImageUrl: imageUrl ? imageUrl : undefined,
         },
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
   };
@@ -747,7 +785,7 @@ export default function App() {
         diary: [newEntry, ...prev.diary].slice(0, 50),
         lastSaved: Date.now(),
       };
-      syncSaveDataToFirebase(nextData).catch(() => {});
+      saveOnUserAction(nextData).catch(() => {});
       return nextData;
     });
 
@@ -766,7 +804,7 @@ export default function App() {
     };
     setSaveData(freshState);
     setRemainingTimeSec(300);
-    syncSaveDataToFirebase(freshState, true).catch(() => {});
+    saveOnUserAction(freshState).catch(() => {});
     confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
   };
 
@@ -794,7 +832,7 @@ export default function App() {
           };
           setSaveData(freshData);
           setRemainingTimeSec(300);
-          syncSaveDataToFirebase(freshData, true).catch(() => {});
+          saveOnUserAction(freshData).catch(() => {});
         }
         setIsLoadingFirebase(false);
       })
@@ -936,8 +974,29 @@ export default function App() {
         </div>
       </div>
 
-      {/* Offline Mode Alert Bar with Pulsing Red Lamp */}
-      {connectionStatus.isOffline && (
+      {/* Mode Alert Bar (Offline or Local Protection Mode) */}
+      {!connectionStatus.isAutoSyncEnabled ? (
+        <div className="bg-[#F4F9F5] border-b border-[#C6D8CD] px-4 py-2.5 shadow-inner">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-3 w-3 flex-shrink-0">
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[#487560]"></span>
+              </span>
+              <div>
+                <span className="font-handwriting font-bold text-xs text-[#2A4839] mr-2">
+                  【クラウド自動書き込み停止中・ローカル完全保護】
+                </span>
+                <span className="text-xs text-[#3E6350]">
+                  意図しないクラウド書き込みは行われません。ゲームの進行はローカルに安全保存され、必要な時に「設定」から手動保存できます。
+                </span>
+              </div>
+            </div>
+            <div className="text-[11px] font-mono font-bold text-[#487560] self-end sm:self-auto bg-white px-2.5 py-1 rounded-lg border border-[#C6D8CD]">
+              本日書き込み: {connectionStatus.dailyWriteCount || 0} / {connectionStatus.maxDailyWrites || 60} 回
+            </div>
+          </div>
+        </div>
+      ) : connectionStatus.isOffline ? (
         <div className="bg-[#FFF4F2] border-b-2 border-[#E74C3C]/40 px-4 py-3 shadow-inner">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3">
@@ -947,10 +1006,10 @@ export default function App() {
               </span>
               <div>
                 <span className="font-handwriting font-black text-sm text-[#922B21] mr-2">
-                  【オフラインモードで動作中】
+                  【ローカル保持中 / オフライン】
                 </span>
                 <span className="text-xs text-[#78281F]">
-                  Firebaseクラウドデータベースと接続待機中、または一時的に未接続です。数秒ごとに自動で再接続を試行しています（ゲームの進行はローカル上でそのまま継続でき、接続時に自動保存されます）。
+                  Firebaseと未接続です。意図しない書き込みは発生せず、ゲームの進行は端末内で安全に保持されています。
                 </span>
                 {connectionStatus.lastError && (
                   <span className="block text-[10px] text-[#A93226] font-mono mt-0.5 opacity-80 truncate max-w-xl">
@@ -961,6 +1020,9 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
+              <span className="text-[11px] font-mono font-bold text-[#922B21] bg-white px-2.5 py-1 rounded-lg border border-red-200">
+                本日: {connectionStatus.dailyWriteCount || 0} / {connectionStatus.maxDailyWrites || 60} 回
+              </span>
               <button
                 onClick={async () => {
                   setIsRetryingConnection(true);
@@ -976,7 +1038,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Discovery Toast Notification */}
       {newEncounterToast && (
@@ -1092,7 +1154,11 @@ export default function App() {
               onUpdateSaveData={(updater, isImmediate = false) => {
                 setSaveData((prev) => {
                   const next = updater(prev);
-                  syncSaveDataToFirebase(next, isImmediate).catch(() => {});
+                  if (isImmediate) {
+                    syncSaveDataToFirebase(next, true).catch(() => {});
+                  } else {
+                    saveOnUserAction(next).catch(() => {});
+                  }
                   return next;
                 });
               }}
@@ -1174,7 +1240,11 @@ export default function App() {
           onUpdateSaveData={(updater, isImmediate = false) => {
             setSaveData((prev) => {
               const next = updater(prev);
-              syncSaveDataToFirebase(next, isImmediate).catch(() => {});
+              if (isImmediate) {
+                syncSaveDataToFirebase(next, true).catch(() => {});
+              } else {
+                saveOnUserAction(next).catch(() => {});
+              }
               return next;
             });
           }}

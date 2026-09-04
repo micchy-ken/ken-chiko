@@ -1,8 +1,7 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import {
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  memoryLocalCache,
   getFirestore,
   doc,
   setDoc,
@@ -328,6 +327,55 @@ let unsubscribeSnapshot: Unsubscribe | null = null;
 
 // Quota & Rate Limit Protection State
 const QUOTA_STORAGE_KEY = 'kenchiko_firestore_quota_until';
+const DAILY_WRITES_KEY = 'kenchiko_daily_writes_v2';
+const AUTO_SYNC_ENABLED_KEY = 'kenchiko_cloud_auto_sync_enabled_v2';
+
+// Strict ceiling: Maximum 60 writes per 24-hour day (0.12% of free 50k quota)
+export const MAX_DAILY_WRITES = 60;
+
+export interface DailyWriteStats {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export function getDailyWriteStats(): DailyWriteStats {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const raw = localStorage.getItem(DAILY_WRITES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.date === today) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return { date: today, count: 0 };
+}
+
+export function incrementDailyWriteCount(): number {
+  const stats = getDailyWriteStats();
+  stats.count += 1;
+  try {
+    localStorage.setItem(DAILY_WRITES_KEY, JSON.stringify(stats));
+  } catch {}
+  return stats.count;
+}
+
+export function isCloudAutoSyncEnabled(): boolean {
+  try {
+    const val = localStorage.getItem(AUTO_SYNC_ENABLED_KEY);
+    return val === null ? true : val === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function setCloudAutoSyncEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(AUTO_SYNC_ENABLED_KEY, String(enabled));
+  } catch {}
+  notifyConnectionStatusChange(isCurrentlyConnected);
+}
 
 function getPersistedQuotaUntil(): number {
   try {
@@ -345,7 +393,8 @@ function setPersistedQuotaUntil(until: number): void {
 }
 
 let quotaExhaustedUntil: number = getPersistedQuotaUntil();
-let lastSuccessfulWriteTime: number = 0;
+// Initialize with current time to prevent startup burst
+let lastSuccessfulWriteTime: number = Date.now();
 let isQuotaCurrentlyExhausted: boolean = Date.now() < quotaExhaustedUntil;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
 
@@ -363,6 +412,9 @@ export interface FirebaseConnectionStatus {
   isOffline: boolean;
   lastError?: string;
   isQuotaExhausted?: boolean;
+  isAutoSyncEnabled: boolean;
+  dailyWriteCount: number;
+  maxDailyWrites: number;
 }
 
 let isCurrentlyConnected: boolean = false;
@@ -375,6 +427,9 @@ const connectionStatusListeners = new Set<(status: FirebaseConnectionStatus) => 
 export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
   const isOffline = typeof navigator !== 'undefined' ? !navigator.onLine : false;
   const isQuota = isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
+  const dailyStats = getDailyWriteStats();
+  const autoSync = isCloudAutoSyncEnabled();
+
   // During initial boot phase (first ~2.5s), do not alarm the user with an offline warning
   const effectiveOffline = isInitialPhase ? false : (isOffline || !isCurrentlyConnected || isQuota);
 
@@ -383,15 +438,15 @@ export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
     isOffline: effectiveOffline,
     lastError: isQuota ? 'Firestoreの1日無料枠上限に達しました（データはローカルで安全に保護されています）' : lastConnectionError,
     isQuotaExhausted: isQuota,
+    isAutoSyncEnabled: autoSync,
+    dailyWriteCount: dailyStats.count,
+    maxDailyWrites: MAX_DAILY_WRITES,
   };
 }
 
 export function endInitialConnectionPhase(): void {
   isInitialPhase = false;
   notifyConnectionStatusChange(isCurrentlyConnected, lastConnectionError);
-  if (!isCurrentlyConnected) {
-    startAutoReconnectLoop();
-  }
 }
 
 export function subscribeFirebaseConnectionStatus(
@@ -415,51 +470,6 @@ function notifyConnectionStatusChange(connected: boolean, error?: string) {
       listener(currentStatus);
     } catch {}
   });
-
-  if (!connected && !isQuotaCurrentlyExhausted && !isInitialPhase) {
-    startAutoReconnectLoop();
-  } else if (connected) {
-    stopAutoReconnectLoop();
-  }
-}
-
-/**
- * Automatically retries connecting to Firebase every 5 seconds until restored.
- */
-export function startAutoReconnectLoop(): void {
-  if (autoReconnectTimer || isCurrentlyConnected || isQuotaCurrentlyExhausted) return;
-
-  autoReconnectTimer = setInterval(async () => {
-    if (isAutoReconnecting || isCurrentlyConnected || isQuotaCurrentlyExhausted) {
-      if (isCurrentlyConnected || isQuotaCurrentlyExhausted) {
-        stopAutoReconnectLoop();
-      }
-      return;
-    }
-
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return; // Skip retry while device is offline
-    }
-
-    isAutoReconnecting = true;
-    try {
-      const res = await testFirebaseConnection();
-      if (res.success) {
-        stopAutoReconnectLoop();
-      }
-    } catch {
-      // Ignored - will retry in 5s
-    } finally {
-      isAutoReconnecting = false;
-    }
-  }, 5000);
-}
-
-export function stopAutoReconnectLoop(): void {
-  if (autoReconnectTimer) {
-    clearInterval(autoReconnectTimer);
-    autoReconnectTimer = null;
-  }
 }
 
 // Window online/offline listener setup
@@ -507,7 +517,7 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
       });
     }
 
-    // Connect to database with Firestore persistent indexedDB cache
+    // Connect to database with in-memory cache to prevent IndexedDB mutation burst
     if (!firestoreDb) {
       const dbId =
         activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
@@ -518,9 +528,7 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
         firestoreDb = initializeFirestore(
           firebaseApp,
           {
-            localCache: persistentLocalCache({
-              tabManager: persistentMultipleTabManager(),
-            }),
+            localCache: memoryLocalCache(),
           },
           dbId
         );
@@ -741,26 +749,42 @@ export function resetFirebaseAccessStats(): void {
 
 async function executeFirestoreWrite(
   data: GameSaveData,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
+  forceManual: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   // Always protect data in local storage
   saveLocalBackup(data);
 
+  // 1. Check quota exhaustion
   if (getIsQuotaExhausted()) {
-    return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
+    return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };
+  }
+
+  // 2. Check user auto-sync toggle (if false, only manual save allowed)
+  if (!forceManual && !isCloudAutoSyncEnabled()) {
+    return { success: true, error: 'クラウド自動書き込みはOFF（ローカル保存中）です' };
+  }
+
+  // 3. Strict daily write budget (Max 60 writes/day, 0.12% of free tier)
+  const dailyStats = getDailyWriteStats();
+  if (!forceManual && dailyStats.count >= MAX_DAILY_WRITES) {
+    return {
+      success: true,
+      error: `本日の安全書き込み上限（${MAX_DAILY_WRITES}回）に達したため、ローカル保存で安全に保護しています`,
+    };
   }
 
   const now = Date.now();
-  // Enforce a hard throttle: never write to Firestore if less than 15s since last write
-  if (now - lastSuccessfulWriteTime < 15000) {
+  // 4. Enforce strict rate-limit throttle: Minimum 60s between non-manual writes
+  if (!forceManual && now - lastSuccessfulWriteTime < 60000) {
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
         pendingWriteTimeout = null;
         if (latestPendingData) {
-          executeFirestoreWrite(latestPendingData, config).catch(() => {});
+          executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
         }
-      }, 15000 - (now - lastSuccessfulWriteTime));
+      }, 60000 - (now - lastSuccessfulWriteTime));
     }
     return { success: true };
   }
@@ -776,7 +800,8 @@ async function executeFirestoreWrite(
         key === 'updatedAt' ||
         key === 'totalPlayTimeSec' ||
         key === 'stamina' ||
-        key === 'hunger'
+        key === 'hunger' ||
+        key === 'activityStartedAt'
       ) {
         return undefined;
       }
@@ -797,19 +822,21 @@ async function executeFirestoreWrite(
       if (!initRes.success) {
         notifyConnectionStatusChange(false, initRes.error);
         isWritingToFirestore = false;
+        lastSuccessfulWriteTime = Date.now(); // Back off on init error
         return initRes;
       }
     }
     if (!firestoreDb) {
       notifyConnectionStatusChange(false, 'Firestore is not initialized');
       isWritingToFirestore = false;
+      lastSuccessfulWriteTime = Date.now();
       return { success: false, error: 'Firestore is not initialized' };
     }
 
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
-    // Write the compact 2KB progress document to Firestore (strictly sanitized of undefined values)
+    // Write the compact progress document to Firestore
     const payload = removeUndefinedDeep({
       ...compactProgressDoc,
       lastSaved: Date.now(),
@@ -818,6 +845,7 @@ async function executeFirestoreWrite(
     await setDoc(docRef, payload);
 
     sessionDbWriteCount++;
+    incrementDailyWriteCount();
     lastWrittenContentString = currentContentString;
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
@@ -831,6 +859,7 @@ async function executeFirestoreWrite(
     return { success: true };
   } catch (err: any) {
     isWritingToFirestore = false;
+    lastSuccessfulWriteTime = Date.now(); // Back off on error to avoid loop
     const errMsg = err?.message || String(err);
     if (
       err?.code === 'resource-exhausted' ||
@@ -867,16 +896,21 @@ export async function syncSaveDataToFirebase(
     return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
+  // If user disabled auto-sync and it's not a direct manual trigger
+  if (!isImmediate && !isCloudAutoSyncEnabled()) {
+    return { success: true };
+  }
+
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  // Immediate write allowed only if >15s since last write and not currently writing
-  if (isImmediate && timeSinceLast >= 15000 && !isWritingToFirestore) {
+  // Manual immediate write (e.g. clicking "Save to Cloud" button)
+  if (isImmediate && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
     }
-    return executeFirestoreWrite(data, config);
+    return executeFirestoreWrite(data, config, true);
   }
 
   // Debounced write
@@ -887,90 +921,83 @@ export async function syncSaveDataToFirebase(
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config).catch(() => {});
+      executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
     }
-  }, Math.max(3000, 15000 - timeSinceLast));
+  }, Math.max(5000, 60000 - timeSinceLast));
 
   return { success: true };
 }
 
+// User-action-only and Exit-only save APIs
+export async function saveOnUserAction(
+  data: GameSaveData,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; error?: string }> {
+  // Always update local storage first
+  saveLocalBackup(data);
+  latestPendingData = data;
+
+  // If user disabled cloud auto-sync, keep 100% local
+  if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) {
+    return { success: true };
+  }
+
+  // Debounce consecutive fast user actions (e.g. rapid tapping) by 5 seconds
+  const now = Date.now();
+  const timeSinceLast = now - lastSuccessfulWriteTime;
+
+  if (timeSinceLast >= 15000 && !isWritingToFirestore) {
+    if (pendingWriteTimeout) {
+      clearTimeout(pendingWriteTimeout);
+      pendingWriteTimeout = null;
+    }
+    return executeFirestoreWrite(data, config, false);
+  }
+
+  if (pendingWriteTimeout) {
+    return { success: true };
+  }
+
+  pendingWriteTimeout = setTimeout(() => {
+    pendingWriteTimeout = null;
+    if (latestPendingData) {
+      executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
+    }
+  }, Math.max(5000, 15000 - timeSinceLast));
+
+  return { success: true };
+}
+
+export async function saveOnAppExit(
+  data?: GameSaveData,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<void> {
+  const dataToSave = data || latestPendingData;
+  if (!dataToSave) return;
+  saveLocalBackup(dataToSave);
+
+  if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) return;
+
+  // Fire-and-forget sync on exit if meaningful changes exist
+  executeFirestoreWrite(dataToSave, config, true).catch(() => {});
+}
+
+// Global page unload handler: Save to localStorage and try final cloud sync
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    saveOnAppExit();
+  });
+}
+
+/**
+ * Real-time continuous listener is intentionally deprecated.
+ * Kenchiko is transaction-based (startup read, action write, exit write).
+ * We maintain this signature as a no-op to prevent broken imports.
+ */
 export function subscribeToFirebaseState(
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
-  onRemoteUpdate: (data: GameSaveData) => void,
-  onError?: (err: Error) => void
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
+  _onRemoteUpdate: (data: GameSaveData) => void,
+  _onError?: (err: Error) => void
 ): () => void {
-  if (unsubscribeSnapshot) {
-    unsubscribeSnapshot();
-    unsubscribeSnapshot = null;
-  }
-
-  if (getIsQuotaExhausted()) {
-    notifyConnectionStatusChange(false, 'Firebase無料枠上限のためローカル保護モード中');
-    return () => {};
-  }
-
-  if (!firestoreDb) {
-    const initRes = initFirebase(config);
-    if (!initRes.success) {
-      notifyConnectionStatusChange(false, initRes.error);
-      if (onError) onError(new Error(initRes.error));
-      return () => {};
-    }
-  }
-
-  if (!firestoreDb) return () => {};
-
-  const docId = config.syncDocId || 'ken-chiko-global-state';
-  const docRef = doc(firestoreDb, 'kenchiko_world', docId);
-
-  try {
-    unsubscribeSnapshot = onSnapshot(
-      docRef,
-      (snapshot) => {
-        notifyConnectionStatusChange(true);
-        if (snapshot.exists()) {
-          const remoteData = snapshot.data();
-          if (remoteData && remoteData.kenchiko) {
-            // Skip echo update if our own local write is pending or occurred < 2 seconds ago
-            if (pendingWriteTimeout || Date.now() - lastSuccessfulWriteTime < 2000) {
-              return;
-            }
-
-            const safeData = reconstructGameSaveData(remoteData, INITIAL_NYANS);
-            saveLocalBackup(safeData);
-            onRemoteUpdate(safeData);
-          }
-        }
-      },
-      (err) => {
-        const errMsg = String(err?.message || err);
-        if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
-          markQuotaExhausted();
-          if (unsubscribeSnapshot) {
-            unsubscribeSnapshot();
-            unsubscribeSnapshot = null;
-          }
-        } else {
-          console.warn('Firebase snapshot listener note:', err);
-          notifyConnectionStatusChange(false, errMsg);
-        }
-        if (onError) onError(err);
-      }
-    );
-  } catch (listenErr: any) {
-    const errMsg = String(listenErr?.message || listenErr);
-    if (listenErr?.code === 'resource-exhausted' || errMsg.includes('Quota')) {
-      markQuotaExhausted();
-    } else {
-      console.warn('Firebase subscription init note:', listenErr);
-      notifyConnectionStatusChange(false, errMsg);
-    }
-  }
-
-  return () => {
-    if (unsubscribeSnapshot) {
-      unsubscribeSnapshot();
-      unsubscribeSnapshot = null;
-    }
-  };
+  return () => {};
 }

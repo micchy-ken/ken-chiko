@@ -26,6 +26,9 @@ import {
   subscribeFirebaseConnectionStatus,
   testFirebaseConnection,
   FirebaseConnectionStatus,
+  isCloudAutoSyncEnabled,
+  setCloudAutoSyncEnabled,
+  MAX_DAILY_WRITES,
 } from '../services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -2466,6 +2469,54 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* ========================================================= */}
           {activeTab === 'firebase' && (
             <div className="space-y-4 animate-fadeIn">
+              {/* Traffic Safeguard & Write Budget Box */}
+              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF]">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h4 className="text-xs font-black text-[#4A4036] flex items-center gap-1.5">
+                      🛡️ クラウド通信量セーフガード（意図しない書き込み防止）
+                    </h4>
+                    <p className="text-[11px] text-[#7D756D] mt-0.5">
+                      1日の書き込み上限（最大{MAX_DAILY_WRITES}回）と最低60秒のスロットルで、無料枠を超えないよう物理的に保護されています。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold font-mono px-3 py-1 bg-white border border-[#D9CEBF] rounded-xl text-[#3D5447] shadow-sm">
+                      本日書き込み: {connectionStatus.dailyWriteCount || 0} / {MAX_DAILY_WRITES} 回
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#E8DFD3]">
+                  <div>
+                    <span className="text-xs font-bold text-[#4A4036] block">
+                      クラウド自動書き込み（自動同期）
+                    </span>
+                    <span className="text-[10px] text-[#8C8275]">
+                      {connectionStatus.isAutoSyncEnabled
+                        ? 'ON: 新規にゃんこ発見時など、重要なイベント時のみ安全にクラウドへ同期します（最低60秒間隔）'
+                        : 'OFF: クラウドへの自動書き込みを完全停止中。意図しない通信はゼロで、ローカルにのみ安全保存されます'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextVal = !connectionStatus.isAutoSyncEnabled;
+                      setCloudAutoSyncEnabled(nextVal);
+                    }}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      connectionStatus.isAutoSyncEnabled ? 'bg-[#487560]' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        connectionStatus.isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               {/* Connection Status Banner with Lamp */}
               <div
                 className={`p-4 rounded-2xl border transition ${
