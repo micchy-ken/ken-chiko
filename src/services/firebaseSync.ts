@@ -1,6 +1,17 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, Firestore, Unsubscribe } from 'firebase/firestore';
-import { GameSaveData, NyanCharacter } from '../types';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  Firestore,
+  Unsubscribe,
+} from 'firebase/firestore';
+import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser } from './userService';
@@ -17,12 +28,166 @@ export interface FirebaseCustomConfig {
 }
 
 /**
- * Robustly merges remote/saved character list with the baseline 231 characters (INITIAL_NYANS).
- * Ensures:
- * 1. All 231 characters are always present in the game (no characters ever disappear).
- * 2. User customizations (customImageUrl, rawImageUrl, transparency settings, discovery status, friendship, playCount)
- *    from remote or local backup are seamlessly retained and prioritized over defaults.
- * 3. Any newly added custom characters with ID > 231 are also retained.
+ * Lightweight per-character user progress and customization payload.
+ * Eliminates static metadata (descriptions, prompts, lore, dialogues) from Firestore writes.
+ */
+export interface NyanProgressEntry {
+  discovered?: boolean;
+  discoveryDate?: string;
+  friendshipLevel?: number;
+  playCount?: number;
+  customImageUrl?: string;
+  rawImageUrl?: string;
+  transparency?: NyanTransparencyOptions;
+}
+
+/**
+ * Highly optimized, lightweight Firestore document schema (2-5KB vs 300KB).
+ */
+export interface UserProgressDoc {
+  version: number;
+  kenchiko: KenchikoState;
+  nyanProgress: Record<number, NyanProgressEntry>;
+  inventory: GiftItem[];
+  diary: DiaryEntry[];
+  asobiList?: KenchikoAsobi[];
+  kihonNyanCustomImageUrl?: string;
+  googleDriveFolderUrl?: string;
+  stats: {
+    totalEncounters: number;
+    totalSnacksEaten: number;
+    totalNapMinutes: number;
+    totalTrips: number;
+  };
+  lastSaved: number;
+  updatedAt?: string;
+}
+
+/**
+ * Extracts ONLY user-specific progress, discoveries, and custom image overrides.
+ */
+export function extractUserProgress(data: GameSaveData): UserProgressDoc {
+  const nyanProgress: Record<number, NyanProgressEntry> = {};
+
+  if (Array.isArray(data.characters)) {
+    for (const char of data.characters) {
+      const hasCustomization =
+        char.discovered ||
+        (char.friendshipLevel !== undefined && char.friendshipLevel > 0) ||
+        (char.playCount !== undefined && char.playCount > 0) ||
+        Boolean(char.customImageUrl) ||
+        Boolean(char.rawImageUrl) ||
+        Boolean(char.transparency);
+
+      if (hasCustomization) {
+        nyanProgress[char.no] = {
+          discovered: char.discovered,
+          discoveryDate: char.discoveryDate,
+          friendshipLevel: char.friendshipLevel,
+          playCount: char.playCount,
+          customImageUrl: char.customImageUrl,
+          rawImageUrl: char.rawImageUrl,
+          transparency: char.transparency,
+        };
+      }
+    }
+  }
+
+  // Cap diary to latest 30 entries for optimal payload size
+  const cappedDiary = Array.isArray(data.diary) ? data.diary.slice(0, 30) : [];
+
+  return {
+    version: data.version || 2,
+    kenchiko: data.kenchiko,
+    nyanProgress,
+    inventory: data.inventory || [],
+    diary: cappedDiary,
+    asobiList: data.asobiList || [],
+    kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl,
+    googleDriveFolderUrl: data.googleDriveFolderUrl,
+    stats: data.stats || {
+      totalEncounters: 0,
+      totalSnacksEaten: 0,
+      totalNapMinutes: 0,
+      totalTrips: 0,
+    },
+    lastSaved: data.lastSaved || Date.now(),
+  };
+}
+
+/**
+ * Reconstructs a full GameSaveData object by combining the static master character list (INITIAL_NYANS / Sheets)
+ * with the lightweight UserProgressDoc.
+ * Backward-compatible: safely reads older documents with monolithic `characters` arrays if present.
+ */
+export function reconstructGameSaveData(
+  remoteDoc: any,
+  masterNyans: NyanCharacter[] = INITIAL_NYANS
+): GameSaveData {
+  if (!remoteDoc) return DEFAULT_INITIAL_STATE;
+
+  const charMap = new Map<number, NyanCharacter>();
+  for (const master of masterNyans) {
+    charMap.set(master.no, { ...master });
+  }
+
+  // 1. Legacy doc support: If remote doc has full `characters` array
+  if (Array.isArray(remoteDoc.characters) && remoteDoc.characters.length > 0) {
+    for (const remoteChar of remoteDoc.characters) {
+      const base = charMap.get(remoteChar.no) || remoteChar;
+      charMap.set(remoteChar.no, {
+        ...base,
+        ...remoteChar,
+        name: base.name || remoteChar.name,
+        reading: base.reading || remoteChar.reading,
+        motif: base.motif || remoteChar.motif,
+        dialogue: base.dialogue || remoteChar.dialogue,
+        dialogueMeaning: base.dialogueMeaning || remoteChar.dialogueMeaning,
+      });
+    }
+  }
+
+  // 2. Modern compact schema: `nyanProgress` dictionary
+  if (remoteDoc.nyanProgress && typeof remoteDoc.nyanProgress === 'object') {
+    for (const [key, prog] of Object.entries(remoteDoc.nyanProgress as Record<string, NyanProgressEntry>)) {
+      const no = parseInt(key, 10);
+      if (isNaN(no)) continue;
+      const base = charMap.get(no);
+      if (base) {
+        charMap.set(no, {
+          ...base,
+          discovered: prog.discovered !== undefined ? prog.discovered : base.discovered,
+          discoveryDate: prog.discoveryDate || base.discoveryDate,
+          friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
+          playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,
+          customImageUrl: prog.customImageUrl || base.customImageUrl,
+          rawImageUrl: prog.rawImageUrl || base.rawImageUrl,
+          transparency: prog.transparency || base.transparency,
+        });
+      }
+    }
+  }
+
+  const mergedCharacters = Array.from(charMap.values()).sort((a, b) => a.no - b.no);
+
+  return {
+    version: remoteDoc.version || 2,
+    kenchiko: remoteDoc.kenchiko || DEFAULT_INITIAL_STATE.kenchiko,
+    characters: mergedCharacters,
+    inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
+    diary: remoteDoc.diary || DEFAULT_INITIAL_STATE.diary,
+    asobiList: remoteDoc.asobiList || DEFAULT_INITIAL_STATE.asobiList,
+    kihonNyanCustomImageUrl: remoteDoc.kihonNyanCustomImageUrl,
+    googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,
+    stats: remoteDoc.stats || DEFAULT_INITIAL_STATE.stats,
+    lastSaved: remoteDoc.lastSaved || Date.now(),
+    githubRepo: remoteDoc.githubRepo || 'ken-chiko',
+    autoSyncGithub: remoteDoc.autoSyncGithub ?? true,
+  };
+}
+
+/**
+ * Robustly merges character lists with baseline (INITIAL_NYANS).
  */
 export function mergeCharactersWithDefaults(
   customCharacters?: NyanCharacter[],
@@ -30,7 +195,7 @@ export function mergeCharactersWithDefaults(
 ): NyanCharacter[] {
   const charMap = new Map<number, NyanCharacter>();
 
-  // 1. Seed with baseline nyans (1 to 263 with dialogues)
+  // 1. Seed with baseline nyans
   for (const nyan of INITIAL_NYANS) {
     charMap.set(nyan.no, { ...nyan });
   }
@@ -42,7 +207,6 @@ export function mergeCharactersWithDefaults(
       charMap.set(sec.no, {
         ...base,
         ...sec,
-        // Master baseline priority for core metadata unless custom was specifically set
         name: base.name || sec.name,
         reading: base.reading || sec.reading,
         motif: base.motif || sec.motif,
@@ -70,7 +234,6 @@ export function mergeCharactersWithDefaults(
       charMap.set(prim.no, {
         ...base,
         ...prim,
-        // Master baseline priority for core metadata unless custom was specifically set
         name: base.name || prim.name,
         reading: base.reading || prim.reading,
         motif: base.motif || prim.motif,
@@ -129,7 +292,7 @@ export function loadSavedFirebaseConfig(): FirebaseCustomConfig {
 }
 
 export function saveFirebaseConfig(_config: FirebaseCustomConfig): void {
-  // Config is managed in environment / default config
+  // Managed in environment / defaults
 }
 
 let firebaseApp: FirebaseApp | null = null;
@@ -209,9 +372,7 @@ function notifyConnectionStatusChange(connected: boolean, error?: string) {
   connectionStatusListeners.forEach((listener) => {
     try {
       listener(currentStatus);
-    } catch {
-      // ignore
-    }
+    } catch {}
   });
 }
 
@@ -231,6 +392,66 @@ export function setQuotaStatusCallback(cb: (exhausted: boolean) => void) {
 
 export function getIsQuotaExhausted(): boolean {
   return isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
+}
+
+export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseConfig()): {
+  success: boolean;
+  error?: string;
+} {
+  try {
+    const activeConfig = {
+      ...loadSavedFirebaseConfig(),
+      ...config,
+    };
+
+    if (!activeConfig.apiKey || !activeConfig.projectId) {
+      return { success: false, error: 'Firebaseの設定情報が見つかりません' };
+    }
+
+    if (getApps().length > 0) {
+      firebaseApp = getApps()[0];
+    } else {
+      firebaseApp = initializeApp({
+        apiKey: activeConfig.apiKey,
+        authDomain: activeConfig.authDomain || `${activeConfig.projectId}.firebaseapp.com`,
+        projectId: activeConfig.projectId,
+        storageBucket: activeConfig.storageBucket,
+        messagingSenderId: activeConfig.messagingSenderId,
+        appId: activeConfig.appId,
+      });
+    }
+
+    // Connect to database with Firestore persistent indexedDB cache
+    if (!firestoreDb) {
+      const dbId =
+        activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
+          ? activeConfig.firestoreDatabaseId
+          : undefined;
+
+      try {
+        firestoreDb = initializeFirestore(
+          firebaseApp,
+          {
+            localCache: persistentLocalCache({
+              tabManager: persistentMultipleTabManager(),
+            }),
+          },
+          dbId
+        );
+      } catch (_cacheErr) {
+        try {
+          firestoreDb = getFirestore(firebaseApp, dbId);
+        } catch {
+          firestoreDb = getFirestore(firebaseApp);
+        }
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Firebase init error', err);
+    return { success: false, error: err.message || 'Firebase初期化に失敗しました' };
+  }
 }
 
 export async function testFirebaseConnection(
@@ -273,9 +494,7 @@ export function saveLocalBackup(data: GameSaveData, userId?: string | null): voi
     const activeUid = userId !== undefined ? userId : getActiveUserId();
     const storageKey = getLocalStorageKeyForUser(activeUid);
     localStorage.setItem(storageKey, JSON.stringify(data));
-  } catch {
-    // Ignore quota or private browsing errors
-  }
+  } catch {}
 }
 
 export function loadLocalBackup(userId?: string | null): GameSaveData | null {
@@ -289,9 +508,7 @@ export function loadLocalBackup(userId?: string | null): GameSaveData | null {
         return parsed as GameSaveData;
       }
     }
-  } catch {
-    // Ignore parse errors
-  }
+  } catch {}
   return null;
 }
 
@@ -310,57 +527,10 @@ export function purgeLocalData(): void {
     localStorage.removeItem('kenchiko_pet_world_v1');
     localStorage.removeItem('kenchiko_firebase_config_v1');
     localStorage.removeItem('kenchiko_google_doc_url');
-  } catch (err) {
-    // ignore
-  }
+  } catch (err) {}
 }
 
-export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseConfig()): {
-  success: boolean;
-  error?: string;
-} {
-  try {
-    const activeConfig = {
-      ...loadSavedFirebaseConfig(),
-      ...config,
-    };
-
-    if (!activeConfig.apiKey || !activeConfig.projectId) {
-      return { success: false, error: 'Firebaseの設定情報が見つかりません' };
-    }
-
-    if (getApps().length > 0) {
-      firebaseApp = getApps()[0];
-    } else {
-      firebaseApp = initializeApp({
-        apiKey: activeConfig.apiKey,
-        authDomain: activeConfig.authDomain || `${activeConfig.projectId}.firebaseapp.com`,
-        projectId: activeConfig.projectId,
-        storageBucket: activeConfig.storageBucket,
-        messagingSenderId: activeConfig.messagingSenderId,
-        appId: activeConfig.appId,
-      });
-    }
-
-    // Connect to database (with custom databaseId if defined)
-    if (activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)') {
-      try {
-        firestoreDb = getFirestore(firebaseApp, activeConfig.firestoreDatabaseId);
-      } catch {
-        firestoreDb = getFirestore(firebaseApp);
-      }
-    } else {
-      firestoreDb = getFirestore(firebaseApp);
-    }
-
-    return { success: true };
-  } catch (err: any) {
-    console.error('Firebase init error', err);
-    return { success: false, error: err.message || 'Firebase初期化に失敗しました' };
-  }
-}
-
-// Fetch master state directly from Firestore (First load)
+// Fetch initial state from Firestore (with automatic reconstruction)
 export async function fetchInitialFirebaseState(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
@@ -391,30 +561,27 @@ export async function fetchInitialFirebaseState(
 
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
-    
+
     try {
       const snap = await getDoc(docRef);
       sessionDbReadCount++;
       notifyConnectionStatusChange(true);
+
       if (snap.exists()) {
-        const remoteData = snap.data() as GameSaveData;
-        if (remoteData && remoteData.kenchiko) {
-          // If local backup has a newer timestamp than remote Firestore (e.g. edited while offline or during quota limits),
-          // preserve the newer local data and queue a sync to Firestore!
+        const remoteRaw = snap.data();
+        if (remoteRaw && remoteRaw.kenchiko) {
+          // Reconstruct full game data from compact UserProgressDoc
+          const remoteReconstructed = reconstructGameSaveData(remoteRaw, INITIAL_NYANS);
+
           const localIsNewer = Boolean(
             localBackup &&
             localBackup.lastSaved &&
-            remoteData.lastSaved &&
-            localBackup.lastSaved > remoteData.lastSaved
+            remoteReconstructed.lastSaved &&
+            localBackup.lastSaved > remoteReconstructed.lastSaved
           );
 
-          const primarySource = localIsNewer ? localBackup! : remoteData;
-          const secondarySource = localIsNewer ? remoteData : (localBackup || DEFAULT_INITIAL_STATE);
-
-          const mergedAsobiList =
-            primarySource.asobiList && primarySource.asobiList.length > 0
-              ? primarySource.asobiList
-              : secondarySource.asobiList || DEFAULT_INITIAL_STATE.asobiList;
+          const primarySource = localIsNewer ? localBackup! : remoteReconstructed;
+          const secondarySource = localIsNewer ? remoteReconstructed : (localBackup || DEFAULT_INITIAL_STATE);
 
           const mergedCharacters = mergeCharactersWithDefaults(
             primarySource.characters,
@@ -425,23 +592,14 @@ export async function fetchInitialFirebaseState(
             ...DEFAULT_INITIAL_STATE,
             ...secondarySource,
             ...primarySource,
-            asobiList: mergedAsobiList,
             characters: mergedCharacters,
-            inventory:
-              primarySource.inventory && primarySource.inventory.length > 0
-                ? primarySource.inventory
-                : secondarySource.inventory || DEFAULT_INITIAL_STATE.inventory,
-            diary:
-              primarySource.diary && primarySource.diary.length > 0
-                ? primarySource.diary
-                : secondarySource.diary || DEFAULT_INITIAL_STATE.diary,
             lastSaved: Math.max(primarySource.lastSaved || 0, secondarySource.lastSaved || 0, Date.now()),
           };
 
           saveLocalBackup(mergedData);
 
-          // If local was newer, asynchronously sync the updated state back to Firebase
-          if (localIsNewer && !getIsQuotaExhausted()) {
+          // If legacy format was read or local was newer, save compact format back to Firestore
+          if ((!remoteRaw.nyanProgress || localIsNewer) && !getIsQuotaExhausted()) {
             executeFirestoreWrite(mergedData, config).catch(() => {});
           }
 
@@ -507,8 +665,8 @@ async function executeFirestoreWrite(
   }
 
   const now = Date.now();
-  // Enforce a hard throttle: never write to Firestore if less than 10s since last write unless urgent
-  if (now - lastSuccessfulWriteTime < 10000) {
+  // Enforce a hard throttle: never write to Firestore if less than 15s since last write
+  if (now - lastSuccessfulWriteTime < 15000) {
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -516,21 +674,32 @@ async function executeFirestoreWrite(
         if (latestPendingData) {
           executeFirestoreWrite(latestPendingData, config).catch(() => {});
         }
-      }, 10000 - (now - lastSuccessfulWriteTime));
+      }, 15000 - (now - lastSuccessfulWriteTime));
     }
     return { success: true };
   }
 
-  // Pre-serialize without dynamic timestamps to compare meaningful data diff
-  const sanitizedData = JSON.parse(
-    JSON.stringify(data, (key, value) => {
-      if (key === 'lastSaved' || key === 'updatedAt' || key === 'totalPlayTimeSec') return undefined;
+  // Extract compact UserProgressDoc (removes 260KB of static character lore)
+  const compactProgressDoc = extractUserProgress(data);
+
+  // Hash content without fluctuating in-memory fields (hunger, stamina, playTime, timestamps)
+  const sanitizedContent = JSON.parse(
+    JSON.stringify(compactProgressDoc, (key, value) => {
+      if (
+        key === 'lastSaved' ||
+        key === 'updatedAt' ||
+        key === 'totalPlayTimeSec' ||
+        key === 'stamina' ||
+        key === 'hunger'
+      ) {
+        return undefined;
+      }
       return value === undefined ? null : value;
     })
   );
-  const currentContentString = JSON.stringify(sanitizedData);
+  const currentContentString = JSON.stringify(sanitizedContent);
 
-  // If the content has not changed compared to the last successful Firestore write, completely skip network write!
+  // Skip write completely if meaningful content has not changed!
   if (lastWrittenContentString && lastWrittenContentString === currentContentString) {
     return { success: true };
   }
@@ -554,8 +723,9 @@ async function executeFirestoreWrite(
     const docId = config.syncDocId || 'ken-chiko-global-state';
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
 
+    // Write the compact 2KB progress document to Firestore
     await setDoc(docRef, {
-      ...sanitizedData,
+      ...compactProgressDoc,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
@@ -564,6 +734,7 @@ async function executeFirestoreWrite(
     lastWrittenContentString = currentContentString;
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
+
     if (isQuotaCurrentlyExhausted) {
       isQuotaCurrentlyExhausted = false;
       setPersistedQuotaUntil(0);
@@ -574,7 +745,12 @@ async function executeFirestoreWrite(
   } catch (err: any) {
     isWritingToFirestore = false;
     const errMsg = err?.message || String(err);
-    if (err?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted') || errMsg.includes('Free daily write units')) {
+    if (
+      err?.code === 'resource-exhausted' ||
+      errMsg.includes('Quota') ||
+      errMsg.includes('resource-exhausted') ||
+      errMsg.includes('Free daily write units')
+    ) {
       markQuotaExhausted();
       return { success: true, error: 'Firebaseの書き込み上限に達しました。ローカル保存で継続しています。' };
     }
@@ -583,7 +759,7 @@ async function executeFirestoreWrite(
   }
 }
 
-// Protect state in local storage on page unload (NEVER send network write to Firestore on background/visibilitychange)
+// Protect state in local storage on page unload
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     if (latestPendingData) {
@@ -597,7 +773,6 @@ export async function syncSaveDataToFirebase(
   isImmediate = false,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
-  // Always update local backup synchronously so local state is instantly protected
   saveLocalBackup(data);
   latestPendingData = data;
 
@@ -608,8 +783,8 @@ export async function syncSaveDataToFirebase(
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  // Minimum 10 seconds throttle between Firestore writes
-  if (isImmediate && timeSinceLast >= 10000 && !isWritingToFirestore) {
+  // Immediate write allowed only if >15s since last write and not currently writing
+  if (isImmediate && timeSinceLast >= 15000 && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -617,18 +792,17 @@ export async function syncSaveDataToFirebase(
     return executeFirestoreWrite(data, config);
   }
 
-  // If already scheduled, wait for trailing debounce
+  // Debounced write
   if (pendingWriteTimeout) {
     return { success: true };
   }
 
-  // Schedule trailing debounced write with a minimum 15-second window
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config).catch(() => {});
     }
-  }, Math.max(2000, 15000 - timeSinceLast));
+  }, Math.max(3000, 15000 - timeSinceLast));
 
   return { success: true };
 }
@@ -668,29 +842,14 @@ export function subscribeToFirebaseState(
       (snapshot) => {
         notifyConnectionStatusChange(true);
         if (snapshot.exists()) {
-          const remoteData = snapshot.data() as GameSaveData;
+          const remoteData = snapshot.data();
           if (remoteData && remoteData.kenchiko) {
-            // If local write is currently pending or within 2 seconds of local write, don't overwrite
+            // Skip echo update if our own local write is pending or occurred < 2 seconds ago
             if (pendingWriteTimeout || Date.now() - lastSuccessfulWriteTime < 2000) {
               return;
             }
-            const local = loadLocalBackup();
-            const mergedAsobiList =
-              remoteData.asobiList && remoteData.asobiList.length > 0
-                ? remoteData.asobiList
-                : local?.asobiList || DEFAULT_INITIAL_STATE.asobiList;
 
-            const mergedCharacters = mergeCharactersWithDefaults(
-              remoteData.characters,
-              local?.characters
-            );
-
-            const safeData: GameSaveData = {
-              ...DEFAULT_INITIAL_STATE,
-              ...remoteData,
-              asobiList: mergedAsobiList,
-              characters: mergedCharacters,
-            };
+            const safeData = reconstructGameSaveData(remoteData, INITIAL_NYANS);
             saveLocalBackup(safeData);
             onRemoteUpdate(safeData);
           }

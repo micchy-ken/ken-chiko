@@ -1,16 +1,63 @@
 {
   "entities": {
-    "KenchikoWorld": {
-      "collection": "kenchiko_world",
-      "fields": {
-        "kenchiko": { "type": "map", "description": "Current status of Kenchiko (location, mood, stamina, activity)" },
-        "characters": { "type": "array", "description": "Array of discovered/lore characters (NyanCharacter)" },
-        "inventory": { "type": "array", "description": "Inventory items and counts" },
-        "diary": { "type": "array", "description": "Diary entries log" },
-        "stats": { "type": "map", "description": "Overall stats and counts" },
-        "lastSaved": { "type": "number", "description": "Timestamp of last save" },
-        "updatedAt": { "type": "string", "description": "ISO timestamp of last update" }
-      }
+    "UserProgress": {
+      "title": "UserProgress",
+      "description": "Lightweight user game progress, companion state, discovery status, inventory, and diary",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "description": "Schema version number"
+        },
+        "kenchiko": {
+          "type": "object",
+          "description": "Current status and location of Kenchiko"
+        },
+        "nyanProgress": {
+          "type": "object",
+          "description": "Map of user character discoveries and customizations keyed by nyan number"
+        },
+        "inventory": {
+          "type": "array",
+          "description": "User inventory items and quantities"
+        },
+        "diary": {
+          "type": "array",
+          "description": "Capped recent diary logs (max 30 entries)"
+        },
+        "asobiList": {
+          "type": "array",
+          "description": "User custom asobi actions and monologues"
+        },
+        "kihonNyanCustomImageUrl": {
+          "type": "string",
+          "description": "Custom image URL for Kihon Nyan"
+        },
+        "googleDriveFolderUrl": {
+          "type": "string",
+          "description": "Configured Google Drive folder URL for character images"
+        },
+        "stats": {
+          "type": "object",
+          "description": "Aggregate gameplay statistics"
+        },
+        "lastSaved": {
+          "type": "number",
+          "description": "Timestamp of last save"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last write"
+        }
+      },
+      "required": ["version", "kenchiko", "lastSaved"]
+    }
+  },
+  "firestore": {
+    "/kenchiko_world/{docId}": {
+      "schema": "UserProgress",
+      "description": "User game state and progress document in the kenchiko_world collection"
     }
   }
 }
+
