@@ -3,6 +3,8 @@ import { compressAndResizeImage, TransparencyOptions } from './imageCompression'
 import { normalizeImageUrl } from '../utils/csvParser';
 
 const GOOGLE_DRIVE_FOLDER_CONFIG_KEY = 'kenchiko_google_drive_folder_url_v1';
+export const DEFAULT_GOOGLE_DRIVE_FOLDER_URL =
+  'https://drive.google.com/drive/folders/12oZJR81BOONESN589upU32NylwCxmAwd?usp=sharing';
 
 export interface DriveFileInfo {
   id: string;
@@ -14,9 +16,12 @@ export interface DriveFileInfo {
 
 export function getSavedGoogleDriveFolderUrl(): string {
   try {
-    return localStorage.getItem(GOOGLE_DRIVE_FOLDER_CONFIG_KEY) || '';
+    return (
+      localStorage.getItem(GOOGLE_DRIVE_FOLDER_CONFIG_KEY) ||
+      DEFAULT_GOOGLE_DRIVE_FOLDER_URL
+    );
   } catch {
-    return '';
+    return DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
   }
 }
 

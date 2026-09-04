@@ -2,6 +2,7 @@ import { GameSaveData } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
+import { DEFAULT_GOOGLE_DRIVE_FOLDER_URL } from './googleDriveFolderSync';
 
 export const DEFAULT_INITIAL_STATE: GameSaveData = {
   version: 1,
@@ -23,6 +24,7 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     totalPlayTimeSec: 0,
   },
   characters: INITIAL_NYANS,
+  googleDriveFolderUrl: DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
   inventory: INITIAL_ITEMS,
   asobiList: INITIAL_ASOBI_LIST,
   diary: [
