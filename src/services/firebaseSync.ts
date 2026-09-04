@@ -30,7 +30,7 @@ export function mergeCharactersWithDefaults(
 ): NyanCharacter[] {
   const charMap = new Map<number, NyanCharacter>();
 
-  // 1. Seed with baseline 231 nyans
+  // 1. Seed with baseline nyans (1 to 263 with dialogues)
   for (const nyan of INITIAL_NYANS) {
     charMap.set(nyan.no, { ...nyan });
   }
@@ -42,7 +42,17 @@ export function mergeCharactersWithDefaults(
       charMap.set(sec.no, {
         ...base,
         ...sec,
-        discovered: sec.discovered || base.discovered,
+        // Master baseline priority for core metadata unless custom was specifically set
+        name: base.name || sec.name,
+        reading: base.reading || sec.reading,
+        motif: base.motif || sec.motif,
+        firstAppeared: base.firstAppeared || sec.firstAppeared,
+        episode: base.episode || sec.episode,
+        promptJa: base.promptJa || sec.promptJa,
+        promptEn: base.promptEn || sec.promptEn,
+        dialogue: base.dialogue || sec.dialogue,
+        dialogueMeaning: base.dialogueMeaning || sec.dialogueMeaning,
+        discovered: sec.discovered !== undefined ? sec.discovered : base.discovered,
         discoveryDate: sec.discoveryDate || base.discoveryDate,
         friendshipLevel: Math.max(sec.friendshipLevel || 0, base.friendshipLevel || 0),
         playCount: Math.max(sec.playCount || 0, base.playCount || 0),
@@ -60,6 +70,16 @@ export function mergeCharactersWithDefaults(
       charMap.set(prim.no, {
         ...base,
         ...prim,
+        // Master baseline priority for core metadata unless custom was specifically set
+        name: base.name || prim.name,
+        reading: base.reading || prim.reading,
+        motif: base.motif || prim.motif,
+        firstAppeared: base.firstAppeared || prim.firstAppeared,
+        episode: base.episode || prim.episode,
+        promptJa: base.promptJa || prim.promptJa,
+        promptEn: base.promptEn || prim.promptEn,
+        dialogue: base.dialogue || prim.dialogue,
+        dialogueMeaning: base.dialogueMeaning || prim.dialogueMeaning,
         discovered: prim.discovered !== undefined ? prim.discovered : base.discovered,
         discoveryDate: prim.discoveryDate || base.discoveryDate,
         friendshipLevel: prim.friendshipLevel !== undefined ? prim.friendshipLevel : base.friendshipLevel,
