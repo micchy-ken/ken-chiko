@@ -95,6 +95,26 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
             </div>
           </div>
 
+          {/* Dialogue Section (I列: セリフ, J列: セリフの意味) */}
+          {(nyan.dialogue || nyan.dialogueMeaning) && (
+            <div className="p-4 bg-[#FFFDF9] sketch-card-subtle space-y-2">
+              <h4 className="text-xs font-bold text-[#7A726A] font-handwriting flex items-center gap-1.5">
+                <span>💬</span>
+                <span>にゃんこのセリフ＆つぶやき</span>
+              </h4>
+              {nyan.dialogue && (
+                <p className="text-base font-bold text-[#2E2824] leading-relaxed font-handwriting">
+                  「{nyan.dialogue}」
+                </p>
+              )}
+              {nyan.dialogueMeaning && (
+                <p className="text-xs font-medium text-[#7A726A] font-handwriting">
+                  意味: {nyan.dialogueMeaning}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Episode Story */}
           <div className="p-4 bg-[#FFFDF9] sketch-card-subtle space-y-2">
             <h4 className="text-xs font-bold text-[#7A726A] font-handwriting flex items-center gap-1.5">

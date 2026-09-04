@@ -88,6 +88,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const [formEpisode, setFormEpisode] = useState('');
   const [formPromptJa, setFormPromptJa] = useState('');
   const [formPromptEn, setFormPromptEn] = useState('');
+  const [formDialogue, setFormDialogue] = useState('');
+  const [formDialogueMeaning, setFormDialogueMeaning] = useState('');
   const [formFirstAppeared, setFormFirstAppeared] = useState('');
   const [formDiscovered, setFormDiscovered] = useState(true);
   const [formFriendshipLevel, setFormFriendshipLevel] = useState(1);
@@ -121,6 +123,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormEpisode(nyan.episode || '');
     setFormPromptJa(nyan.promptJa || '');
     setFormPromptEn(nyan.promptEn || '');
+    setFormDialogue(nyan.dialogue || '');
+    setFormDialogueMeaning(nyan.dialogueMeaning || '');
     setFormFirstAppeared(nyan.firstAppeared || '');
     setFormDiscovered(nyan.discovered);
     setFormFriendshipLevel(nyan.friendshipLevel || 1);
@@ -155,6 +159,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormEpisode('');
     setFormPromptJa('');
     setFormPromptEn('');
+    setFormDialogue('');
+    setFormDialogueMeaning('');
     setFormFirstAppeared(new Date().toLocaleDateString('ja-JP'));
     setFormDiscovered(true);
     setFormFriendshipLevel(1);
@@ -295,6 +301,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       episode: formEpisode.trim() || 'けんちこがセカイのどこかで出会った、ゆるくて愛らしい仲間。',
       promptJa: formPromptJa.trim() || formName.trim(),
       promptEn: formPromptEn.trim() || 'cute cat character',
+      dialogue: formDialogue.trim() || undefined,
+      dialogueMeaning: formDialogueMeaning.trim() || undefined,
       firstAppeared: formFirstAppeared.trim() || new Date().toLocaleDateString('ja-JP'),
       discovered: formDiscovered,
       discoveryDate: formDiscovered ? (editingNyan?.discoveryDate || new Date().toLocaleString('ja-JP')) : undefined,
@@ -1247,7 +1255,35 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                     />
                   </div>
 
-                  {/* Row 4: Prompts (JA / EN) */}
+                  {/* Row 4: Dialogue (I列) & Dialogue Meaning (J列) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[#FAF8F5] rounded-2xl border border-[#DDD7C8]">
+                    <div>
+                      <label className="text-[11px] font-bold text-[#5A524A] block mb-1">
+                        💬 ねこのセリフ（I列）
+                      </label>
+                      <input
+                        type="text"
+                        value={formDialogue}
+                        onChange={(e) => setFormDialogue(e.target.value)}
+                        placeholder="例: にゃーんにゃん（猫語・セリフ）"
+                        className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-[#DDD7C8] text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-[#5A524A] block mb-1">
+                        💡 セリフの意味・翻訳（J列）
+                      </label>
+                      <input
+                        type="text"
+                        value={formDialogueMeaning}
+                        onChange={(e) => setFormDialogueMeaning(e.target.value)}
+                        placeholder="例: 今日はお天気がいいね"
+                        className="w-full px-3 py-2 text-xs bg-white rounded-xl border border-[#DDD7C8] text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 5: Prompts (JA / EN) */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-[#5A524A] block mb-1">

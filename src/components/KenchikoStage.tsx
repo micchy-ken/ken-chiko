@@ -192,16 +192,35 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             </div>
           </div>
 
-          {/* Visiting ◯◯にゃん Companion (Exact "えーあいにゃん" style) */}
+          {/* Visiting ◯◯にゃん Companion (Exact "えーあいにゃん" style with dialogue display) */}
           {companionNyan && (
             <div
               onClick={() => onSelectNyan(companionNyan)}
-              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn"
+              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn max-w-[200px]"
               title="図鑑を見る / 一緒に遊ぶ"
             >
-              <div className="mb-1 bg-[#FFFDF9] text-[#487560] text-[11px] font-bold px-2.5 py-0.5 sketch-tag shadow-sm flex items-center gap-1 font-handwriting animate-pulse">
-                <span>🐾 あそび中</span>
-              </div>
+              {/* Cat Speech Bubble (I列: セリフ, J列: 意味) */}
+              {(companionNyan.dialogue || companionNyan.dialogueMeaning) ? (
+                <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3 py-1.5 shadow-sm text-center animate-fadeIn max-w-[190px]">
+                  {companionNyan.dialogue && (
+                    <p className="text-xs font-bold text-[#2E2824] leading-snug font-handwriting">
+                      「{companionNyan.dialogue}」
+                    </p>
+                  )}
+                  {companionNyan.dialogueMeaning && (
+                    <p className="text-[10px] text-[#7A726A] font-medium leading-tight font-handwriting mt-0.5 border-t border-[#EAE5D9] pt-0.5">
+                      （{companionNyan.dialogueMeaning}）
+                    </p>
+                  )}
+                  {/* Small speech balloon pointer triangle */}
+                  <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-[#3E3833]" />
+                </div>
+              ) : (
+                <div className="mb-1 bg-[#FFFDF9] text-[#487560] text-[11px] font-bold px-2.5 py-0.5 sketch-tag shadow-sm flex items-center gap-1 font-handwriting animate-pulse">
+                  <span>🐾 あそび中</span>
+                </div>
+              )}
+
               <NyanIllustration
                 nyan={companionNyan}
                 size={135}

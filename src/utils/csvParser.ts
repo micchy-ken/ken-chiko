@@ -34,7 +34,7 @@ export function normalizeImageUrl(rawUrl: string): string {
 }
 
 export function exportNyansToCsv(nyans: NyanCharacter[]): string {
-  const header = 'No.,キャラクター名,よみ,モチーフ・元ネタ,初登場時期,設定・主なエピソード,画像生成プロンプト（日本語：B-1 ゆるかわ脱力ペン画風）,画像生成プロンプト（英語：ImageFX / Midjourney等）,画像URL（Googleドライブ等のリンク）\n';
+  const header = 'No.,キャラクター名,よみ,モチーフ・元ネタ,初登場時期,設定・主なエピソード,画像生成プロンプト（日本語：B-1 ゆるかわ脱力ペン画風）,画像生成プロンプト（英語：ImageFX / Midjourney等）,画像URL（Googleドライブ等のリンク）,ねこのセリフ,セリフの意味\n';
 
   const escapeCsv = (str: string) => {
     if (!str) return '""';
@@ -55,6 +55,8 @@ export function exportNyansToCsv(nyans: NyanCharacter[]): string {
       escapeCsv(n.promptJa),
       escapeCsv(n.promptEn),
       escapeCsv(n.customImageUrl || ''),
+      escapeCsv(n.dialogue || ''),
+      escapeCsv(n.dialogueMeaning || ''),
     ].join(',');
   });
 
@@ -120,18 +122,38 @@ export function mergeImportedCsv(
       const promptJa = tokens[6] || '';
       const promptEn = tokens[7] || '';
 
-      // Check for image URL in column 8 (or any token containing a URL / Google Drive link)
-      let rawImageUrl = tokens[8] || '';
-      if (!rawImageUrl) {
-        // Look through remaining tokens or any token with http / drive
-        const urlCandidate = tokens.slice(8).find((t) => t && (t.includes('http') || t.includes('drive.google.com')));
+      // Column I (Index 8): ねこのセリフ or image URL (if older 9-column CSV format)
+      // Column J (Index 9): セリフの意味
+      // Check if tokens[8] looks like an image URL or if it's a dialogue string
+      let dialogue = '';
+      let dialogueMeaning = '';
+      let rawImageUrl = '';
+
+      const token8 = tokens[8] || '';
+      const token9 = tokens[9] || '';
+      const token10 = tokens[10] || '';
+
+      const isUrl = (s: string) => s && (s.includes('http://') || s.includes('https://') || s.includes('drive.google.com') || s.startsWith('data:image'));
+
+      if (isUrl(token8)) {
+        // Old layout where col 8 was image URL
+        rawImageUrl = token8;
+        dialogue = token9;
+        dialogueMeaning = token10;
+      } else {
+        // New layout where col 8 (I列) is ねこのセリフ, col 9 (J列) is セリフの意味
+        dialogue = token8;
+        dialogueMeaning = token9;
+        // Check if there is an image URL in token 10 or later
+        const urlCandidate = tokens.slice(8).find((t) => isUrl(t));
         if (urlCandidate) rawImageUrl = urlCandidate;
       }
+
       const importedImageUrl = normalizeImageUrl(rawImageUrl);
 
       const existing = existingMap.get(no);
       if (existing) {
-        // Keep progress & update custom image if provided, update lore/prompts
+        // Keep progress & update custom image if provided, update lore/prompts/dialogue
         existingMap.set(no, {
           ...existing,
           name,
@@ -141,6 +163,8 @@ export function mergeImportedCsv(
           episode: episode || existing.episode,
           promptJa: promptJa || existing.promptJa,
           promptEn: promptEn || existing.promptEn,
+          dialogue: dialogue || existing.dialogue,
+          dialogueMeaning: dialogueMeaning || existing.dialogueMeaning,
           customImageUrl: importedImageUrl || existing.customImageUrl,
         });
         updatedCount++;
@@ -155,6 +179,8 @@ export function mergeImportedCsv(
           episode,
           promptJa,
           promptEn,
+          dialogue: dialogue || undefined,
+          dialogueMeaning: dialogueMeaning || undefined,
           discovered: false,
           playCount: 0,
           friendshipLevel: 0,

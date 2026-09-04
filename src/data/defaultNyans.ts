@@ -62,10 +62,31 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
       const promptJa = tokens[6] || '';
       const promptEn = tokens[7] || '';
 
+      // Column 8 (I列): ねこのセリフ or image URL
+      // Column 9 (J列): セリフの意味
+      let dialogue = '';
+      let dialogueMeaning = '';
+      let rawImageUrl = '';
+
+      const token8 = tokens[8] || '';
+      const token9 = tokens[9] || '';
+      const isUrl = (s: string) => s && (s.includes('http://') || s.includes('https://') || s.includes('drive.google.com') || s.startsWith('data:image') || s.startsWith('images/'));
+
+      if (isUrl(token8)) {
+        rawImageUrl = token8;
+        dialogue = token9;
+        dialogueMeaning = tokens[10] || '';
+      } else {
+        dialogue = token8;
+        dialogueMeaning = token9;
+        const urlCandidate = tokens.slice(8).find((t) => isUrl(t));
+        if (urlCandidate) rawImageUrl = urlCandidate;
+      }
+
       // Initially unlock character 1, 4, 5, 53, 88 as discovered or start fresh with 1 discovered
       const isInitialDiscovered = no === 1 || no === 4 || no === 5 || no === 53 || no === 88;
 
-      const customImageUrl = no === 88 ? getAssetUrl('images/homura-nyan-square.jpg') : undefined;
+      const customImageUrl = no === 88 ? getAssetUrl('images/homura-nyan-square.jpg') : (rawImageUrl ? getAssetUrl(rawImageUrl) : undefined);
 
       result.push({
         no,
@@ -76,6 +97,8 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
         episode,
         promptJa,
         promptEn,
+        dialogue: dialogue || undefined,
+        dialogueMeaning: dialogueMeaning || undefined,
         customImageUrl,
         discovered: isInitialDiscovered,
         discoveryDate: isInitialDiscovered ? '2026/08/31 12:00' : undefined,

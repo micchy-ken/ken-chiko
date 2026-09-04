@@ -37,6 +37,8 @@ export interface NyanCharacter {
   episode: string;
   promptJa: string;
   promptEn: string;
+  dialogue?: string; // ねこのセリフ（I列）
+  dialogueMeaning?: string; // ねこのセリフの意味・翻訳（J列）
   discovered: boolean;
   discoveryDate?: string;
   playCount: number;
