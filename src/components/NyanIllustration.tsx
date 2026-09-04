@@ -10,6 +10,7 @@ interface NyanIllustrationProps {
   className?: string;
   isDiscovered?: boolean;
   showCaption?: boolean;
+  transparent?: boolean;
 }
 
 export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
@@ -18,6 +19,7 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
   className = '',
   isDiscovered = true,
   showCaption = false,
+  transparent = false,
 }) => {
   // 1. If custom image URL is provided (e.g. from Google Drive or Spreadsheet)
   if (nyan.customImageUrl && isDiscovered) {
@@ -28,13 +30,21 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
         style={{ width: size }}
       >
         <div
-          className="relative w-full aspect-square rounded-2xl overflow-hidden border border-[#C4BCAB]/60 bg-[#FAF8F4] shadow-sm flex items-center justify-center"
+          className={`relative w-full aspect-square flex items-center justify-center ${
+            transparent
+              ? ''
+              : 'rounded-2xl overflow-hidden border border-[#C4BCAB]/60 bg-[#FAF8F4] shadow-sm'
+          }`}
         >
           <img
             src={customSrc}
             alt={nyan.name}
-            onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
-            className="w-full h-full object-cover"
+            onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
+            className={`select-none pointer-events-none ${
+              transparent
+                ? 'max-w-full max-h-full object-contain filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)]'
+                : 'w-full h-full object-cover'
+            }`}
             referrerPolicy="no-referrer"
           />
         </div>
@@ -70,25 +80,30 @@ export const NyanIllustration: React.FC<NyanIllustrationProps> = ({
 
   const hasDecoration = headProp !== 'none' || handProp !== 'none' || Boolean(soundEffect);
 
-  const rawBaseImage = loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_SQUARE;
+  const rawBaseImage = loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_TRANSPARENT;
   const baseCatImage = getAssetUrl(rawBaseImage);
-  const hasCustomTransparent = Boolean(loadLocalKihonNyanImage());
 
   return (
     <div
       className={`relative inline-flex flex-col items-center justify-center select-none ${className}`}
       style={{ width: size }}
     >
-      <div className="relative w-full aspect-square rounded-2xl overflow-hidden border border-[#C4BCAB]/50 bg-[#FAF8F5] shadow-sm flex items-center justify-center">
+      <div
+        className={`relative w-full aspect-square flex items-center justify-center ${
+          transparent
+            ? ''
+            : 'rounded-2xl overflow-hidden border border-[#C4BCAB]/50 bg-[#FAF8F5] shadow-sm'
+        }`}
+      >
         {/* Authentic Original Hand-Drawn Base Cat */}
         <img
           src={baseCatImage}
           alt={nyan.name}
-          onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
-          className={`select-none pointer-events-none ${
-            hasCustomTransparent
-              ? 'max-w-full max-h-full object-contain filter drop-shadow-xs'
-              : 'w-full h-full object-cover'
+          onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
+          className={`select-none pointer-events-none max-w-full max-h-full object-contain ${
+            transparent
+              ? 'filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)]'
+              : 'filter drop-shadow-xs'
           }`}
         />
 

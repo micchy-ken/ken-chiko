@@ -1024,14 +1024,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">データ連携・全イベント編集コンソール</h3>
+                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">開発・データ連携コンソール</h3>
                 <span className="bg-[#487560] text-white text-[10px] font-bold px-2 py-0.5 sketch-tag flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   認証済み
                 </span>
               </div>
               <p className="text-xs text-[#7A726A] font-handwriting">
-                全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携
+                開発者向け：全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携
               </p>
             </div>
           </div>

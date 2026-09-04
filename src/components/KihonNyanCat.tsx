@@ -31,9 +31,8 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
   const isWalking = activity === 'transit';
   const isSnacking = activity === 'snacking';
 
-  const rawImage = customImageUrl || loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_SQUARE;
+  const rawImage = customImageUrl || loadLocalKihonNyanImage() || ASSET_PATHS.KIHON_NYAN_TRANSPARENT;
   const activeImage = getAssetUrl(rawImage);
-  const hasCustomTransparent = Boolean(customImageUrl || loadLocalKihonNyanImage());
 
   return (
     <div
@@ -42,10 +41,6 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
     >
       <div
         className={`relative w-full aspect-square flex items-center justify-center transition-all duration-300 ${
-          hasCustomTransparent
-            ? ''
-            : 'rounded-3xl overflow-hidden shadow-sm border border-[#C4BCAB]/40 bg-[#FAF8F5]'
-        } ${
           isSleeping
             ? 'rotate-[-4deg] brightness-95'
             : isWalking
@@ -60,12 +55,8 @@ export const KihonNyanCat: React.FC<KihonNyanCatProps> = ({
         <img
           src={activeImage}
           alt="きほんのにゃんこ"
-          onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
-          className={`max-w-full max-h-full select-none pointer-events-none ${
-            hasCustomTransparent
-              ? 'object-contain filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)]'
-              : 'w-full h-full object-cover'
-          }`}
+          onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
+          className="max-w-full max-h-full object-contain filter drop-shadow-[0_4px_12px_rgba(46,40,36,0.15)] select-none pointer-events-none"
         />
 
         {/* Playful mood/activity overlay particles if active */}

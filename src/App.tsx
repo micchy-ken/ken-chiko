@@ -48,8 +48,10 @@ import { GiftItemModal } from './components/GiftItemModal';
 import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
 import { DataSyncModal, AdminTab } from './components/DataSyncModal';
+import { UserSettingsModal } from './components/UserSettingsModal';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
+import { getActiveUserId, setActiveUserId } from './services/userService';
 
 import {
   Eye,
@@ -57,6 +59,8 @@ import {
   Gift,
   BookMarked,
   Settings,
+  Code2,
+  User,
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
@@ -72,6 +76,9 @@ export default function App() {
   const [isRetryingConnection, setIsRetryingConnection] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'stage' | 'zukan' | 'inventory' | 'diary' | 'sync'>('stage');
 
+  // User Management State (Multi-user support via ?user=yumi etc.)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(() => getActiveUserId());
+
   // Time & Simulation Controls
   const [timeSpeed, setTimeSpeed] = useState<number>(1); // 1x, 5x, 30x, 60x
   const [remainingTimeSec, setRemainingTimeSec] = useState<number>(300);
@@ -81,11 +88,12 @@ export default function App() {
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
   const [showTravelModal, setShowTravelModal] = useState<boolean>(false);
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
+  const [showUserSettingsModal, setShowUserSettingsModal] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
 
   // URL Query Parameter Handling on App Launch
-  // Supports: ?admin=true, ?admin=asobi, ?tab=zukan, ?tab=diary, ?pass=wakaro, etc.
+  // Supports: ?user=yumi, ?admin=true, ?admin=asobi, ?tab=zukan, ?tab=diary, ?pass=wakaro, ?dev=true, etc.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -94,8 +102,15 @@ export default function App() {
       const tabParam = params.get('tab') || params.get('page') || params.get('view');
       const modalParam = params.get('modal');
       const adminParam = params.get('admin');
+      const devParam = params.get('dev') || params.get('develop');
       const modeParam = params.get('mode');
       const subtabParam = params.get('subtab') || params.get('admintab') || params.get('section');
+      const userParam = params.get('user') || params.get('uid') || params.get('player');
+
+      if (userParam) {
+        const active = getActiveUserId();
+        if (active) setCurrentUserId(active);
+      }
 
       const validAdminTabs: AdminTab[] = ['avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
 
@@ -104,18 +119,21 @@ export default function App() {
         setActiveTab(tabParam);
       }
 
-      // Admin console direct navigation
-      // Triggers: ?admin=true, ?admin=1, ?admin=asobi, ?modal=admin, ?mode=admin, ?tab=admin, ?tab=sync
-      const isAdminTrigger =
+      // Development / Admin console direct navigation
+      // Triggers: ?dev=true, ?admin=true, ?admin=1, ?admin=asobi, ?modal=admin, ?mode=admin, ?tab=admin, ?tab=sync
+      const isDevTrigger =
         adminParam !== null ||
+        devParam !== null ||
         modalParam === 'admin' ||
-        modalParam === 'settings' ||
+        modalParam === 'dev' ||
         modalParam === 'sync' ||
         modeParam === 'admin' ||
+        modeParam === 'dev' ||
         tabParam === 'admin' ||
+        tabParam === 'dev' ||
         tabParam === 'sync';
 
-      if (isAdminTrigger) {
+      if (isDevTrigger) {
         if (adminParam && validAdminTabs.includes(adminParam as AdminTab)) {
           setAdminInitialTab(adminParam as AdminTab);
         } else if (subtabParam && validAdminTabs.includes(subtabParam as AdminTab)) {
@@ -731,6 +749,55 @@ export default function App() {
     confetti({ particleCount: 20, spread: 50, origin: { y: 0.8 } });
   };
 
+  // User Actions: Reset Current User's Game Data to Initial State (初期化)
+  const handleResetUserData = () => {
+    const freshState: GameSaveData = {
+      ...DEFAULT_INITIAL_STATE,
+      lastSaved: Date.now(),
+      kenchiko: {
+        ...DEFAULT_INITIAL_STATE.kenchiko,
+        activityStartedAt: Date.now(),
+      },
+    };
+    setSaveData(freshState);
+    setRemainingTimeSec(300);
+    syncSaveDataToFirebase(freshState, true).catch(() => {});
+    confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
+  };
+
+  // User Actions: Switch Active User Profile
+  const handleSwitchUser = (newUid: string | null) => {
+    setCurrentUserId(newUid);
+    setIsLoadingFirebase(true);
+    fetchInitialFirebaseState()
+      .then((res) => {
+        if (res.success && res.data) {
+          isRemoteUpdateRef.current = true;
+          setSaveData(res.data);
+          const elapsed = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
+          setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsed));
+          setIsFirebaseSynced(true);
+        } else {
+          // New user starting from zero
+          const freshData: GameSaveData = {
+            ...DEFAULT_INITIAL_STATE,
+            lastSaved: Date.now(),
+            kenchiko: {
+              ...DEFAULT_INITIAL_STATE.kenchiko,
+              activityStartedAt: Date.now(),
+            },
+          };
+          setSaveData(freshData);
+          setRemainingTimeSec(300);
+          syncSaveDataToFirebase(freshData, true).catch(() => {});
+        }
+        setIsLoadingFirebase(false);
+      })
+      .catch(() => {
+        setIsLoadingFirebase(false);
+      });
+  };
+
   // Loading Screen while connecting to Firestore
   if (isLoadingFirebase) {
     return (
@@ -799,12 +866,23 @@ export default function App() {
             </button>
           </div>
 
-          {/* Top-Right Status Lamp & Settings Button */}
+          {/* Top-Right Status Lamp, User Indicator, Dev & Settings Button */}
           <div className="flex items-center gap-2">
+            {/* Subtle Current Username Indicator */}
+            {currentUserId && (
+              <div
+                className="flex items-center gap-1 px-2 py-1 sketch-tag bg-[#FAF8F4] text-[#4A433D] text-[11px] font-bold border border-[#DDD7C8]"
+                title={`ログイン中のユーザー: ${currentUserId}`}
+              >
+                <User className="w-3 h-3 text-[#487560]" />
+                <span className="font-mono text-[11px] text-[#4A433D]">{currentUserId}</span>
+              </div>
+            )}
+
             {/* Connection Status Lamp Indicator */}
             {connectionStatus.isOffline ? (
               <button
-                onClick={() => setShowSyncModal(true)}
+                onClick={() => setShowUserSettingsModal(true)}
                 className="flex-shrink-0 flex items-center gap-2 bg-[#FDECE8] hover:bg-[#FCDFD8] border border-[#F5A898] text-[#B92B1B] px-3 py-1.5 sketch-tag shadow-sm transition"
                 title="Firebaseと接続できていません（オフラインモード動作中）。タップして設定を確認"
               >
@@ -828,11 +906,23 @@ export default function App() {
               </div>
             )}
 
-            {/* Top-Right Settings Button */}
+            {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
+            {showSyncModal && (
+              <button
+                onClick={() => setShowSyncModal(true)}
+                className="flex-shrink-0 flex items-center gap-1 bg-[#EAE5D9] hover:bg-[#DDD7C8] text-[#635A52] font-black text-xs px-2.5 py-1.5 sketch-card-subtle shadow-xs transition"
+                title="開発・データ連携コンソール"
+              >
+                <Code2 className="w-3.5 h-3.5 text-[#635A52]" />
+                <span className="font-handwriting text-xs">開発</span>
+              </button>
+            )}
+
+            {/* New User Settings Button */}
             <button
-              onClick={() => setShowSyncModal(true)}
+              onClick={() => setShowUserSettingsModal(true)}
               className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#3E3833] font-black text-xs px-3.5 py-2 sketch-card-subtle shadow-sm transition"
-              title="設定・データ管理"
+              title="設定・ユーザーデータ管理"
             >
               <Settings className="w-4 h-4 text-[#487560]" />
               <span className="font-handwriting text-sm">設定</span>
@@ -1033,6 +1123,19 @@ export default function App() {
           kenchiko={saveData.kenchiko}
           onClose={() => setShowTravelModal(false)}
           onStartTravel={handleStartTravel}
+        />
+      )}
+
+      {showUserSettingsModal && (
+        <UserSettingsModal
+          currentUserId={currentUserId}
+          onClose={() => setShowUserSettingsModal(false)}
+          onResetUserData={handleResetUserData}
+          onSwitchUser={handleSwitchUser}
+          onOpenDevConsole={() => {
+            setShowUserSettingsModal(false);
+            setShowSyncModal(true);
+          }}
         />
       )}
 

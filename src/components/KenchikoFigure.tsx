@@ -43,7 +43,7 @@ export const KenchikoFigure: React.FC<KenchikoFigureProps> = ({
           <img
             src={activeImage}
             alt="けんちこ"
-            onError={(e) => handleImageError(e, 'images/kihon-nyan-square.jpg')}
+            onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
             className="max-w-full max-h-full object-contain filter drop-shadow-[0_6px_16px_rgba(46,40,36,0.18)]"
           />
         </div>

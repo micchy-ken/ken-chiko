@@ -3,6 +3,7 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, Firestore, Unsubscribe }
 import { GameSaveData, NyanCharacter } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
+import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser } from './userService';
 
 export interface FirebaseCustomConfig {
   apiKey?: string;
@@ -12,7 +13,7 @@ export interface FirebaseCustomConfig {
   messagingSenderId?: string;
   appId?: string;
   firestoreDatabaseId?: string;
-  syncDocId?: string; // default: "ken-chiko-global-state"
+  syncDocId?: string; // default: "ken-chiko-global-state" or "ken-chiko-user-{userId}"
 }
 
 /**
@@ -88,6 +89,9 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
 export function getEnvFirebaseConfig(): FirebaseCustomConfig {
   const env = (import.meta as any).env || {};
   const projectId = env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId;
+  const activeUser = getActiveUserId();
+  const dynamicDocId = getFirestoreDocIdForUser(activeUser);
+
   return {
     apiKey: env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
     projectId: projectId,
@@ -96,7 +100,7 @@ export function getEnvFirebaseConfig(): FirebaseCustomConfig {
     firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId,
     storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
     messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
-    syncDocId: 'ken-chiko-global-state',
+    syncDocId: dynamicDocId,
   };
 }
 
@@ -242,20 +246,22 @@ export async function testFirebaseConnection(
   }
 }
 
-// Local Backup Safety Net Key
-const LOCAL_BACKUP_KEY = 'kenchiko_save_state_backup_v2';
-
-export function saveLocalBackup(data: GameSaveData): void {
+// Local Backup Safety Net Key (Dynamic by user)
+export function saveLocalBackup(data: GameSaveData, userId?: string | null): void {
   try {
-    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(data));
+    const activeUid = userId !== undefined ? userId : getActiveUserId();
+    const storageKey = getLocalStorageKeyForUser(activeUid);
+    localStorage.setItem(storageKey, JSON.stringify(data));
   } catch {
     // Ignore quota or private browsing errors
   }
 }
 
-export function loadLocalBackup(): GameSaveData | null {
+export function loadLocalBackup(userId?: string | null): GameSaveData | null {
   try {
-    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    const activeUid = userId !== undefined ? userId : getActiveUserId();
+    const storageKey = getLocalStorageKeyForUser(activeUid);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.kenchiko) {
@@ -266,6 +272,15 @@ export function loadLocalBackup(): GameSaveData | null {
     // Ignore parse errors
   }
   return null;
+}
+
+// Reset data for specific user or global
+export function resetUserData(userId?: string | null): void {
+  try {
+    const activeUid = userId !== undefined ? userId : getActiveUserId();
+    const storageKey = getLocalStorageKeyForUser(activeUid);
+    localStorage.removeItem(storageKey);
+  } catch (_e) {}
 }
 
 // Purge all legacy local storage data

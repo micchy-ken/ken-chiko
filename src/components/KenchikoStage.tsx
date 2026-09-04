@@ -206,6 +206,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                 nyan={companionNyan}
                 size={135}
                 isDiscovered={true}
+                transparent={true}
               />
               <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag mt-1 shadow-sm flex items-center gap-1 font-handwriting">
                 <span>{companionNyan.name}</span>
