@@ -1180,6 +1180,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {activeTab === 'zukan' && (
             <AdminZukanEditor
               characters={characters}
+              saveData={saveData}
               onUpdateSaveData={onUpdateSaveData}
               openConfirm={openConfirm}
             />

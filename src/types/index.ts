@@ -22,6 +22,12 @@ export type ActivityType =
   | 'shopping'
   | 'custom_action';
 
+export interface NyanTransparencyOptions {
+  enableTransparency: boolean;
+  tolerance: number; // 5 to 80 (default 30)
+  trimPadding: boolean; // auto-crop outer padding
+}
+
 export interface NyanCharacter {
   no: number;
   name: string;
@@ -36,6 +42,8 @@ export interface NyanCharacter {
   playCount: number;
   friendshipLevel: number;
   customImageUrl?: string;
+  rawImageUrl?: string; // Original URL before transparency processing (e.g. Google Drive link)
+  transparency?: NyanTransparencyOptions; // Custom transparency settings per character (persisted on re-sync)
   favoriteItems?: string[];
   favoriteLocations?: LocationId[];
 }
@@ -125,6 +133,7 @@ export interface GameSaveData {
   diary: DiaryEntry[];
   asobiList: KenchikoAsobi[]; // カスタムあそびリスト
   kihonNyanCustomImageUrl?: string; // きほんのにゃんこ公式ベース透過画像 (Firebase / LocalStorage同期)
+  googleDriveFolderUrl?: string; // Google Drive画像フォルダURL (Firebase / LocalStorage同期)
   stats: {
     totalEncounters: number;
     totalSnacksEaten: number;

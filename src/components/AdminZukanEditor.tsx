@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { NyanCharacter, GameSaveData } from '../types';
+import { NyanCharacter, GameSaveData, NyanTransparencyOptions } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
   Search,
-  Filter,
   Plus,
   Edit3,
   Trash2,
@@ -12,8 +11,6 @@ import {
   Sparkles,
   Eye,
   EyeOff,
-  Heart,
-  Calendar,
   Layers,
   Wand2,
   CheckCircle2,
@@ -24,15 +21,30 @@ import {
   BookOpen,
   ArrowUpDown,
   ExternalLink,
+  FolderSync,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Link,
+  Sliders,
+  Crop,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
   compressAndResizeImage,
   TransparencyOptions,
 } from '../services/imageCompression';
+import {
+  getSavedGoogleDriveFolderUrl,
+  saveGoogleDriveFolderUrl,
+  syncImagesFromGoogleDriveFolder,
+  DriveSyncResult,
+} from '../services/googleDriveFolderSync';
+import { normalizeImageUrl } from '../utils/csvParser';
 
 interface AdminZukanEditorProps {
   characters: NyanCharacter[];
+  saveData?: GameSaveData;
   onUpdateSaveData: (updater: (prev: GameSaveData) => GameSaveData, isImmediate?: boolean) => void;
   openConfirm: (title: string, message: string, onConfirm: () => void) => void;
 }
@@ -42,6 +54,7 @@ type SortType = 'no_asc' | 'no_desc' | 'name_asc' | 'friendship_desc' | 'play_de
 
 export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   characters,
+  saveData,
   onUpdateSaveData,
   openConfirm,
 }) => {
@@ -49,6 +62,18 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [sortType, setSortType] = useState<SortType>('no_asc');
+
+  // Google Drive Folder Sync State
+  const [showDrivePanel, setShowDrivePanel] = useState(false);
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string>(() => {
+    return saveData?.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl();
+  });
+  const [isSyncingDrive, setIsSyncingDrive] = useState(false);
+  const [driveSyncStatus, setDriveSyncStatus] = useState<string | null>(null);
+  const [driveSyncResult, setDriveSyncResult] = useState<DriveSyncResult | null>(null);
+  const [driveDefaultAutoTrans, setDriveDefaultAutoTrans] = useState(true);
+  const [driveDefaultTolerance, setDriveDefaultTolerance] = useState(30);
+  const [driveDefaultTrim, setDriveDefaultTrim] = useState(true);
 
   // Edit/Create Modal State
   const [editingNyan, setEditingNyan] = useState<NyanCharacter | null>(null);
@@ -67,13 +92,15 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const [formFriendshipLevel, setFormFriendshipLevel] = useState(1);
   const [formPlayCount, setFormPlayCount] = useState(1);
   const [formCustomImageUrl, setFormCustomImageUrl] = useState('');
+  const [formRawImageUrl, setFormRawImageUrl] = useState('');
   const [formUrlInput, setFormUrlInput] = useState('');
 
-  // Image Processing State
+  // Image Processing State (per character)
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageDragActive, setImageDragActive] = useState(false);
   const [autoTransparent, setAutoTransparent] = useState(true);
   const [transparencyTolerance, setTransparencyTolerance] = useState(30);
+  const [trimPadding, setTrimPadding] = useState(true);
   const [formNotice, setFormNotice] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -98,7 +125,20 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormFriendshipLevel(nyan.friendshipLevel || 1);
     setFormPlayCount(nyan.playCount || 0);
     setFormCustomImageUrl(nyan.customImageUrl || '');
-    setFormUrlInput(nyan.customImageUrl || '');
+    setFormRawImageUrl(nyan.rawImageUrl || nyan.customImageUrl || '');
+    setFormUrlInput(nyan.rawImageUrl || nyan.customImageUrl || '');
+
+    // Restore saved transparency settings for this character
+    if (nyan.transparency) {
+      setAutoTransparent(nyan.transparency.enableTransparency);
+      setTransparencyTolerance(nyan.transparency.tolerance);
+      setTrimPadding(nyan.transparency.trimPadding ?? true);
+    } else {
+      setAutoTransparent(true);
+      setTransparencyTolerance(30);
+      setTrimPadding(true);
+    }
+
     setFormNotice(null);
   };
 
@@ -119,7 +159,11 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormFriendshipLevel(1);
     setFormPlayCount(1);
     setFormCustomImageUrl('');
+    setFormRawImageUrl('');
     setFormUrlInput('');
+    setAutoTransparent(true);
+    setTransparencyTolerance(30);
+    setTrimPadding(true);
     setFormNotice(null);
   };
 
@@ -139,10 +183,11 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         enableTransparency: autoTransparent,
         tolerance: transparencyTolerance,
         feather: 2,
-        trimPadding: true,
+        trimPadding: trimPadding,
       };
       const processed = await compressAndResizeImage(file, 600, 600, 0.92, opts);
       setFormCustomImageUrl(processed);
+      setFormRawImageUrl(processed);
       setFormUrlInput(processed);
       setIsProcessingImage(false);
       setFormNotice('✨ 画像をセットしました。「保存してFirebaseに反映」を押して完了してください。');
@@ -152,18 +197,78 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     }
   };
 
-  // Apply Direct URL
-  const handleApplyUrl = (e: React.FormEvent) => {
+  // Apply Direct URL (with Google Drive normalizer)
+  const handleApplyUrl = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formUrlInput.trim()) {
-      setFormCustomImageUrl(formUrlInput.trim());
+    if (!formUrlInput.trim()) return;
+
+    const normalized = normalizeImageUrl(formUrlInput.trim());
+    setFormRawImageUrl(normalized);
+
+    if (autoTransparent) {
+      try {
+        setIsProcessingImage(true);
+        setFormNotice('URL画像から白背景を自動透過中...');
+        const opts: TransparencyOptions = {
+          enableTransparency: true,
+          tolerance: transparencyTolerance,
+          feather: 2,
+          trimPadding: trimPadding,
+        };
+        const processed = await compressAndResizeImage(normalized, 600, 600, 0.92, opts);
+        setFormCustomImageUrl(processed);
+        setIsProcessingImage(false);
+        setFormNotice('🔗 画像URLを読み込み、透過処理を適用しました！');
+      } catch (err: any) {
+        setIsProcessingImage(false);
+        setFormCustomImageUrl(normalized);
+        setFormNotice('🔗 画像URLをセットしました（透過処理は直接リンクのためスキップされました）。');
+      }
+    } else {
+      setFormCustomImageUrl(normalized);
       setFormNotice('🔗 画像URLをセットしました。');
+    }
+  };
+
+  // Reapply Transparency to existing / raw image
+  const handleReapplyTransparency = async () => {
+    const source = formRawImageUrl || formCustomImageUrl;
+    if (!source) {
+      setFormNotice('⚠️ 透過を適用する画像が設定されていません。');
+      return;
+    }
+
+    try {
+      setIsProcessingImage(true);
+      setFormNotice('背景透過処理を再適用中...');
+      if (!autoTransparent) {
+        // If transparency disabled, revert to raw image
+        setFormCustomImageUrl(source);
+        setIsProcessingImage(false);
+        setFormNotice('ℹ️ 背景透過を無効化し、元の画像に戻しました。');
+        return;
+      }
+
+      const opts: TransparencyOptions = {
+        enableTransparency: true,
+        tolerance: transparencyTolerance,
+        feather: 2,
+        trimPadding: trimPadding,
+      };
+      const processed = await compressAndResizeImage(source, 600, 600, 0.92, opts);
+      setFormCustomImageUrl(processed);
+      setIsProcessingImage(false);
+      setFormNotice('✨ 背景透過設定（しきい値: ' + transparencyTolerance + '）を再適用しました！');
+    } catch (err: any) {
+      setIsProcessingImage(false);
+      setFormNotice(`❌ 透過処理に失敗しました: ${err.message}`);
     }
   };
 
   // Clear / Reset Image
   const handleResetImage = () => {
     setFormCustomImageUrl('');
+    setFormRawImageUrl('');
     setFormUrlInput('');
     setFormNotice('🖌️ デフォルトイラストに戻しました。');
   };
@@ -174,6 +279,12 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       setFormNotice('⚠️ にゃんこの名前を入力してください。');
       return;
     }
+
+    const transparencyConfig: NyanTransparencyOptions = {
+      enableTransparency: autoTransparent,
+      tolerance: transparencyTolerance,
+      trimPadding: trimPadding,
+    };
 
     const nyanData: NyanCharacter = {
       no: formNo,
@@ -189,11 +300,12 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       friendshipLevel: Math.max(1, formFriendshipLevel),
       playCount: Math.max(0, formPlayCount),
       customImageUrl: formCustomImageUrl.trim() || undefined,
+      rawImageUrl: formRawImageUrl.trim() || formCustomImageUrl.trim() || undefined,
+      transparency: transparencyConfig,
     };
 
     let updatedCharacters: NyanCharacter[];
     if (isAddingNew) {
-      // Check for duplicate No
       const existsIndex = characters.findIndex((c) => c.no === formNo);
       if (existsIndex >= 0) {
         updatedCharacters = characters.map((c) => (c.no === formNo ? nyanData : c));
@@ -214,6 +326,62 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
 
     handleCloseModal();
     confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+  };
+
+  // Google Drive Folder Bulk Sync
+  const handleSyncGoogleDriveFolder = async () => {
+    if (!driveFolderUrl.trim()) {
+      setDriveSyncStatus('⚠️ Google DriveのフォルダURLを入力してください。');
+      return;
+    }
+
+    try {
+      setIsSyncingDrive(true);
+      setDriveSyncStatus('🔍 Google Driveフォルダから画像を検索・マッチング中...');
+      saveGoogleDriveFolderUrl(driveFolderUrl);
+
+      const defaultTransOpts: NyanTransparencyOptions = {
+        enableTransparency: driveDefaultAutoTrans,
+        tolerance: driveDefaultTolerance,
+        trimPadding: driveDefaultTrim,
+      };
+
+      const result = await syncImagesFromGoogleDriveFolder(
+        driveFolderUrl,
+        characters,
+        defaultTransOpts
+      );
+
+      setIsSyncingDrive(false);
+      setDriveSyncResult(result);
+
+      if (result.success) {
+        if (result.matchedCount > 0 || result.kihonNyanImageUrl) {
+          onUpdateSaveData((prev) => ({
+            ...prev,
+            characters: result.updatedNyans,
+            googleDriveFolderUrl: driveFolderUrl.trim(),
+            kihonNyanCustomImageUrl: result.kihonNyanImageUrl || prev.kihonNyanCustomImageUrl,
+            lastSaved: Date.now(),
+          }), true);
+
+          setDriveSyncStatus(
+            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込み・透過反映しました！`
+          );
+          setNotice(`🎉 Google Driveから ${result.matchedCount} 体のにゃんこ画像を同期・保存しました！`);
+          confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
+        } else {
+          setDriveSyncStatus(
+            `ℹ️ フォルダ内に ${result.totalDriveFiles} 件の画像が見つかりましたが、図鑑のにゃんこ名（例: ほむらにゃん.png など）と一致するファイルがありませんでした。`
+          );
+        }
+      } else {
+        setDriveSyncStatus(`❌ 同期に失敗しました: ${result.error}`);
+      }
+    } catch (err: any) {
+      setIsSyncingDrive(false);
+      setDriveSyncStatus(`❌ 同期エラー: ${err.message || String(err)}`);
+    }
   };
 
   // Quick Toggle Discovery
@@ -337,18 +505,30 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
 
   return (
     <div className="space-y-5 animate-fadeIn">
-      {/* Top Banner Notice */}
+      {/* Top Banner & Quick Controls */}
       <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
             <BookOpen className="w-4 h-4 text-[#C8744E]" />
-            にゃんこ図鑑マスター管理・画像修正コンソール
+            にゃんこ図鑑マスター管理 ＆ 画像透過設定コンソール
           </h4>
           <p className="text-xs text-[#9E5D3B] mt-0.5">
-            各◯◯にゃんのイラスト画像差し替え、基本情報・エピソードの修正、発見状態の変更が行えます。
+            各◯◯にゃんのイラスト画像差し替え、透過設定（再同期後も保持）、Google Drive同名画像の一括読み込みが行えます。
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowDrivePanel(!showDrivePanel)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition active:scale-95 ${
+              showDrivePanel
+                ? 'bg-[#3A342F] text-white border-[#3A342F]'
+                : 'bg-white text-[#7D756D] border-[#DDD7C8] hover:bg-[#FAF8F5] hover:text-[#3A342F]'
+            }`}
+          >
+            <FolderSync className="w-4 h-4 text-[#C8744E]" />
+            <span>Google Drive画像同期</span>
+            {showDrivePanel ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
           <button
             onClick={handleOpenAdd}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95"
@@ -358,6 +538,151 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Google Drive Folder Sync Expandable Panel */}
+      {showDrivePanel && (
+        <div className="p-4 sm:p-5 bg-[#FAF8F4] sketch-card border-2 border-[#C8744E]/30 space-y-4 animate-fadeIn">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h5 className="text-sm font-black text-[#3A342F] flex items-center gap-1.5 font-handwriting">
+                <FolderSync className="w-4 h-4 text-[#C8744E]" />
+                Google Drive フォルダからにゃんこ同名画像を自動一括読み込み
+              </h5>
+              <p className="text-xs text-[#7D756D] mt-0.5">
+                Google Driveの共有フォルダ内に<strong>「にゃんこ名と同名」</strong>（例: <code>ほむらにゃん.png</code>, <code>01_ほむらにゃん.jpg</code>）の画像がある場合、自動でマッチングして読み込みます。
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDrivePanel(false)}
+              className="p-1 text-[#7D756D] hover:text-[#3A342F] rounded-lg"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                Google Drive 画像フォルダ共有URL（リンクを知っている全員が閲覧可）
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/drive/folders/1aBcDeFgHiJkLmNoP..."
+                  value={driveFolderUrl}
+                  onChange={(e) => setDriveFolderUrl(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                />
+                {driveFolderUrl && (
+                  <a
+                    href={driveFolderUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2 bg-white hover:bg-[#FAF8F5] text-[#4A443F] rounded-xl border border-[#DDD7C8] flex items-center justify-center transition"
+                    title="Driveフォルダを開く"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Default Transparency Settings for Bulk Sync */}
+            <div className="p-3 bg-white rounded-xl border border-[#DDD7C8] space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={driveDefaultAutoTrans}
+                    onChange={(e) => setDriveDefaultAutoTrans(e.target.checked)}
+                    className="w-3.5 h-3.5 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
+                  />
+                  <span className="text-xs font-bold text-[#3A342F] flex items-center gap-1">
+                    <Wand2 className="w-3.5 h-3.5 text-[#C8744E]" />
+                    読み込み時に白背景を自動透過（白抜き）
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={driveDefaultTrim}
+                    onChange={(e) => setDriveDefaultTrim(e.target.checked)}
+                    className="w-3.5 h-3.5 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
+                  />
+                  <span className="text-xs font-bold text-[#5A524A] flex items-center gap-1">
+                    <Crop className="w-3.5 h-3.5 text-[#C8744E]" />
+                    余白の自動トリミング（中央配置）
+                  </span>
+                </label>
+              </div>
+
+              {driveDefaultAutoTrans && (
+                <div className="pt-2 border-t border-[#EFECE4] flex items-center gap-3">
+                  <span className="text-[11px] font-bold text-[#7D756D] shrink-0">
+                    一括透過しきい値: <strong className="text-[#C8744E]">{driveDefaultTolerance}</strong> (標準: 30)
+                  </span>
+                  <input
+                    type="range"
+                    min="10"
+                    max="60"
+                    step="1"
+                    value={driveDefaultTolerance}
+                    onChange={(e) => setDriveDefaultTolerance(Number(e.target.value))}
+                    className="flex-1 h-1.5 bg-[#DDD7C8] rounded-lg appearance-none cursor-pointer accent-[#C8744E]"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Sync Action Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+              <p className="text-[11px] text-[#8C837A]">
+                ※ 個別に手動で透過しきい値を調整済みのキャラクターは、再同期してもその個別設定が自動保持されます。
+              </p>
+              <button
+                onClick={handleSyncGoogleDriveFolder}
+                disabled={isSyncingDrive}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-5 py-2.5 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncingDrive ? 'animate-spin' : ''}`} />
+                <span>{isSyncingDrive ? 'Google Driveを検索・画像処理中...' : 'Google Driveから同名画像を今すぐ同期'}</span>
+              </button>
+            </div>
+
+            {/* Sync Status Banner */}
+            {driveSyncStatus && (
+              <div className="p-3 bg-white border border-[#DDD7C8] text-xs font-bold text-[#3A342F] rounded-xl flex items-center justify-between">
+                <span>{driveSyncStatus}</span>
+                <button onClick={() => setDriveSyncStatus(null)} className="text-[#7D756D] hover:text-[#3A342F]">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Detailed Match Results Pill Box */}
+            {driveSyncResult && driveSyncResult.details.length > 0 && (
+              <div className="p-3 bg-white rounded-xl border border-[#DDD7C8] space-y-2">
+                <span className="text-[11px] font-bold text-[#3A342F] block">
+                  マッチしたにゃんこ画像一覧 ({driveSyncResult.details.length}体):
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1">
+                  {driveSyncResult.details.map((item) => (
+                    <span
+                      key={item.no}
+                      className="inline-flex items-center gap-1 text-[10px] font-bold bg-[#FAF2EB] text-[#874A2E] px-2 py-1 rounded-lg border border-[#F0D5C3]"
+                    >
+                      <span>No.{item.no} {item.name}</span>
+                      <span className="text-[#7D756D] font-mono">({item.fileName})</span>
+                      {item.transparencyApplied && <span className="text-[#C8744E]">✨透過済</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Global Status Notice */}
       {notice && (
@@ -569,8 +894,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   </p>
                 </div>
 
-                {/* Image Status Badge */}
-                <div className="mt-2">
+                {/* Image Status & Transparency Badge */}
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                   {nyan.customImageUrl ? (
                     <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-[#FAF2EB] text-[#C8744E] px-2 py-0.5 rounded-md border border-[#F0D5C3]">
                       🎨 画像設定済み
@@ -578,6 +903,11 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-[#F5F2EA] text-[#8C837A] px-2 py-0.5 rounded-md">
                       🖌️ デフォルト
+                    </span>
+                  )}
+                  {nyan.transparency?.enableTransparency && (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-[#EAF5EC] text-[#2B663B] px-1.5 py-0.5 rounded-md border border-[#C2E3C8]">
+                      ✨透過 (tol:{nyan.transparency.tolerance})
                     </span>
                   )}
                 </div>
@@ -590,7 +920,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 bg-[#FAF8F5] hover:bg-[#FAF2EB] text-[#3A342F] hover:text-[#C8744E] border border-[#DDD7C8] hover:border-[#C8744E] rounded-xl text-xs font-black transition"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>修正・画像設定</span>
+                  <span>修正・透過設定</span>
                 </button>
                 <button
                   onClick={() => handleDeleteCharacter(nyan.no, nyan.name)}
@@ -606,7 +936,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* EDIT / CREATE NYANKO MODAL */}
+      {/* EDIT / CREATE NYANKO MODAL (WITH FULL TRANSPARENCY STUDIO) */}
       {/* ========================================================= */}
       {(editingNyan || isAddingNew) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#2E2824]/65 backdrop-blur-sm animate-fadeIn">
@@ -621,10 +951,10 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   <h3 className="text-base font-bold text-[#2E2824] leading-tight font-handwriting">
                     {isAddingNew
                       ? '新規◯◯にゃんの追加'
-                      : `No.${formNo} ${formName || 'にゃんこ'} の修正・画像設定`}
+                      : `No.${formNo} ${formName || 'にゃんこ'} の修正・透過設定`}
                   </h3>
                   <p className="text-[11px] text-[#7D756D]">
-                    画像アップロード、名前・エピソード・発見状態をいつでも変更・Firebase同期できます
+                    画像アップロード、背景自動透過・しきい値調整、名前・エピソードを保存・Firebase同期できます
                   </p>
                 </div>
               </div>
@@ -646,7 +976,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-                {/* Left Column: Image Management Studio (2 cols) */}
+                {/* Left Column: Image & Transparency Studio (2 cols) */}
                 <div className="md:col-span-2 space-y-3.5">
                   <div className="bg-[#FFFDF9] p-4 rounded-2xl border border-[#DDD7C8] flex flex-col items-center">
                     <span className="text-[11px] font-bold text-[#7D756D] mb-2">
@@ -748,25 +1078,25 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                     </label>
                   </div>
 
-                  {/* Auto Transparency Controls */}
-                  <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] space-y-2">
+                  {/* Complete Transparency Controls Studio */}
+                  <div className="p-3.5 bg-[#FAF8F5] rounded-2xl border border-[#DDD7C8] space-y-2.5">
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={autoTransparent}
                         onChange={(e) => setAutoTransparent(e.target.checked)}
-                        className="w-3.5 h-3.5 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
+                        className="w-4 h-4 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
                       />
-                      <span className="text-[11px] font-bold text-[#3A342F] flex items-center gap-1">
-                        <Wand2 className="w-3 h-3 text-[#C8744E]" />
+                      <span className="text-xs font-bold text-[#3A342F] flex items-center gap-1">
+                        <Wand2 className="w-3.5 h-3.5 text-[#C8744E]" />
                         白背景の自動透過（白抜き）
                       </span>
                     </label>
 
                     {autoTransparent && (
-                      <div className="space-y-1 pt-1 border-t border-[#EAE5D9]">
-                        <div className="flex justify-between text-[10px] text-[#7D756D]">
-                          <span>透過しきい値: {transparencyTolerance}</span>
+                      <div className="space-y-2 pt-2 border-t border-[#EAE5D9]">
+                        <div className="flex justify-between text-[11px] font-bold text-[#7D756D]">
+                          <span>透過しきい値: <strong className="text-[#C8744E]">{transparencyTolerance}</strong></span>
                           <span>(標準: 30)</span>
                         </div>
                         <input
@@ -776,23 +1106,48 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                           step="1"
                           value={transparencyTolerance}
                           onChange={(e) => setTransparencyTolerance(Number(e.target.value))}
-                          className="w-full h-1 bg-[#DDD7C8] rounded-lg appearance-none cursor-pointer accent-[#C8744E]"
+                          className="w-full h-1.5 bg-[#DDD7C8] rounded-lg appearance-none cursor-pointer accent-[#C8744E]"
                         />
+
+                        <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
+                          <input
+                            type="checkbox"
+                            checked={trimPadding}
+                            onChange={(e) => setTrimPadding(e.target.checked)}
+                            className="w-3.5 h-3.5 text-[#C8744E] rounded border-[#DDD7C8] focus:ring-[#C8744E]"
+                          />
+                          <span className="text-[11px] font-bold text-[#5A524A] flex items-center gap-1">
+                            <Crop className="w-3 h-3 text-[#C8744E]" />
+                            余白の自動トリミング（中央配置）
+                          </span>
+                        </label>
+
+                        {(formRawImageUrl || formCustomImageUrl) && (
+                          <button
+                            type="button"
+                            onClick={handleReapplyTransparency}
+                            disabled={isProcessingImage}
+                            className="w-full mt-1.5 flex items-center justify-center gap-1 px-3 py-1.5 bg-[#FAF2EB] hover:bg-[#F5E6DA] text-[#874A2E] text-xs font-bold rounded-xl border border-[#F0D5C3] transition active:scale-95 disabled:opacity-50"
+                          >
+                            <Sliders className="w-3 h-3 text-[#C8744E]" />
+                            <span>この透過設定を再適用してプレビュー</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Direct Image URL Form */}
+                  {/* Direct Image URL Form with Drive normalization */}
                   <form onSubmit={handleApplyUrl} className="space-y-1.5">
                     <label className="text-[11px] font-bold text-[#5A524A] block">
-                      または画像URL / パスを直接入力
+                      または画像URL / Google Drive共有リンク
                     </label>
                     <div className="flex gap-1.5">
                       <input
                         type="text"
                         value={formUrlInput}
                         onChange={(e) => setFormUrlInput(e.target.value)}
-                        placeholder="https://... または /images/..."
+                        placeholder="https://drive.google.com/file/d/... または https://..."
                         className="flex-1 px-3 py-1.5 text-xs bg-white rounded-xl border border-[#DDD7C8] text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
                       />
                       <button
@@ -970,24 +1325,23 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
               </div>
             </div>
 
-            {/* Modal Footer Actions */}
+            {/* Modal Footer Controls */}
             <div className="bg-[#ECE7DC] px-5 py-3.5 border-t-1.5 border-[#3E3833] flex items-center justify-between">
               <div>
-                {!isAddingNew && (
+                {!isAddingNew && editingNyan && (
                   <button
                     onClick={() => handleDeleteCharacter(formNo, formName)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-[#C85A53] hover:underline"
+                    className="flex items-center gap-1 text-xs font-bold text-[#C85A53] hover:text-[#A03028] transition px-2 py-1"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>このにゃんこを削除</span>
                   </button>
                 )}
               </div>
-
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={handleCloseModal}
-                  className="px-4 py-2 bg-[#FAF8F4] hover:bg-white text-[#5A524A] text-xs font-bold rounded-xl border border-[#DDD7C8] transition"
+                  className="px-4 py-2 bg-white text-[#5A524A] hover:bg-[#FAF8F4] text-xs font-bold rounded-xl border border-[#DDD7C8] transition"
                 >
                   キャンセル
                 </button>
@@ -996,7 +1350,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   className="flex items-center gap-1.5 px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95"
                 >
                   <Save className="w-4 h-4" />
-                  <span>図鑑に保存 & Firebase同期</span>
+                  <span>保存してFirebaseに反映</span>
                 </button>
               </div>
             </div>

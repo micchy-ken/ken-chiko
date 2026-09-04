@@ -303,33 +303,50 @@ export async function fetchInitialFirebaseState(
       if (snap.exists()) {
         const remoteData = snap.data() as GameSaveData;
         if (remoteData && remoteData.kenchiko) {
-          // Robust merge: preserve custom asobiList and non-empty sub-arrays
+          // If local backup has a newer timestamp than remote Firestore (e.g. edited while offline or during quota limits),
+          // preserve the newer local data and queue a sync to Firestore!
+          const localIsNewer = Boolean(
+            localBackup &&
+            localBackup.lastSaved &&
+            remoteData.lastSaved &&
+            localBackup.lastSaved > remoteData.lastSaved
+          );
+
+          const primarySource = localIsNewer ? localBackup! : remoteData;
+          const secondarySource = localIsNewer ? remoteData : (localBackup || DEFAULT_INITIAL_STATE);
+
           const mergedAsobiList =
-            remoteData.asobiList && remoteData.asobiList.length > 0
-              ? remoteData.asobiList
-              : localBackup?.asobiList && localBackup.asobiList.length > 0
-              ? localBackup.asobiList
-              : DEFAULT_INITIAL_STATE.asobiList;
+            primarySource.asobiList && primarySource.asobiList.length > 0
+              ? primarySource.asobiList
+              : secondarySource.asobiList || DEFAULT_INITIAL_STATE.asobiList;
 
           const mergedData: GameSaveData = {
             ...DEFAULT_INITIAL_STATE,
-            ...remoteData,
+            ...secondarySource,
+            ...primarySource,
             asobiList: mergedAsobiList,
             characters:
-              remoteData.characters && remoteData.characters.length > 0
-                ? remoteData.characters
-                : localBackup?.characters || DEFAULT_INITIAL_STATE.characters,
+              primarySource.characters && primarySource.characters.length > 0
+                ? primarySource.characters
+                : secondarySource.characters || DEFAULT_INITIAL_STATE.characters,
             inventory:
-              remoteData.inventory && remoteData.inventory.length > 0
-                ? remoteData.inventory
-                : localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory,
+              primarySource.inventory && primarySource.inventory.length > 0
+                ? primarySource.inventory
+                : secondarySource.inventory || DEFAULT_INITIAL_STATE.inventory,
             diary:
-              remoteData.diary && remoteData.diary.length > 0
-                ? remoteData.diary
-                : localBackup?.diary || DEFAULT_INITIAL_STATE.diary,
+              primarySource.diary && primarySource.diary.length > 0
+                ? primarySource.diary
+                : secondarySource.diary || DEFAULT_INITIAL_STATE.diary,
+            lastSaved: Math.max(primarySource.lastSaved || 0, secondarySource.lastSaved || 0, Date.now()),
           };
 
           saveLocalBackup(mergedData);
+
+          // If local was newer, asynchronously sync the updated state back to Firebase
+          if (localIsNewer && !getIsQuotaExhausted()) {
+            executeFirestoreWrite(mergedData, config).catch(() => {});
+          }
+
           return { success: true, data: mergedData, isNew: false };
         }
       }

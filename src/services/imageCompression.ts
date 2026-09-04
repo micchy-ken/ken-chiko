@@ -297,6 +297,60 @@ export function processBackgroundTransparency(
 }
 
 /**
+ * Converts an external image URL to a local DataURL/Blob using direct fetch and CORS proxy fallbacks
+ */
+export async function fetchImageUrlAsDataUrl(url: string): Promise<string> {
+  if (!url || url.startsWith('data:image')) return url;
+
+  // 1. Try direct fetch
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (res.ok) {
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch {}
+
+  // 2. Try proxy via corsproxy.io
+  try {
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch {}
+
+  // 3. Try proxy via allorigins
+  try {
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch {}
+
+  // Return original URL as fallback
+  return url;
+}
+
+/**
  * Main compression & processing entrypoint
  */
 export async function compressAndResizeImage(
@@ -306,6 +360,16 @@ export async function compressAndResizeImage(
   quality = 0.9,
   transparencyOpts?: TransparencyOptions
 ): Promise<string> {
+  // If string URL is passed and starts with http(s), convert to data URL first to prevent CORS taint
+  let activeSource: File | string = fileOrDataUrl;
+  if (typeof fileOrDataUrl === 'string' && (fileOrDataUrl.startsWith('http://') || fileOrDataUrl.startsWith('https://'))) {
+    try {
+      activeSource = await fetchImageUrlAsDataUrl(fileOrDataUrl);
+    } catch {
+      activeSource = fileOrDataUrl;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -329,7 +393,7 @@ export async function compressAndResizeImage(
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        resolve(typeof fileOrDataUrl === 'string' ? fileOrDataUrl : '');
+        resolve(typeof activeSource === 'string' ? activeSource : '');
         return;
       }
 
@@ -346,24 +410,33 @@ export async function compressAndResizeImage(
         resolve(pngData);
       } catch (e) {
         // Fallback
-        const fallbackData = canvas.toDataURL();
-        resolve(fallbackData);
+        if (typeof activeSource === 'string') {
+          resolve(activeSource);
+        } else {
+          const fallbackData = canvas.toDataURL();
+          resolve(fallbackData);
+        }
       }
     };
 
     img.onerror = (err) => {
-      reject(err);
+      // If error loading image, resolve original if string
+      if (typeof activeSource === 'string') {
+        resolve(activeSource);
+      } else {
+        reject(err);
+      }
     };
 
-    if (typeof fileOrDataUrl === 'string') {
-      img.src = fileOrDataUrl;
+    if (typeof activeSource === 'string') {
+      img.src = activeSource;
     } else {
       const reader = new FileReader();
       reader.onload = (e) => {
         img.src = (e.target?.result as string) || '';
       };
       reader.onerror = (e) => reject(e);
-      reader.readAsDataURL(fileOrDataUrl);
+      reader.readAsDataURL(activeSource);
     }
   });
 }
