@@ -428,7 +428,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Synchronize asobiList when saveData.asobiList updates via real-time cloud sync
   useEffect(() => {
-    if (saveData.asobiList && saveData.asobiList.length > 0) {
+    if (saveData.asobiList) {
       setAsobiList(saveData.asobiList);
     }
   }, [saveData.asobiList]);

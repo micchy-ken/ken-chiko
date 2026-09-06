@@ -207,7 +207,7 @@ export function generateNextActivity(
 
   // Check if custom asobi should trigger as an activity (prioritize user custom activities)
   const matchedAsobi = getMatchingAsobiList(asobiList, currentLoc, null);
-  if (matchedAsobi.length > 0 && Math.random() < 0.8) {
+  if (matchedAsobi.length > 0) {
     const weightedPool: KenchikoAsobi[] = [];
     matchedAsobi.forEach((a) => {
       const weight = a.frequency === 'high' ? 4 : a.frequency === 'normal' ? 2 : 1;
@@ -232,8 +232,8 @@ export function generateNextActivity(
     const isLongSnack = Math.random() < 0.5;
     const durationSec = isLongSnack ? 1800 : 300; // 30min or 5min
     const title = companionNyan
-      ? `${companionNyan.name}と並んで30分おやつを食べ続けた`
-      : 'ひたすらおやつをもぐもぐ食べている（30分コース）';
+      ? `${companionNyan.name}とおやつ休憩`
+      : 'おやつタイム';
 
     return {
       type: 'snacking',
@@ -242,8 +242,8 @@ export function generateNextActivity(
       companionNyanId: companionNyan ? companionNyan.no : null,
       newDiscoveredNyan: isNewDiscovery,
       diaryText: companionNyan
-        ? `${locInfo.name}で${companionNyan.name}と合流。お互い無言でおやつを分け合って、気づけば30分ずっと食べ続けていた。平和な時間。`
-        : `${locInfo.name}の特等席でおやつタイム。あっという間に30分経ってしまった。`,
+        ? `${locInfo.name}で${companionNyan.name}とおやつを分け合って休憩した。平和な時間。`
+        : `${locInfo.name}でおやつタイム。のんびり過ごした。`,
     };
   }
 
@@ -251,7 +251,9 @@ export function generateNextActivity(
   if (roll < 0.55) {
     const isLongNap = Math.random() < 0.6;
     const durationSec = isLongNap ? 3600 : 900; // 60min or 15min
-    const title = isLongNap ? 'ぐっすり1時間熟睡している…Zzz' : 'すやすや15分のお昼寝中…';
+    const title = companionNyan
+      ? `${companionNyan.name}とお昼寝`
+      : 'すやすやお昼寝中…';
 
     return {
       type: 'nap',
@@ -260,8 +262,8 @@ export function generateNextActivity(
       companionNyanId: companionNyan ? companionNyan.no : null,
       newDiscoveredNyan: isNewDiscovery,
       diaryText: companionNyan
-        ? `${locInfo.name}で${companionNyan.name}が隣で丸くなってきたので、つられて1時間も昼寝してしまった。夢の中で宇宙を飛んでいた。`
-        : `${locInfo.name}で心地よい風に吹かれて1時間ぐっすり眠った。頭がスッキリした。`,
+        ? `${locInfo.name}で${companionNyan.name}が隣で丸くなってきたので、いっしょにお昼寝した。`
+        : `${locInfo.name}で心地よい風に吹かれてぐっすり眠った。`,
     };
   }
 
