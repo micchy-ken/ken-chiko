@@ -14,8 +14,10 @@ import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEn
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
-import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser } from './userService';
-import { loadLocalKenchikoImage } from './imageCompression';
+import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser, DEFAULT_GLOBAL_DOC_ID } from './userService';
+import { loadLocalKenchikoImage, saveLocalKenchikoImage } from './imageCompression';
+
+export const GLOBAL_SHARED_DOC_ID = DEFAULT_GLOBAL_DOC_ID;
 
 export interface FirebaseCustomConfig {
   apiKey?: string;
@@ -134,9 +136,12 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
   const cappedDiary = Array.isArray(data.diary) ? data.diary.slice(0, 30) : [];
 
   const cleanedKenchiko = { ...data.kenchiko };
-  // If Kenchiko's custom avatar is a huge data URL (> 40KB), do not send raw base64 to Firestore (localStorage retains it)
-  if (cleanedKenchiko.customImageUrl && cleanedKenchiko.customImageUrl.length > 40000 && cleanedKenchiko.customImageUrl.startsWith('data:image')) {
-    delete (cleanedKenchiko as any).customImageUrl;
+  // Ensure Kenchiko's custom avatar image is synced across devices (fallback to local if memory is empty)
+  if (!cleanedKenchiko.customImageUrl) {
+    const localImg = loadLocalKenchikoImage();
+    if (localImg) {
+      cleanedKenchiko.customImageUrl = localImg;
+    }
   }
 
   const rawDoc: UserProgressDoc = {
@@ -675,8 +680,10 @@ export async function testFirebaseConnection(
 }
 
 /**
- * Subscribes to real-time changes on the Firestore document (onSnapshot).
- * Enables instantaneous sync between devices and browser tabs.
+ * Subscribes to real-time changes on the Firestore documents (onSnapshot).
+ * Enables instantaneous sync between devices and browser tabs for both:
+ * 1. User-specific progress (nyanProgress, diary, inventory, stats)
+ * 2. Shared master data (Asobi list & Kenchiko avatar/name)
  */
 export function subscribeToRemoteChanges(
   onDataChanged: (remoteData: GameSaveData) => void,
@@ -690,8 +697,10 @@ export function subscribeToRemoteChanges(
     }
     if (!firestoreDb) return () => {};
 
-    const docId = config.syncDocId || 'ken-chiko-global-state';
-    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
+    const activeUid = getActiveUserId();
+    const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
+    const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
 
     if (unsubscribeSnapshot) {
       try {
@@ -700,8 +709,10 @@ export function subscribeToRemoteChanges(
       unsubscribeSnapshot = null;
     }
 
-    unsubscribeSnapshot = onSnapshot(
-      docRef,
+    let unsubGlobal: Unsubscribe | null = null;
+
+    const unsubUser = onSnapshot(
+      userDocRef,
       { includeMetadataChanges: false },
       (snap) => {
         // Skip local writes that haven't been committed to server yet
@@ -712,15 +723,70 @@ export function subscribeToRemoteChanges(
           const raw = snap.data();
           if (raw && raw.kenchiko) {
             const reconstructed = reconstructGameSaveData(raw, INITIAL_NYANS);
-            onDataChanged(reconstructed);
+            const currentLocal = loadLocalBackup();
+            // Preserve shared master data from current local state
+            const merged: GameSaveData = {
+              ...reconstructed,
+              asobiList: currentLocal?.asobiList && currentLocal.asobiList.length > 0 ? currentLocal.asobiList : reconstructed.asobiList,
+              kenchiko: {
+                ...reconstructed.kenchiko,
+                customImageUrl: currentLocal?.kenchiko?.customImageUrl || reconstructed.kenchiko.customImageUrl,
+              },
+            };
+            onDataChanged(merged);
             notifyConnectionStatusChange(true);
           }
         }
       },
       (err) => {
-        console.warn('Firestore onSnapshot error:', err);
+        console.warn('Firestore onSnapshot user error:', err);
       }
     );
+
+    if (userDocId !== GLOBAL_SHARED_DOC_ID) {
+      unsubGlobal = onSnapshot(
+        globalDocRef,
+        { includeMetadataChanges: false },
+        (snap) => {
+          if (snap.metadata.hasPendingWrites) return;
+          if (snap.exists()) {
+            const raw = snap.data();
+            if (raw) {
+              const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
+              const merged: GameSaveData = {
+                ...currentLocal,
+                asobiList: raw.asobiList && raw.asobiList.length > 0 ? raw.asobiList : currentLocal.asobiList,
+                kenchiko: {
+                  ...currentLocal.kenchiko,
+                  customImageUrl: raw.kenchiko?.customImageUrl || currentLocal.kenchiko.customImageUrl,
+                },
+                kihonNyanCustomImageUrl: raw.kihonNyanCustomImageUrl || currentLocal.kihonNyanCustomImageUrl,
+                googleDriveFolderUrl: raw.googleDriveFolderUrl || currentLocal.googleDriveFolderUrl,
+              };
+              saveLocalBackup(merged);
+              if (raw.kenchiko?.customImageUrl) {
+                saveLocalKenchikoImage(raw.kenchiko.customImageUrl);
+              }
+              onDataChanged(merged);
+            }
+          }
+        },
+        (err) => {
+          console.warn('Firestore onSnapshot global error:', err);
+        }
+      );
+    }
+
+    unsubscribeSnapshot = () => {
+      try {
+        unsubUser();
+      } catch {}
+      if (unsubGlobal) {
+        try {
+          unsubGlobal();
+        } catch {}
+      }
+    };
 
     return () => {
       if (unsubscribeSnapshot) {
@@ -742,6 +808,9 @@ export function saveLocalBackup(data: GameSaveData, userId?: string | null): voi
     const activeUid = userId !== undefined ? userId : getActiveUserId();
     const storageKey = getLocalStorageKeyForUser(activeUid);
     localStorage.setItem(storageKey, JSON.stringify(data));
+    if (data.kenchiko?.customImageUrl) {
+      saveLocalKenchikoImage(data.kenchiko.customImageUrl);
+    }
   } catch {}
 }
 
@@ -778,7 +847,9 @@ export function purgeLocalData(): void {
   } catch (err) {}
 }
 
-// Fetch initial state from Firestore (with automatic reconstruction)
+// Fetch initial state from Firestore:
+// 1. Common Master DB (GLOBAL_SHARED_DOC_ID): Kenchiko appearance (avatar & name) and Asobi list
+// 2. User Progress DB (userDocId): Progress state (nekozukan, omoide enikki, inventory, stats)
 export async function fetchInitialFirebaseState(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
@@ -802,80 +873,120 @@ export async function fetchInitialFirebaseState(
       return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
     }
 
-    const docId = config.syncDocId || 'ken-chiko-global-state';
-    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
-
+    // --- STEP 1: Fetch Common Shared Master Document (ken-chiko-global-state) ---
+    // けんちこの見た目（画像・名前）と遊びリストは全ユーザー共通のDBから読み込む
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+    let globalRaw: any = null;
     try {
-      const snap = await getDoc(docRef);
+      const globalSnap = await getDoc(globalDocRef);
       sessionDbReadCount++;
-      clearQuotaExhausted();
-      notifyConnectionStatusChange(true);
-
-      if (snap.exists()) {
-        const remoteRaw = snap.data();
-        if (remoteRaw && remoteRaw.kenchiko) {
-          // Reconstruct full game data from compact UserProgressDoc
-          const remoteReconstructed = reconstructGameSaveData(remoteRaw, INITIAL_NYANS);
-
-          // CLOUD-FIRST: Remote cloud data is the absolute source of truth
-          // 1. Asobi list: Cloud is the definitive source of truth across all devices
-          const cloudAsobiList =
-            remoteReconstructed.asobiList && remoteReconstructed.asobiList.length > 0
-              ? remoteReconstructed.asobiList
-              : (localBackup?.asobiList && localBackup.asobiList.length > 0
-                  ? localBackup.asobiList
-                  : INITIAL_ASOBI_LIST);
-
-          // 2. Characters: Merge cloud discovery/friendship with local image caches if present
-          const mergedCharacters = mergeCharactersWithDefaults(
-            remoteReconstructed.characters,
-            localBackup?.characters
-          );
-
-          // 3. Game state, inventory, diary, stats: Cloud takes full priority
-          const mergedData: GameSaveData = {
-            ...remoteReconstructed,
-            characters: mergedCharacters,
-            asobiList: cloudAsobiList,
-            inventory:
-              remoteReconstructed.inventory && remoteReconstructed.inventory.length > 0
-                ? remoteReconstructed.inventory
-                : (localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory),
-            diary:
-              remoteReconstructed.diary && remoteReconstructed.diary.length > 0
-                ? remoteReconstructed.diary
-                : (localBackup?.diary || DEFAULT_INITIAL_STATE.diary),
-            stats: remoteReconstructed.stats || localBackup?.stats || DEFAULT_INITIAL_STATE.stats,
-            kenchiko: {
-              ...remoteReconstructed.kenchiko,
-              // Keep local image if remote image is not yet set
-              customImageUrl:
-                remoteReconstructed.kenchiko.customImageUrl ||
-                localBackup?.kenchiko?.customImageUrl ||
-                '',
-            },
-            lastSaved: remoteReconstructed.lastSaved || Date.now(),
-          };
-
-          // Overwrite local backup so this client stays in sync with the cloud正本
-          saveLocalBackup(mergedData);
-
-          return { success: true, data: mergedData, isNew: false };
-        }
+      if (globalSnap.exists()) {
+        globalRaw = globalSnap.data();
       }
-    } catch (readErr: any) {
-      const errMsg = String(readErr?.message || readErr);
-      if (readErr?.code === 'resource-exhausted' || readErr?.status === 429) {
+    } catch (gErr: any) {
+      if (gErr?.code === 'resource-exhausted' || gErr?.status === 429) {
         markQuotaExhausted();
-      } else {
-        console.warn('Firestore initial read note:', readErr);
-        notifyConnectionStatusChange(false, errMsg);
+      }
+      console.warn('Firestore global shared read note:', gErr);
+    }
+
+    // --- STEP 2: Fetch User-specific Progress Document (ken-chiko-user-ken, ken-chiko-user-chiko, etc.) ---
+    // 進行状況（ねこずかん・思い出絵日記・持ち物・統計）はユーザー個別DBから読み込む
+    const activeUid = getActiveUserId();
+    const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
+
+    let userRaw: any = null;
+    if (userDocId === GLOBAL_SHARED_DOC_ID) {
+      userRaw = globalRaw;
+    } else {
+      try {
+        const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
+        const userSnap = await getDoc(userDocRef);
+        sessionDbReadCount++;
+        if (userSnap.exists()) {
+          userRaw = userSnap.data();
+        }
+      } catch (uErr: any) {
+        if (uErr?.code === 'resource-exhausted' || uErr?.status === 429) {
+          markQuotaExhausted();
+        }
+        console.warn('Firestore user progress read note:', uErr);
       }
     }
 
-    const fallbackState = localBackup || DEFAULT_INITIAL_STATE;
-    saveLocalBackup(fallbackState);
-    return { success: true, data: fallbackState, isNew: false };
+    clearQuotaExhausted();
+    notifyConnectionStatusChange(true);
+
+    // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
+    const globalAsobiList =
+      globalRaw?.asobiList && globalRaw.asobiList.length > 0
+        ? globalRaw.asobiList
+        : (userRaw?.asobiList && userRaw.asobiList.length > 0
+            ? userRaw.asobiList
+            : (localBackup?.asobiList && localBackup.asobiList.length > 0
+                ? localBackup.asobiList
+                : INITIAL_ASOBI_LIST));
+
+    const globalKenchikoAvatar =
+      globalRaw?.kenchiko?.customImageUrl ||
+      userRaw?.kenchiko?.customImageUrl ||
+      loadLocalKenchikoImage() ||
+      localBackup?.kenchiko?.customImageUrl ||
+      '';
+
+    const globalKihonNyanImg =
+      globalRaw?.kihonNyanCustomImageUrl ||
+      userRaw?.kihonNyanCustomImageUrl ||
+      '';
+
+    const globalDriveUrl =
+      globalRaw?.googleDriveFolderUrl ||
+      userRaw?.googleDriveFolderUrl ||
+      '';
+
+    // --- STEP 4: Assemble User-specific Progress Data ---
+    let userBaseData: GameSaveData;
+    if (userRaw && userRaw.kenchiko) {
+      userBaseData = reconstructGameSaveData(userRaw, INITIAL_NYANS);
+    } else if (localBackup) {
+      userBaseData = localBackup;
+    } else {
+      userBaseData = DEFAULT_INITIAL_STATE;
+    }
+
+    const mergedCharacters = mergeCharactersWithDefaults(
+      userBaseData.characters,
+      localBackup?.characters
+    );
+
+    const mergedData: GameSaveData = {
+      ...userBaseData,
+      // 共通DBから読むデータ: あそびリスト & けんちこ（外見）
+      asobiList: globalAsobiList,
+      kenchiko: {
+        ...userBaseData.kenchiko,
+        customImageUrl: globalKenchikoAvatar,
+      },
+      kihonNyanCustomImageUrl: globalKihonNyanImg,
+      googleDriveFolderUrl: globalDriveUrl,
+
+      // ユーザー個別DBから読むデータ: 進行状況（ねこずかん・日記・持ち物・統計）
+      characters: mergedCharacters,
+      diary: userBaseData.diary || [],
+      inventory:
+        userBaseData.inventory && userBaseData.inventory.length > 0
+          ? userBaseData.inventory
+          : (localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory),
+      stats: userBaseData.stats || localBackup?.stats || DEFAULT_INITIAL_STATE.stats,
+      lastSaved: Date.now(),
+    };
+
+    saveLocalBackup(mergedData);
+    if (globalKenchikoAvatar) {
+      saveLocalKenchikoImage(globalKenchikoAvatar);
+    }
+
+    return { success: true, data: mergedData, isNew: !userRaw };
   } catch (err: any) {
     notifyConnectionStatusChange(false, err?.message || String(err));
     return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: err.message };
@@ -995,16 +1106,38 @@ export async function executeFirestoreWrite(
       return { success: false, error: 'Firestore is not initialized' };
     }
 
-    const docId = config.syncDocId || 'ken-chiko-global-state';
-    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
+    const activeUid = getActiveUserId();
+    const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
+    const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
 
-    // Write the compact progress document to Firestore
+    // 1. Write the compact progress document to the active user's personal document
     const payload = removeUndefinedDeep({
       ...compactProgressDoc,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
-    await setDoc(docRef, payload);
+    await setDoc(userDocRef, payload);
+
+    // 2. Keep the Global Shared Master DB (ken-chiko-global-state) updated for common data:
+    // (Asobi list, Kenchiko avatar & name, Kihon nyan custom image, Google Drive folder URL)
+    if (userDocId !== GLOBAL_SHARED_DOC_ID) {
+      try {
+        const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+        const globalPayload = removeUndefinedDeep({
+          asobiList: compactProgressDoc.asobiList,
+          kenchiko: {
+            customImageUrl: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
+          },
+          kihonNyanCustomImageUrl: compactProgressDoc.kihonNyanCustomImageUrl || '',
+          googleDriveFolderUrl: compactProgressDoc.googleDriveFolderUrl || '',
+          lastSaved: Date.now(),
+          updatedAt: new Date().toISOString(),
+        });
+        await setDoc(globalDocRef, globalPayload, { merge: true });
+      } catch (globalWriteErr) {
+        console.warn('Failed to update global shared master state:', globalWriteErr);
+      }
+    }
 
     sessionDbWriteCount++;
     incrementDailyWriteCount();

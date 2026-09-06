@@ -1,7 +1,7 @@
 // User management and persistence service for Multi-user support via query parameters (?user=yumi etc.)
 
-const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-state';
-const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
+export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-state';
+export const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
 const ACTIVE_USER_STORAGE_KEY = 'kenchiko_active_user_id';
 
 /**
@@ -72,19 +72,25 @@ export function setActiveUserId(userId: string | null): void {
 }
 
 /**
- * Returns the Firestore document ID for the current active user
- * Default user: "ken-chiko-global-state"
- * Custom user (e.g. "yumi"): "ken-chiko-user-yumi"
+ * Returns the Firestore document ID for the current active user's progress.
+ * Default user: "ken-chiko-user-default"
+ * User "ken": "ken-chiko-user-ken"
+ * User "chiko": "ken-chiko-user-chiko"
+ * (Note: Shared master data like Kenchiko avatar and Asobi list always reads from DEFAULT_GLOBAL_DOC_ID)
  */
 export function getFirestoreDocIdForUser(userId: string | null): string {
-  if (!userId) return DEFAULT_GLOBAL_DOC_ID;
+  if (!userId || userId === 'default' || userId === 'global') {
+    return 'ken-chiko-user-default';
+  }
   return `ken-chiko-user-${userId}`;
 }
 
 /**
- * Returns the LocalStorage backup key for the current active user
+ * Returns the LocalStorage backup key for the current active user's progress.
  */
 export function getLocalStorageKeyForUser(userId: string | null): string {
-  if (!userId) return 'kenchiko_save_state_backup_v2';
+  if (!userId || userId === 'default' || userId === 'global') {
+    return 'kenchiko_save_state_backup_v2';
+  }
   return `${USER_LOCAL_KEY_PREFIX}${userId}`;
 }

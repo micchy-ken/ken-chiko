@@ -443,6 +443,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         if (res.data.asobiList) {
           setAsobiList(res.data.asobiList);
         }
+        if (res.data.kenchiko?.customImageUrl) {
+          saveLocalKenchikoImage(res.data.kenchiko.customImageUrl);
+        }
         onUpdateSaveData(() => res.data, false);
         setAsobiNotice(`✅ クラウドの最新データ（あそび: ${res.data.asobiList?.length || 0}件）を端末へ反映しました！`);
       } else {
@@ -1738,7 +1741,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
 
                   <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
-                    同期先: <code className="font-mono text-[#4A443F] font-bold">{getFirestoreDocIdForUser(getActiveUserId())}</code>
+                    共通DB: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-state</code>
+                  </div>
+
+                  <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
+                    進行状況DB: <code className="font-mono text-[#4A443F] font-bold">{getFirestoreDocIdForUser(getActiveUserId())}</code>
                   </div>
 
                   <span className="text-[11px] font-bold text-[#4A443F] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
