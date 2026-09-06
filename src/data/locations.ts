@@ -83,7 +83,7 @@ export const LOCATIONS: Record<LocationId, LocationInfo> = {
   },
   hotspring: {
     id: 'hotspring',
-    name: 'ならこのおんせん',
+    name: 'ならここのおんせん',
     reading: 'ならここの里 温泉',
     description: '湯煙が立ちのぼる秘湯。湯上がりのコーヒー牛乳と鮎の塩焼きがたまらない。',
     transitTimeMin: [7, 10],
