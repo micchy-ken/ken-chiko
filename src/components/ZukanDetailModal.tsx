@@ -6,7 +6,6 @@ import {
   Heart,
   Calendar,
   Layers,
-  Gift,
 } from 'lucide-react';
 
 interface ZukanDetailModalProps {
@@ -82,16 +81,6 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
                   <p className="text-base font-bold text-[#487560] font-mono">{nyan.playCount}回</p>
                 </div>
               </div>
-
-              {onGiftToNyan && (
-                <button
-                  onClick={() => onGiftToNyan(nyan)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#D97543] hover:bg-[#C46332] text-white font-bold text-xs sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
-                >
-                  <Gift className="w-4 h-4 text-white" />
-                  <span>このにゃんにプレゼントをあげる</span>
-                </button>
-              )}
             </div>
           </div>
 

@@ -8,19 +8,34 @@ interface ZukanViewProps {
   onSelectCharacter: (nyan: NyanCharacter) => void;
 }
 
+function parseDateSafe(val?: string | number): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  const parsed = Date.parse(val);
+  if (!isNaN(parsed)) return parsed;
+  const match = val.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (match) {
+    const [, y, m, d, h = '0', min = '0', s = '0'] = match;
+    const time = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(s)).getTime();
+    if (!isNaN(time)) return time;
+  }
+  return 0;
+}
+
 export const ZukanView: React.FC<ZukanViewProps> = ({
   characters,
   onSelectCharacter,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'discovered' | 'undiscovered'>('all');
+  const [sortType, setSortType] = useState<'no' | 'recent' | 'playCount'>('no');
 
   const discoveredCount = characters.filter((c) => c.discovered).length;
   const totalCount = characters.length;
   const discoveryPercent = Math.round((discoveredCount / totalCount) * 100);
 
   const filteredCharacters = useMemo(() => {
-    return characters.filter((char) => {
+    const list = characters.filter((char) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesQuery =
         !q ||
@@ -36,7 +51,26 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
       if (filterType === 'undiscovered') return !char.discovered;
       return true;
     });
-  }, [characters, searchQuery, filterType]);
+
+    list.sort((a, b) => {
+      if (sortType === 'recent') {
+        if (a.discovered !== b.discovered) return a.discovered ? -1 : 1;
+        const timeA = a.lastMetAt || parseDateSafe(a.discoveryDate) || 0;
+        const timeB = b.lastMetAt || parseDateSafe(b.discoveryDate) || 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return a.no - b.no;
+      }
+      if (sortType === 'playCount') {
+        if (a.discovered !== b.discovered) return a.discovered ? -1 : 1;
+        const countDiff = (b.playCount || 0) - (a.playCount || 0);
+        if (countDiff !== 0) return countDiff;
+        return a.no - b.no;
+      }
+      return a.no - b.no;
+    });
+
+    return list;
+  }, [characters, searchQuery, filterType, sortType]);
 
   return (
     <div className="sketch-card overflow-hidden flex flex-col bg-[#FAF8F4]">
@@ -85,38 +119,53 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
           />
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setFilterType('all')}
-            className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
-              filterType === 'all'
-                ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
-                : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
-            }`}
-          >
-            すべて ({totalCount})
-          </button>
-          <button
-            onClick={() => setFilterType('discovered')}
-            className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
-              filterType === 'discovered'
-                ? 'bg-[#487560] text-[#FAF8F4] sketch-border shadow-sm'
-                : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
-            }`}
-          >
-            発見済み ({discoveredCount})
-          </button>
-          <button
-            onClick={() => setFilterType('undiscovered')}
-            className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
-              filterType === 'undiscovered'
-                ? 'bg-[#7A726A] text-[#FAF8F4] sketch-border shadow-sm'
-                : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
-            }`}
-          >
-            未発見 ({totalCount - discoveredCount})
-          </button>
+        {/* Filter Pills and Sort Selector */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setFilterType('all')}
+              className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
+                filterType === 'all'
+                  ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
+              }`}
+            >
+              すべて ({totalCount})
+            </button>
+            <button
+              onClick={() => setFilterType('discovered')}
+              className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
+                filterType === 'discovered'
+                  ? 'bg-[#487560] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
+              }`}
+            >
+              発見済み ({discoveredCount})
+            </button>
+            <button
+              onClick={() => setFilterType('undiscovered')}
+              className={`px-3 py-1.5 text-xs font-bold transition font-handwriting ${
+                filterType === 'undiscovered'
+                  ? 'bg-[#7A726A] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
+              }`}
+            >
+              未発見 ({totalCount - discoveredCount})
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 text-xs ml-auto">
+            <span className="text-[#7A726A] font-bold text-[11px] font-handwriting">並び順:</span>
+            <select
+              value={sortType}
+              onChange={(e) => setSortType(e.target.value as any)}
+              className="px-2.5 py-1 bg-[#FAF8F4] sketch-tag text-xs font-bold text-[#3E3833] focus:outline-none cursor-pointer border border-[#C4BCAB]"
+            >
+              <option value="no">番号順 (No.)</option>
+              <option value="recent">最近出会った順</option>
+              <option value="playCount">遭遇回数順 (★)</option>
+            </select>
+          </div>
         </div>
       </div>
 

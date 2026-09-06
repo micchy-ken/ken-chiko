@@ -47,6 +47,7 @@ import { KenchikoStage } from './components/KenchikoStage';
 import { KenchikoAvatar } from './components/KenchikoAvatar';
 import { ZukanView } from './components/ZukanView';
 import { ZukanDetailModal } from './components/ZukanDetailModal';
+import { NyanIllustration } from './components/NyanIllustration';
 import { GiftItemModal } from './components/GiftItemModal';
 import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
@@ -68,6 +69,37 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+
+/**
+ * Safely parse date string or numeric timestamp into milliseconds
+ */
+function parseTimestampSafe(val?: string | number): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  const parsed = Date.parse(val);
+  if (!isNaN(parsed)) return parsed;
+  const match = val.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (match) {
+    const [, y, m, d, h = '0', min = '0', s = '0'] = match;
+    const time = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(s)).getTime();
+    if (!isNaN(time)) return time;
+  }
+  return 0;
+}
+
+/**
+ * Format encounter relative badge text
+ */
+function formatEncounterTimeBadge(timestamp: number, isCurrent: boolean): string {
+  if (isCurrent) return 'いま一緒🐾';
+  if (!timestamp || timestamp <= 0) return '';
+  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+  if (diffSec < 60) return 'たった今';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}分前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}時間前`;
+  const d = new Date(timestamp);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
 
 export default function App() {
   // Main Game Save Data State (Pure Firestore Source of Truth)
@@ -115,7 +147,7 @@ export default function App() {
         if (active) setCurrentUserId(active);
       }
 
-      const validAdminTabs: AdminTab[] = ['avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+      const validAdminTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
@@ -309,6 +341,53 @@ export default function App() {
     );
   }, [saveData.characters, saveData.kenchiko.currentCompanionNyanId]);
 
+  // Recently encountered nyans (strictly ordered by most recently encountered first)
+  const recentlyEncounteredNyans = useMemo(() => {
+    // 1. Build a lookup map of the latest encounter timestamp from diary entries
+    const diaryEncounterMap = new Map<number, number>();
+    for (const entry of saveData.diary) {
+      if (entry.nyanId) {
+        const prev = diaryEncounterMap.get(entry.nyanId) || 0;
+        if (entry.timestamp > prev) {
+          diaryEncounterMap.set(entry.nyanId, entry.timestamp);
+        }
+      }
+    }
+
+    const currentCompanionId = saveData.kenchiko.currentCompanionNyanId;
+
+    return saveData.characters
+      .filter((c) => c.discovered)
+      .map((c) => {
+        const isCurrent = currentCompanionId === c.no;
+        const diaryTime = diaryEncounterMap.get(c.no) || 0;
+        const lastMetTime = c.lastMetAt || 0;
+        const discoveryTime = parseTimestampSafe(c.discoveryDate);
+
+        // If currently accompanying Kenchiko right now, highest priority
+        const effectiveTime = isCurrent
+          ? Date.now() + 100000000
+          : Math.max(diaryTime, lastMetTime, discoveryTime);
+
+        return {
+          nyan: c,
+          effectiveTime,
+          isCurrent,
+        };
+      })
+      .sort((a, b) => {
+        if (b.effectiveTime !== a.effectiveTime) {
+          return b.effectiveTime - a.effectiveTime; // Most recently encountered first
+        }
+        return b.nyan.no - a.nyan.no;
+      })
+      .map((item) => ({
+        ...item.nyan,
+        isCurrentCompanion: item.isCurrent,
+        lastEncounterTime: item.effectiveTime,
+      }));
+  }, [saveData.characters, saveData.diary, saveData.kenchiko.currentCompanionNyanId]);
+
   // Primary Simulation Tick Loop (Local in-memory ticking without constant Firebase writes)
   useEffect(() => {
     if (isLoadingFirebase) return;
@@ -372,6 +451,17 @@ export default function App() {
         const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
         nextCompanionId = actResult.companionNyanId;
 
+        if (nextCompanionId) {
+          const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
+          if (compIdx >= 0) {
+            updatedCharacters[compIdx] = {
+              ...updatedCharacters[compIdx],
+              lastMetAt: Date.now(),
+              playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
+            };
+          }
+        }
+
         if (actResult.newDiscoveredNyan) {
           const charIndex = updatedCharacters.findIndex(
             (c) => c.no === actResult.newDiscoveredNyan!.no
@@ -381,6 +471,7 @@ export default function App() {
               ...updatedCharacters[charIndex],
               discovered: true,
               discoveryDate: new Date().toLocaleString('ja-JP'),
+              lastMetAt: Date.now(),
               playCount: 1,
               friendshipLevel: 1,
             };
@@ -484,6 +575,17 @@ export default function App() {
           if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
           if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
 
+          if (nextCompanionId) {
+            const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
+            if (compIdx >= 0) {
+              updatedCharacters[compIdx] = {
+                ...updatedCharacters[compIdx],
+                lastMetAt: Date.now(),
+                playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
+              };
+            }
+          }
+
           if (actResult.newDiscoveredNyan) {
             const charIndex = updatedCharacters.findIndex(
               (c) => c.no === actResult.newDiscoveredNyan!.no
@@ -493,6 +595,7 @@ export default function App() {
                 ...updatedCharacters[charIndex],
                 discovered: true,
                 discoveryDate: new Date().toLocaleString('ja-JP'),
+                lastMetAt: Date.now(),
                 playCount: 1,
                 friendshipLevel: 1,
               };
@@ -572,7 +675,6 @@ export default function App() {
         kenchiko: {
           ...prev.kenchiko,
           happiness: Math.min(100, prev.kenchiko.happiness + 10),
-          monologue: 'なでてくれてありがとう〜！今日もいい日だなぁ。',
         },
       };
       saveOnUserAction(nextData).catch(() => {});
@@ -1045,21 +1147,43 @@ export default function App() {
 
       {/* Discovery Toast Notification */}
       {newEncounterToast && (
-        <div className="fixed top-20 right-4 z-40 max-w-sm bg-[#3A342F] text-[#FAF8F5] p-4 rounded-2xl border border-[#D4B996] shadow-xl animate-bounce">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🎉</span>
-              <div>
-                <div className="text-[11px] text-[#D4B996] font-black tracking-wider">
-                  新しいにゃんを図鑑に登録！
-                </div>
-                <h4 className="text-sm font-black text-white">{newEncounterToast.name}</h4>
-                <p className="text-[10px] text-[#CCC4B2] line-clamp-1">{newEncounterToast.motif}</p>
-              </div>
-            </div>
+        <div className="fixed top-20 right-4 z-40 max-w-sm bg-[#3A342F] text-[#FAF8F5] p-3.5 rounded-2xl border-2 border-[#D4B996] shadow-2xl animate-bounce">
+          <div className="flex items-center justify-between gap-2.5">
             <button
-              onClick={() => setNewEncounterToast(null)}
-              className="text-[#A8A096] hover:text-white text-xs font-bold"
+              onClick={() => {
+                setSelectedZukanNyan(newEncounterToast);
+                setNewEncounterToast(null);
+              }}
+              title="クリックして図鑑詳細を見る"
+              className="flex items-center gap-3 text-left flex-1 min-w-0 group hover:opacity-90 transition"
+            >
+              <div className="shrink-0 w-12 h-12 rounded-xl bg-[#FAF8F4] p-1 flex items-center justify-center border border-[#D4B996]/50 shadow-inner group-hover:scale-105 transition transform">
+                <NyanIllustration
+                  nyan={newEncounterToast}
+                  size={42}
+                  isDiscovered={true}
+                  transparent={true}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] text-[#E5C9A4] font-black tracking-wider flex items-center gap-1 font-handwriting">
+                  <span>🎉 新しいにゃんを発見！</span>
+                </div>
+                <h4 className="text-sm font-black text-white truncate font-handwriting">
+                  {newEncounterToast.name}
+                </h4>
+                <p className="text-[11px] text-[#D4C8B5] font-bold underline decoration-dotted font-handwriting">
+                  タップして詳細を見る →
+                </p>
+              </div>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setNewEncounterToast(null);
+              }}
+              title="閉じる"
+              className="w-7 h-7 rounded-full bg-[#4E463F] hover:bg-[#625950] text-[#D4C8B5] hover:text-white flex items-center justify-center text-xs font-bold transition shrink-0 ml-1"
             >
               ✕
             </button>
@@ -1104,26 +1228,70 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {saveData.characters
-                  .filter((c) => c.discovered)
-                  .slice(0, 8)
-                  .map((nyan) => (
-                    <button
-                      key={nyan.no}
-                      onClick={() => setSelectedZukanNyan(nyan)}
-                      className="group flex-shrink-0 w-28 p-2.5 rounded-2xl bg-[#F5F2EA] hover:bg-[#EFECE4] border border-[#DDD7C8] text-center transition"
-                    >
-                      <div className="text-[10px] font-mono text-[#7D756D] font-bold">
-                        No.{String(nyan.no).padStart(3, '0')}
-                      </div>
-                      <div className="text-xs font-black text-[#3A342F] truncate mt-1">
-                        {nyan.name}
-                      </div>
-                      <div className="text-[9px] text-[#8C837A] truncate">{nyan.motif}</div>
-                    </button>
-                  ))}
-              </div>
+              {recentlyEncounteredNyans.length === 0 ? (
+                <div className="text-center py-4 bg-[#F5F2EA] rounded-2xl border border-dashed border-[#DDD7C8]">
+                  <p className="text-xs font-bold text-[#8C837A]">
+                    まだ出会った◯◯にゃんはいません。けんちこと一緒にお出かけしてみよう！
+                  </p>
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 pt-1">
+                  {recentlyEncounteredNyans.slice(0, 15).map((nyan) => {
+                    const isCurrent = nyan.isCurrentCompanion;
+                    const timeBadge = formatEncounterTimeBadge(nyan.lastEncounterTime, isCurrent);
+
+                    return (
+                      <button
+                        key={nyan.no}
+                        onClick={() => setSelectedZukanNyan(nyan)}
+                        title={`${nyan.name}（クリックして詳細を見る）`}
+                        className={`group relative flex-shrink-0 w-28 p-2.5 rounded-2xl border text-center transition hover:-translate-y-0.5 active:translate-y-0 flex flex-col items-center justify-between ${
+                          isCurrent
+                            ? 'bg-[#FFF9EE] border-[#D97543] shadow-[0_2px_10px_rgba(217,117,67,0.18)] ring-1 ring-[#D97543]/60'
+                            : 'bg-[#F5F2EA] hover:bg-[#EFECE4] border-[#DDD7C8] shadow-sm'
+                        }`}
+                      >
+                        {timeBadge && (
+                          <div
+                            className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mb-1 ${
+                              isCurrent
+                                ? 'bg-[#D97543] text-white animate-pulse'
+                                : 'bg-[#E5DFD3] text-[#6E665C]'
+                            }`}
+                          >
+                            {timeBadge}
+                          </div>
+                        )}
+
+                        <div className="w-full flex items-center justify-between text-[10px] font-mono text-[#7D756D] font-bold">
+                          <span>No.{String(nyan.no).padStart(3, '0')}</span>
+                          {nyan.playCount > 0 && (
+                            <span className="text-[#D97543] text-[9px] font-bold">★{nyan.playCount}</span>
+                          )}
+                        </div>
+
+                        <div className="my-1 flex items-center justify-center h-12 w-12 group-hover:scale-105 transition transform">
+                          <NyanIllustration
+                            nyan={nyan}
+                            size={44}
+                            isDiscovered={true}
+                            transparent={true}
+                          />
+                        </div>
+
+                        <div className="w-full">
+                          <div className="text-xs font-black text-[#3A342F] truncate">
+                            {nyan.name}
+                          </div>
+                          <div className="text-[9px] text-[#8C837A] truncate">
+                            {nyan.motif}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1176,10 +1344,6 @@ export default function App() {
         <ZukanDetailModal
           nyan={selectedZukanNyan}
           onClose={() => setSelectedZukanNyan(null)}
-          onGiftToNyan={(_nyan) => {
-            setSelectedZukanNyan(null);
-            setShowGiftModal(true);
-          }}
         />
       )}
 

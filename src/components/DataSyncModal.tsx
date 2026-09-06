@@ -83,6 +83,7 @@ import {
   CornerDownLeft,
   ListPlus,
   BookOpen,
+  Users,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -96,8 +97,9 @@ import {
   TransparencyOptions,
 } from '../services/imageCompression';
 import { getAssetUrl, handleImageError, ASSET_PATHS } from '../utils/assetPath';
+import { AdminUserManagement } from './AdminUserManagement';
 
-export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'users' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -171,7 +173,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -1165,6 +1167,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Smile className="w-4 h-4 text-[#C8744E]" />
             <span>全イベント・あそび編集 ({asobiList.length}件)</span>
+          </button>
+
+          {/* TAB: User Management (ユーザー管理画面) */}
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'users'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#3E7B68] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <Users className="w-4 h-4 text-[#3E7B68]" />
+            <span>ユーザー管理・データ分析</span>
           </button>
 
           {/* TAB 4: Database CRUD */}
@@ -2316,6 +2331,34 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB: USER MANAGEMENT (ユーザー管理画面) */}
+          {/* ========================================================= */}
+          {activeTab === 'users' && (
+            <div className="space-y-4 animate-fadeIn">
+              <AdminUserManagement
+                characters={characters}
+                saveData={saveData}
+                onUpdateSaveData={onUpdateSaveData}
+                openConfirm={openConfirm}
+                onSwitchUser={(newUid) => {
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location.href);
+                    if (newUid) {
+                      url.searchParams.set('user', newUid);
+                    } else {
+                      url.searchParams.delete('user');
+                      url.searchParams.delete('uid');
+                      url.searchParams.delete('player');
+                      url.searchParams.delete('u');
+                    }
+                    window.location.href = url.toString();
+                  }
+                }}
+              />
             </div>
           )}
 

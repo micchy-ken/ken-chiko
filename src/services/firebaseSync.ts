@@ -9,6 +9,9 @@ import {
   onSnapshot,
   Firestore,
   Unsubscribe,
+  collection,
+  getDocs,
+  deleteDoc,
 } from 'firebase/firestore';
 import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
@@ -37,6 +40,7 @@ export interface FirebaseCustomConfig {
 export interface NyanProgressEntry {
   discovered?: boolean;
   discoveryDate?: string;
+  lastMetAt?: number;
   friendshipLevel?: number;
   playCount?: number;
   customImageUrl?: string;
@@ -110,6 +114,7 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
         const entry: NyanProgressEntry = {};
         if (char.discovered !== undefined) entry.discovered = char.discovered;
         if (char.discoveryDate) entry.discoveryDate = char.discoveryDate;
+        if (char.lastMetAt) entry.lastMetAt = char.lastMetAt;
         if (char.friendshipLevel !== undefined) entry.friendshipLevel = char.friendshipLevel;
         if (char.playCount !== undefined) entry.playCount = char.playCount;
         if (char.rawImageUrl) entry.rawImageUrl = char.rawImageUrl;
@@ -208,6 +213,7 @@ export function reconstructGameSaveData(
           ...base,
           discovered: prog.discovered !== undefined ? prog.discovered : base.discovered,
           discoveryDate: prog.discoveryDate || base.discoveryDate,
+          lastMetAt: prog.lastMetAt || base.lastMetAt,
           friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
           playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,
           customImageUrl: prog.customImageUrl || (prog.rawImageUrl ? prog.rawImageUrl : base.customImageUrl),
@@ -274,6 +280,7 @@ export function mergeCharactersWithDefaults(
         dialogueMeaning: base.dialogueMeaning || sec.dialogueMeaning,
         discovered: sec.discovered !== undefined ? sec.discovered : base.discovered,
         discoveryDate: sec.discoveryDate || base.discoveryDate,
+        lastMetAt: Math.max(sec.lastMetAt || 0, base.lastMetAt || 0),
         friendshipLevel: Math.max(sec.friendshipLevel || 0, base.friendshipLevel || 0),
         playCount: Math.max(sec.playCount || 0, base.playCount || 0),
         customImageUrl: sec.customImageUrl || base.customImageUrl,
@@ -301,6 +308,7 @@ export function mergeCharactersWithDefaults(
         dialogueMeaning: base.dialogueMeaning || prim.dialogueMeaning,
         discovered: prim.discovered !== undefined ? prim.discovered : base.discovered,
         discoveryDate: prim.discoveryDate || base.discoveryDate,
+        lastMetAt: prim.lastMetAt !== undefined ? prim.lastMetAt : base.lastMetAt,
         friendshipLevel: prim.friendshipLevel !== undefined ? prim.friendshipLevel : base.friendshipLevel,
         playCount: prim.playCount !== undefined ? prim.playCount : base.playCount,
         customImageUrl: prim.customImageUrl !== undefined ? prim.customImageUrl : base.customImageUrl,
@@ -697,6 +705,56 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
   } catch (err: any) {
     console.error('Firebase init error', err);
     return { success: false, error: err.message || 'Firebase初期化に失敗しました' };
+  }
+}
+
+/**
+ * Returns the active Firestore DB instance, initializing Firebase if needed.
+ */
+export function getFirestoreDbInstance(): Firestore | null {
+  if (!firestoreDb) {
+    initFirebase();
+  }
+  return firestoreDb;
+}
+
+/**
+ * Explicitly writes a user document to Firestore for the given user ID.
+ */
+export async function writeUserDocExplicit(userId: string, data: GameSaveData): Promise<boolean> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) return false;
+    const userDocId = getFirestoreDocIdForUser(userId);
+    const userDocRef = doc(db, 'kenchiko_world', userDocId);
+    const compact = extractUserProgress(data);
+    const payload = removeUndefinedDeep({
+      ...compact,
+      lastSaved: Date.now(),
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(userDocRef, payload);
+    return true;
+  } catch (err) {
+    console.error('Failed to write user doc explicitly:', err);
+    return false;
+  }
+}
+
+/**
+ * Explicitly deletes a user document from Firestore.
+ */
+export async function deleteUserDocExplicit(userId: string): Promise<boolean> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) return false;
+    const userDocId = getFirestoreDocIdForUser(userId);
+    const userDocRef = doc(db, 'kenchiko_world', userDocId);
+    await deleteDoc(userDocRef);
+    return true;
+  } catch (err) {
+    console.error('Failed to delete user doc explicitly:', err);
+    return false;
   }
 }
 

@@ -41,6 +41,7 @@ export interface NyanCharacter {
   dialogueMeaning?: string; // ねこのセリフの意味・翻訳（J列）
   discovered: boolean;
   discoveryDate?: string;
+  lastMetAt?: number; // timestamp (ms) of the latest encounter
   playCount: number;
   friendshipLevel: number;
   customImageUrl?: string;

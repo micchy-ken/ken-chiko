@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { KenchikoState, NyanCharacter, GiftItem, LocationId } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { KenchikoFigure } from './KenchikoFigure';
@@ -8,7 +8,6 @@ import {
   MapPin,
   Clock,
   Heart,
-  Gift,
   Hand,
   Compass,
   Footprints,
@@ -23,7 +22,7 @@ interface KenchikoStageProps {
   remainingTimeSec: number;
   timeSpeed: number;
   onPet: () => void;
-  onOpenGiftModal: () => void;
+  onOpenGiftModal?: () => void;
   onStartRandomTravel: () => void;
   onOpenTravelModal?: () => void;
   onSelectNyan: (nyan: NyanCharacter) => void;
@@ -45,6 +44,15 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   onTakeSnapshot,
 }) => {
   const [pettingEffect, setPettingEffect] = useState(false);
+  const petTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (petTimeoutRef.current) {
+        clearTimeout(petTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const locInfo = LOCATIONS[kenchiko.currentLocation] || LOCATIONS.living;
   const targetLocInfo = kenchiko.targetLocation ? LOCATIONS[kenchiko.targetLocation] : null;
@@ -75,7 +83,10 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
       colors: ['#D4736A', '#E8CEAA', '#5C7E6B'],
     });
     onPet();
-    setTimeout(() => setPettingEffect(false), 1200);
+    if (petTimeoutRef.current) {
+      clearTimeout(petTimeoutRef.current);
+    }
+    petTimeoutRef.current = setTimeout(() => setPettingEffect(false), 1800);
   };
 
   return (
@@ -171,8 +182,13 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
               title="けんちこをタップしてなでる"
             >
               {pettingEffect && (
-                <div className="absolute -top-9 text-[#C85A53] font-bold text-sm animate-bounce flex items-center gap-1 bg-[#FFFDF9] px-3 py-0.5 sketch-tag shadow-sm font-handwriting z-20">
-                  <Heart className="w-4 h-4 fill-[#C85A53]" /> なでなで！
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-20 animate-bounce pointer-events-none">
+                  <div className="relative bg-[#FFFDF9] border border-[#3E3833] text-[#2E2824] px-3 py-1 rounded-2xl shadow-sm text-xs sm:text-sm font-bold font-handwriting flex items-center gap-1 whitespace-nowrap">
+                    <span>うふふ♪</span>
+                    {/* Speech bubble downward triangle pointer */}
+                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-[#3E3833]" />
+                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-[#FFFDF9]" />
+                  </div>
                 </div>
               )}
               <KenchikoFigure
@@ -262,14 +278,6 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
       {/* Bottom Action Bar */}
       <div className="bg-[#ECE7DC] px-4 py-3 border-t-1.5 border-[#3E3833] flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenGiftModal}
-            className="flex items-center gap-1.5 bg-[#D97543] hover:bg-[#C46332] text-white font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
-          >
-            <Gift className="w-4 h-4 text-white" />
-            <span>プレゼント</span>
-          </button>
-
           <button
             onClick={handlePetClick}
             className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
