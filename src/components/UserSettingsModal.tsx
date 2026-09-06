@@ -190,6 +190,30 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </form>
           </div>
 
+          {/* How to play / Tutorial Guide */}
+          {onOpenTutorial && (
+            <div className="p-4 bg-[#FAF4EB] rounded-2xl border border-[#ECD9BE] space-y-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-black text-[#8A5A23]">
+                <HelpCircle className="w-3.5 h-3.5" />
+                あそびかたガイド
+              </div>
+              <p className="text-xs text-[#71685F] leading-relaxed">
+                けんちことの過ごし方、お出かけ、にゃんことの出会いや図鑑・絵日記の仕組みを確認できます。
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenTutorial();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-white hover:bg-[#F8F1E5] border border-[#ECD9BE] text-[#8A5A23] rounded-xl text-xs font-bold transition shadow-xs active:scale-98"
+              >
+                <HelpCircle className="w-4 h-4 text-[#BA7323]" />
+                <span className="font-handwriting font-bold text-sm">あそびかたガイドを見る</span>
+              </button>
+            </div>
+          )}
+
           {/* Google Spreadsheet Auto-Sync Section (スプレッドシート自動同期) */}
           <div className="p-4 bg-[#FAF8F4] rounded-2xl border border-[#DDD7C8] space-y-3">
             <div className="flex items-center justify-between">
@@ -298,30 +322,6 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               </div>
             );
           })()}
-
-          {/* How to play / Tutorial Guide */}
-          {onOpenTutorial && (
-            <div className="p-4 bg-[#FAF4EB] rounded-2xl border border-[#ECD9BE] space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-black text-[#8A5A23]">
-                <HelpCircle className="w-3.5 h-3.5" />
-                あそびかたガイド
-              </div>
-              <p className="text-xs text-[#71685F]">
-                けんちことの過ごし方、お出かけ、にゃんことの出会いや図鑑・絵日記の仕組みを確認できます。
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenTutorial();
-                }}
-                className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-white hover:bg-[#F8F1E5] border border-[#ECD9BE] text-[#8A5A23] rounded-xl text-xs font-bold transition shadow-xs"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>あそびかたガイドを開く</span>
-              </button>
-            </div>
-          )}
 
           {/* User Data Reset (初期化) */}
           <div className="p-4 bg-[#FFF5F2] rounded-2xl border border-[#F5C7BD] space-y-3">

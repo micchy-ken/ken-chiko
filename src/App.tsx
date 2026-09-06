@@ -1100,16 +1100,6 @@ export default function App() {
               </div>
             )}
 
-            {/* How to play Guide Button */}
-            <button
-              onClick={() => setShowTutorialModal(true)}
-              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#3E3833] font-black text-xs px-3 py-2 sketch-card-subtle shadow-sm transition"
-              title="あそびかた・チュートリアルを見る"
-            >
-              <HelpCircle className="w-4 h-4 text-[#BA7323]" />
-              <span className="font-handwriting text-sm">あそびかた</span>
-            </button>
-
             {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
             {showSyncModal && (
               <button
