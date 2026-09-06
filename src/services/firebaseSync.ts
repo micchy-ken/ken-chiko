@@ -775,12 +775,21 @@ export async function deleteUserDocExplicit(userId: string): Promise<boolean> {
   }
 }
 
+let lastConnectionCheckTime = 0;
+let lastConnectionCheckResult: { success: boolean; error?: string } = { success: true };
+
 export async function testFirebaseConnection(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     notifyConnectionStatusChange(false, 'オフライン状態です');
     return { success: false, error: '端末がオフラインです' };
+  }
+
+  const now = Date.now();
+  // If tested in last 2 minutes and succeeded, reuse result without performing a redundant Firestore read
+  if (now - lastConnectionCheckTime < 120000 && lastConnectionCheckResult.success && isCurrentlyConnected) {
+    return lastConnectionCheckResult;
   }
 
   try {
@@ -800,11 +809,15 @@ export async function testFirebaseConnection(
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     await getDoc(docRef);
     sessionDbReadCount++;
+    lastConnectionCheckTime = Date.now();
+    lastConnectionCheckResult = { success: true };
     clearQuotaExhausted();
     notifyConnectionStatusChange(true);
     return { success: true };
   } catch (err: any) {
     const errMsg = err?.message || String(err);
+    lastConnectionCheckTime = Date.now();
+    lastConnectionCheckResult = { success: false, error: errMsg };
     notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
   }
@@ -1130,6 +1143,7 @@ let latestPendingData: GameSaveData | null = null;
 let queuedImmediateData: GameSaveData | null = null;
 let isWritingToFirestore = false;
 let lastWrittenContentString: string = '';
+let lastWrittenGlobalString: string = '';
 let sessionDbReadCount: number = 0;
 let sessionDbWriteCount: number = 0;
 
@@ -1182,8 +1196,8 @@ export async function executeFirestoreWrite(
   }
 
   const now = Date.now();
-  // 4. Enforce strict rate-limit throttle: Minimum 60s between non-manual writes
-  if (!forceManual && now - lastSuccessfulWriteTime < 60000) {
+  // 4. Enforce strict rate-limit throttle: Minimum 25s between non-manual writes
+  if (!forceManual && now - lastSuccessfulWriteTime < 25000) {
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -1191,7 +1205,7 @@ export async function executeFirestoreWrite(
         if (latestPendingData) {
           executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
         }
-      }, 60000 - (now - lastSuccessfulWriteTime));
+      }, 25000 - (now - lastSuccessfulWriteTime));
     }
     return { success: true };
   }
@@ -1216,6 +1230,14 @@ export async function executeFirestoreWrite(
     })
   );
   const currentContentString = JSON.stringify(sanitizedContent);
+
+  // Global shared master data hash
+  const currentGlobalString = JSON.stringify({
+    asobiList: compactProgressDoc.asobiList,
+    kenchikoAvatar: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
+    kihonNyanCustomImageUrl: compactProgressDoc.kihonNyanCustomImageUrl || '',
+    googleDriveFolderUrl: compactProgressDoc.googleDriveFolderUrl || '',
+  });
 
   // Skip write completely if meaningful content has not changed (unless forced manual write)
   if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentContentString) {
@@ -1254,10 +1276,13 @@ export async function executeFirestoreWrite(
       updatedAt: new Date().toISOString(),
     });
     await setDoc(userDocRef, payload);
+    sessionDbWriteCount++;
+    incrementDailyWriteCount();
+    lastWrittenContentString = currentContentString;
 
-    // 2. Keep the Global Shared Master DB (ken-chiko-global-state) updated for common data:
-    // (Asobi list, Kenchiko avatar & name, Kihon nyan custom image, Google Drive folder URL)
-    if (userDocId !== GLOBAL_SHARED_DOC_ID) {
+    // 2. ONLY write to the Global Shared Master DB (ken-chiko-global-state) IF master data actually changed
+    // (This saves 50% of writes on routine player actions like petting/feeding/traveling)
+    if (userDocId !== GLOBAL_SHARED_DOC_ID && (forceManual || currentGlobalString !== lastWrittenGlobalString)) {
       try {
         const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
         const globalPayload = removeUndefinedDeep({
@@ -1271,14 +1296,14 @@ export async function executeFirestoreWrite(
           updatedAt: new Date().toISOString(),
         });
         await setDoc(globalDocRef, globalPayload, { merge: true });
+        sessionDbWriteCount++;
+        incrementDailyWriteCount();
+        lastWrittenGlobalString = currentGlobalString;
       } catch (globalWriteErr) {
         console.warn('Failed to update global shared master state:', globalWriteErr);
       }
     }
 
-    sessionDbWriteCount++;
-    incrementDailyWriteCount();
-    lastWrittenContentString = currentContentString;
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
 
@@ -1346,7 +1371,7 @@ export async function syncSaveDataToFirebase(
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  // Debounced write
+  // Debounced write (15s cooldown)
   if (pendingWriteTimeout) {
     return { success: true };
   }
@@ -1356,7 +1381,7 @@ export async function syncSaveDataToFirebase(
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
     }
-  }, Math.max(5000, 60000 - timeSinceLast));
+  }, Math.max(3000, 25000 - timeSinceLast));
 
   return { success: true };
 }
@@ -1366,7 +1391,7 @@ export async function saveOnUserAction(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
-  // Always update local storage first
+  // Always update local storage first (instant, 0 latency, 0 data loss)
   saveLocalBackup(data);
   latestPendingData = data;
 
@@ -1375,11 +1400,11 @@ export async function saveOnUserAction(
     return { success: true };
   }
 
-  // Debounce consecutive fast user actions (e.g. rapid tapping) by 5 seconds
+  // Debounce consecutive fast user actions (e.g. rapid tapping, feeding, petting)
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  if (timeSinceLast >= 15000 && !isWritingToFirestore) {
+  if (timeSinceLast >= 25000 && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -1396,7 +1421,7 @@ export async function saveOnUserAction(
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
     }
-  }, Math.max(5000, 15000 - timeSinceLast));
+  }, Math.max(3000, 25000 - timeSinceLast));
 
   return { success: true };
 }

@@ -349,12 +349,27 @@ function buildUserDetailData(
   };
 }
 
+let cachedUsersData: UserDetailData[] | null = null;
+let lastUsersFetchTime = 0;
+const USERS_CACHE_TTL = 30000; // 30 seconds
+
+export function invalidateUsersCache(): void {
+  cachedUsersData = null;
+  lastUsersFetchTime = 0;
+}
+
 /**
  * Fetches all registered users from both Firestore and LocalStorage
  */
 export async function fetchAllRegisteredUsers(
-  masterNyans: NyanCharacter[] = INITIAL_NYANS
+  masterNyans: NyanCharacter[] = INITIAL_NYANS,
+  forceRefresh: boolean = false
 ): Promise<UserDetailData[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedUsersData && now - lastUsersFetchTime < USERS_CACHE_TTL) {
+    return cachedUsersData;
+  }
+
   const currentActiveId = getActiveUserId();
   const userMap = new Map<
     string,
@@ -494,11 +509,15 @@ export async function fetchAllRegisteredUsers(
   }
 
   // Sort: current user first, then by lastSaved descending
-  return results.sort((a, b) => {
+  const sorted = results.sort((a, b) => {
     if (a.isCurrent) return -1;
     if (b.isCurrent) return 1;
     return b.lastSaved - a.lastSaved;
   });
+
+  cachedUsersData = sorted;
+  lastUsersFetchTime = Date.now();
+  return sorted;
 }
 
 /**
@@ -512,6 +531,7 @@ export async function deleteUserAccount(
   }
 
   try {
+    invalidateUsersCache();
     // 1. Remove from LocalStorage
     if (typeof window !== 'undefined') {
       localStorage.removeItem(getLocalStorageKeyForUser(userId));
@@ -550,6 +570,7 @@ export async function resetUserAccount(
   }
 
   try {
+    invalidateUsersCache();
     const freshData: GameSaveData = {
       ...DEFAULT_INITIAL_STATE,
       characters: masterNyans.map((n) => ({
@@ -603,6 +624,7 @@ export async function createNewUserAccount(
   }
 
   try {
+    invalidateUsersCache();
     const freshData: GameSaveData = {
       ...DEFAULT_INITIAL_STATE,
       characters: masterNyans.map((n) => ({
