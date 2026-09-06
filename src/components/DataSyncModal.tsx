@@ -433,20 +433,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   }, [saveData.asobiList]);
 
-  // Pull latest asobi list directly from Firestore
+  // Pull latest data directly from Firestore (Cloud-First)
   const handlePullFromCloud = async () => {
     setIsSyncingCloudAsobi(true);
-    setAsobiNotice('🔄 クラウド（Firebase）から最新のあそびデータを取得中...');
+    setAsobiNotice('🔄 クラウド（Firebase）から最新のデータを取得中...');
     try {
       const res = await fetchInitialFirebaseState();
-      if (res.success && res.data && res.data.asobiList) {
-        setAsobiList(res.data.asobiList);
-        onUpdateSaveData((prev) => ({
-          ...prev,
-          asobiList: res.data.asobiList,
-          lastSaved: res.data.lastSaved || Date.now(),
-        }), false);
-        setAsobiNotice(`✅ クラウドから最新データ（${res.data.asobiList.length}件）を取得・同期しました！`);
+      if (res.success && res.data) {
+        if (res.data.asobiList) {
+          setAsobiList(res.data.asobiList);
+        }
+        onUpdateSaveData(() => res.data, false);
+        setAsobiNotice(`✅ クラウドの最新データ（あそび: ${res.data.asobiList?.length || 0}件）を端末へ反映しました！`);
       } else {
         setAsobiNotice(`⚠️ クラウドからの取得に失敗しました: ${res.error || 'データがありません'}`);
       }
@@ -2768,18 +2766,30 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   />
                 </div>
 
-                <div className="pt-2 flex items-center justify-between">
+                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
                   <span className="text-[11px] text-[#7D756D]">
                     最終同期: {new Date(saveData.lastSaved).toLocaleTimeString('ja-JP')}
                   </span>
-                  <button
-                    onClick={() => handleManualSyncFirebase()}
-                    disabled={isSyncing}
-                    className="flex items-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{isSyncing ? '同期中...' : '手動で今すぐ同期'}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handlePullFromCloud()}
+                      disabled={isSyncingCloudAsobi}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF8F5] hover:bg-[#EFECE4] text-[#4A4036] border border-[#DDD7C8] font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition disabled:opacity-50"
+                      title="Firestoreのデータを正本としてこの端末へ強制ダウンロード"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloudAsobi ? 'animate-spin' : ''}`} />
+                      <span>{isSyncingCloudAsobi ? '取得中...' : 'クラウドから端末へ読込'}</span>
+                    </button>
+                    <button
+                      onClick={() => handleManualSyncFirebase()}
+                      disabled={isSyncing}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
+                      title="この端末のデータをFirestoreへ保存"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? '保存中...' : 'クラウドへ保存'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

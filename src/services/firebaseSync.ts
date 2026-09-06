@@ -474,6 +474,13 @@ let lastSuccessfulWriteTime: number = Date.now();
 let isQuotaCurrentlyExhausted: boolean = Date.now() < quotaExhaustedUntil;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
 
+// Auto-clear expired quota flags on initialization
+if (typeof window !== 'undefined') {
+  if (quotaExhaustedUntil && Date.now() >= quotaExhaustedUntil) {
+    clearQuotaExhausted();
+  }
+}
+
 export function markQuotaExhausted(durationMs: number = 5 * 60 * 1000): void {
   isQuotaCurrentlyExhausted = true;
   quotaExhaustedUntil = Date.now() + durationMs;
@@ -783,11 +790,6 @@ export async function fetchInitialFirebaseState(
       return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
     }
 
-    if (getIsQuotaExhausted()) {
-      notifyConnectionStatusChange(false, 'Firebase無料枠上限のためローカルデータで動作中');
-      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE };
-    }
-
     if (!firestoreDb) {
       const initRes = initFirebase(config);
       if (!initRes.success) {
@@ -806,6 +808,7 @@ export async function fetchInitialFirebaseState(
     try {
       const snap = await getDoc(docRef);
       sessionDbReadCount++;
+      clearQuotaExhausted();
       notifyConnectionStatusChange(true);
 
       if (snap.exists()) {
@@ -814,45 +817,48 @@ export async function fetchInitialFirebaseState(
           // Reconstruct full game data from compact UserProgressDoc
           const remoteReconstructed = reconstructGameSaveData(remoteRaw, INITIAL_NYANS);
 
-          // Smart merge for asobiList: remote is the authority, keep any offline new edits from local
-          const mergedAsobiList = mergeAsobiLists(
-            remoteReconstructed.asobiList,
-            localBackup?.asobiList,
-            remoteReconstructed.lastSaved || 0
-          );
+          // CLOUD-FIRST: Remote cloud data is the absolute source of truth
+          // 1. Asobi list: Cloud is the definitive source of truth across all devices
+          const cloudAsobiList =
+            remoteReconstructed.asobiList && remoteReconstructed.asobiList.length > 0
+              ? remoteReconstructed.asobiList
+              : (localBackup?.asobiList && localBackup.asobiList.length > 0
+                  ? localBackup.asobiList
+                  : INITIAL_ASOBI_LIST);
 
-          // Merge characters (keeping highest friendship, discovery status, customImageUrl)
+          // 2. Characters: Merge cloud discovery/friendship with local image caches if present
           const mergedCharacters = mergeCharactersWithDefaults(
             remoteReconstructed.characters,
             localBackup?.characters
           );
 
-          const localIsNewer = Boolean(
-            localBackup &&
-            localBackup.lastSaved &&
-            remoteReconstructed.lastSaved &&
-            localBackup.lastSaved > remoteReconstructed.lastSaved
-          );
-
+          // 3. Game state, inventory, diary, stats: Cloud takes full priority
           const mergedData: GameSaveData = {
             ...remoteReconstructed,
             characters: mergedCharacters,
-            asobiList: mergedAsobiList,
-            inventory: (localIsNewer && localBackup?.inventory?.length)
-              ? localBackup.inventory
-              : (remoteReconstructed.inventory || DEFAULT_INITIAL_STATE.inventory),
-            diary: (localIsNewer && localBackup?.diary?.length)
-              ? localBackup.diary
-              : (remoteReconstructed.diary || DEFAULT_INITIAL_STATE.diary),
-            lastSaved: Math.max(remoteReconstructed.lastSaved || 0, localBackup?.lastSaved || 0, Date.now()),
+            asobiList: cloudAsobiList,
+            inventory:
+              remoteReconstructed.inventory && remoteReconstructed.inventory.length > 0
+                ? remoteReconstructed.inventory
+                : (localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory),
+            diary:
+              remoteReconstructed.diary && remoteReconstructed.diary.length > 0
+                ? remoteReconstructed.diary
+                : (localBackup?.diary || DEFAULT_INITIAL_STATE.diary),
+            stats: remoteReconstructed.stats || localBackup?.stats || DEFAULT_INITIAL_STATE.stats,
+            kenchiko: {
+              ...remoteReconstructed.kenchiko,
+              // Keep local image if remote image is not yet set
+              customImageUrl:
+                remoteReconstructed.kenchiko.customImageUrl ||
+                localBackup?.kenchiko?.customImageUrl ||
+                '',
+            },
+            lastSaved: remoteReconstructed.lastSaved || Date.now(),
           };
 
+          // Overwrite local backup so this client stays in sync with the cloud正本
           saveLocalBackup(mergedData);
-
-          // Only write back to Firestore if remote was in legacy uncompacted format
-          if (!remoteRaw.nyanProgress && !getIsQuotaExhausted()) {
-            executeFirestoreWrite(mergedData, config, false).catch(() => {});
-          }
 
           return { success: true, data: mergedData, isNew: false };
         }
