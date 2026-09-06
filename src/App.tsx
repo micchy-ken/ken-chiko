@@ -54,6 +54,7 @@ import { TravelModal } from './components/TravelModal';
 import { DiaryView } from './components/DiaryView';
 import { DataSyncModal, AdminTab } from './components/DataSyncModal';
 import { UserSettingsModal } from './components/UserSettingsModal';
+import { TutorialModal } from './components/TutorialModal';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
@@ -64,6 +65,7 @@ import {
   Gift,
   BookMarked,
   Settings,
+  HelpCircle,
   Code2,
   User,
   RefreshCw,
@@ -128,8 +130,21 @@ export default function App() {
   const [showTravelModal, setShowTravelModal] = useState<boolean>(false);
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
   const [showUserSettingsModal, setShowUserSettingsModal] = useState<boolean>(false);
+  const [showTutorialModal, setShowTutorialModal] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+
+  // Check if first-time user tutorial should be shown on app launch
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem('kenchiko_tutorial_seen');
+      if (!seen) {
+        setShowTutorialModal(true);
+      }
+    } catch (_e) {
+      // Ignore local storage errors
+    }
+  }, []);
 
   // URL Query Parameter Handling on App Launch
   // Supports: ?user=yumi, ?admin=true, ?admin=asobi, ?tab=zukan, ?tab=diary, ?pass=wakaro, ?dev=true, etc.
@@ -936,6 +951,10 @@ export default function App() {
     };
     setSaveData(freshState);
     setRemainingTimeSec(300);
+    try {
+      localStorage.removeItem('kenchiko_tutorial_seen');
+    } catch (_e) {}
+    setShowTutorialModal(true);
     saveOnUserAction(freshState).catch(() => {});
     confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
   };
@@ -1080,6 +1099,16 @@ export default function App() {
                 <span className="font-handwriting text-[11px] text-[#487560]">接続中</span>
               </div>
             )}
+
+            {/* How to play Guide Button */}
+            <button
+              onClick={() => setShowTutorialModal(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#3E3833] font-black text-xs px-3 py-2 sketch-card-subtle shadow-sm transition"
+              title="あそびかた・チュートリアルを見る"
+            >
+              <HelpCircle className="w-4 h-4 text-[#BA7323]" />
+              <span className="font-handwriting text-sm">あそびかた</span>
+            </button>
 
             {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
             {showSyncModal && (
@@ -1401,12 +1430,19 @@ export default function App() {
           onClose={() => setShowUserSettingsModal(false)}
           onResetUserData={handleResetUserData}
           onSwitchUser={handleSwitchUser}
+          onOpenTutorial={() => setShowTutorialModal(true)}
           onOpenDevConsole={() => {
             setShowUserSettingsModal(false);
             setShowSyncModal(true);
           }}
         />
       )}
+
+      {/* Tutorial / How to Play Modal */}
+      <TutorialModal
+        isOpen={showTutorialModal}
+        onClose={() => setShowTutorialModal(false)}
+      />
 
       {showSyncModal && (
         <DataSyncModal
