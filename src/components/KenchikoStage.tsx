@@ -24,7 +24,8 @@ interface KenchikoStageProps {
   timeSpeed: number;
   onPet: () => void;
   onOpenGiftModal: () => void;
-  onOpenTravelModal: () => void;
+  onStartRandomTravel: () => void;
+  onOpenTravelModal?: () => void;
   onSelectNyan: (nyan: NyanCharacter) => void;
   onManualMonologue: () => void;
   onTakeSnapshot: () => void;
@@ -37,6 +38,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   timeSpeed,
   onPet,
   onOpenGiftModal,
+  onStartRandomTravel,
   onOpenTravelModal,
   onSelectNyan,
   onManualMonologue,
@@ -277,11 +279,12 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           </button>
 
           <button
-            onClick={onOpenTravelModal}
+            onClick={onStartRandomTravel}
             className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
+            title="ランダムな移動手段と行き先でお出かけします（移動時間30秒）"
           >
             <Compass className="w-4 h-4 text-[#3C5C7A]" />
-            <span>おでかけ提案</span>
+            <span>お出かけ</span>
           </button>
         </div>
 

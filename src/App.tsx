@@ -606,6 +606,13 @@ export default function App() {
     });
   };
 
+  // User Actions: Start Random Travel (random destination & transport, 30s)
+  const handleStartRandomTravel = () => {
+    const destination = pickRandomLocation(saveData.kenchiko.currentLocation);
+    const transport = pickRandomTransport();
+    handleStartTravel(destination, transport);
+  };
+
   // User Actions: Start Travel to specific destination
   const handleStartTravel = (destination: LocationId, transport: TransportMethod) => {
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
@@ -1075,6 +1082,7 @@ export default function App() {
               timeSpeed={timeSpeed}
               onPet={handlePetKenchiko}
               onOpenGiftModal={() => setShowGiftModal(true)}
+              onStartRandomTravel={handleStartRandomTravel}
               onOpenTravelModal={() => setShowTravelModal(true)}
               onSelectNyan={(nyan) => setSelectedZukanNyan(nyan)}
               onManualMonologue={handleManualMonologue}

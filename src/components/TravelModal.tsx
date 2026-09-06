@@ -53,7 +53,7 @@ export const TravelModal: React.FC<TravelModalProps> = ({
             <div>
               <h3 className="text-lg font-bold text-[#2E2824] font-handwriting">おでかけ先を提案する</h3>
               <p className="text-xs text-[#7A726A] font-handwriting">
-                行き先と移動手段を選んで、けんちこを旅立たせます
+                行き先と移動手段を選んで出発します（移動時間: 30秒）
               </p>
             </div>
           </div>

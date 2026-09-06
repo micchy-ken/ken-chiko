@@ -299,10 +299,8 @@ export function startTransit(
   const locInfo = LOCATIONS[targetLoc] || LOCATIONS.living;
   const transport = TRANSPORT_METHODS.find((t) => t.id === transportMethod) || TRANSPORT_METHODS[0];
 
-  // Base 5 to 10 minutes (300 to 600s)
-  const baseMinutes =
-    locInfo.transitTimeMin[0] + Math.random() * (locInfo.transitTimeMin[1] - locInfo.transitTimeMin[0]);
-  const durationSec = Math.max(180, Math.floor((baseMinutes * 60) / transport.speedMultiplier));
+  // Standardized transit duration: 30 seconds
+  const durationSec = 30;
 
   return {
     title: `${transport.name}で「${locInfo.name}」へ向かって移動中…`,

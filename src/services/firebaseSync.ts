@@ -14,6 +14,7 @@ import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEn
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser } from './userService';
+import { loadLocalKenchikoImage } from './imageCompression';
 
 export interface FirebaseCustomConfig {
   apiKey?: string;
@@ -108,9 +109,20 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
         if (char.discoveryDate) entry.discoveryDate = char.discoveryDate;
         if (char.friendshipLevel !== undefined) entry.friendshipLevel = char.friendshipLevel;
         if (char.playCount !== undefined) entry.playCount = char.playCount;
-        if (char.customImageUrl) entry.customImageUrl = char.customImageUrl;
         if (char.rawImageUrl) entry.rawImageUrl = char.rawImageUrl;
         if (char.transparency) entry.transparency = char.transparency;
+
+        // Size optimization: Protect against Firestore 1MB single-doc limit.
+        // If rawImageUrl is present (e.g. Google Drive/external URL), we don't need to persist a 400KB base64 duplicate.
+        // If it is a standalone custom image, allow it only if reasonable in size (< 40KB).
+        if (char.customImageUrl) {
+          const isLargeDataUrl = char.customImageUrl.startsWith('data:image') && char.customImageUrl.length > 40000;
+          if (!char.rawImageUrl && !isLargeDataUrl) {
+            entry.customImageUrl = char.customImageUrl;
+          } else if (char.rawImageUrl && !isLargeDataUrl && !char.customImageUrl.startsWith('data:image')) {
+            entry.customImageUrl = char.customImageUrl;
+          }
+        }
 
         nyanProgress[char.no] = entry;
       }
@@ -120,9 +132,15 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
   // Cap diary to latest 30 entries for optimal payload size
   const cappedDiary = Array.isArray(data.diary) ? data.diary.slice(0, 30) : [];
 
+  const cleanedKenchiko = { ...data.kenchiko };
+  // If Kenchiko's custom avatar is a huge data URL (> 40KB), do not send raw base64 to Firestore (localStorage retains it)
+  if (cleanedKenchiko.customImageUrl && cleanedKenchiko.customImageUrl.length > 40000 && cleanedKenchiko.customImageUrl.startsWith('data:image')) {
+    delete (cleanedKenchiko as any).customImageUrl;
+  }
+
   const rawDoc: UserProgressDoc = {
     version: data.version || 2,
-    kenchiko: data.kenchiko,
+    kenchiko: cleanedKenchiko,
     nyanProgress,
     inventory: data.inventory || [],
     diary: cappedDiary,
@@ -186,7 +204,7 @@ export function reconstructGameSaveData(
           discoveryDate: prog.discoveryDate || base.discoveryDate,
           friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
           playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,
-          customImageUrl: prog.customImageUrl || base.customImageUrl,
+          customImageUrl: prog.customImageUrl || (prog.rawImageUrl ? prog.rawImageUrl : base.customImageUrl),
           rawImageUrl: prog.rawImageUrl || base.rawImageUrl,
           transparency: prog.transparency || base.transparency,
         });
@@ -195,10 +213,16 @@ export function reconstructGameSaveData(
   }
 
   const mergedCharacters = Array.from(charMap.values()).sort((a, b) => a.no - b.no);
+  const localKenchikoImg = loadLocalKenchikoImage();
+  const remoteKenchiko = remoteDoc.kenchiko || DEFAULT_INITIAL_STATE.kenchiko;
 
   return {
     version: remoteDoc.version || 2,
-    kenchiko: remoteDoc.kenchiko || DEFAULT_INITIAL_STATE.kenchiko,
+    kenchiko: {
+      ...DEFAULT_INITIAL_STATE.kenchiko,
+      ...remoteKenchiko,
+      customImageUrl: remoteKenchiko.customImageUrl || localKenchikoImg || '',
+    },
     characters: mergedCharacters,
     inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
     diary: remoteDoc.diary || DEFAULT_INITIAL_STATE.diary,
