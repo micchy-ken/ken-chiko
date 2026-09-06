@@ -13,6 +13,7 @@ import {
 import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
+import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser } from './userService';
 import { loadLocalKenchikoImage } from './imageCompression';
 
@@ -307,6 +308,57 @@ export function mergeCharactersWithDefaults(
   return Array.from(charMap.values()).sort((a, b) => a.no - b.no);
 }
 
+/**
+ * Robustly merges remote asobi list with local asobi list.
+ * Remote is authoritative for the shared cloud state.
+ * Any custom items created locally while offline (or with newer updatedAt) are merged into the list.
+ */
+export function mergeAsobiLists(
+  remoteList?: KenchikoAsobi[],
+  localList?: KenchikoAsobi[],
+  remoteLastSaved: number = 0
+): KenchikoAsobi[] {
+  const remote = Array.isArray(remoteList) && remoteList.length > 0 ? remoteList : [];
+  const local = Array.isArray(localList) && localList.length > 0 ? localList : [];
+
+  if (remote.length === 0 && local.length === 0) {
+    return INITIAL_ASOBI_LIST;
+  }
+  if (remote.length === 0) {
+    return local;
+  }
+  if (local.length === 0) {
+    return remote;
+  }
+
+  const map = new Map<string, KenchikoAsobi>();
+
+  // 1. Remote items are the baseline source of truth
+  for (const item of remote) {
+    map.set(item.id, { ...item });
+  }
+
+  // 2. Check local items: if local has an item with a newer update timestamp, or an offline newly-created item
+  for (const localItem of local) {
+    const existing = map.get(localItem.id);
+    const localTime = localItem.updatedAt || localItem.createdAt || 0;
+
+    if (!existing) {
+      // If local item is newly created (created after remote's last saved time, or has a custom non-default ID)
+      if (localTime > remoteLastSaved || !localItem.id.startsWith('asobi_')) {
+        map.set(localItem.id, { ...localItem });
+      }
+    } else {
+      const remoteTime = existing.updatedAt || existing.createdAt || 0;
+      if (localTime > remoteTime) {
+        map.set(localItem.id, { ...localItem });
+      }
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 // Built-in Firebase configuration for the project
 export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
   projectId: 'gen-lang-client-0027333270',
@@ -354,8 +406,8 @@ const QUOTA_STORAGE_KEY = 'kenchiko_firestore_quota_until';
 const DAILY_WRITES_KEY = 'kenchiko_daily_writes_v2';
 const AUTO_SYNC_ENABLED_KEY = 'kenchiko_cloud_auto_sync_enabled_v2';
 
-// Strict ceiling: Maximum 60 writes per 24-hour day (0.12% of free 50k quota)
-export const MAX_DAILY_WRITES = 60;
+// Safe daily budget: 500 writes per day (only ~2.5% of the 20,000 free daily writes)
+export const MAX_DAILY_WRITES = 500;
 
 export interface DailyWriteStats {
   date: string; // YYYY-MM-DD
@@ -422,12 +474,20 @@ let lastSuccessfulWriteTime: number = Date.now();
 let isQuotaCurrentlyExhausted: boolean = Date.now() < quotaExhaustedUntil;
 let onQuotaStatusChangeCallback: ((exhausted: boolean) => void) | null = null;
 
-export function markQuotaExhausted(durationMs: number = 24 * 60 * 60 * 1000): void {
+export function markQuotaExhausted(durationMs: number = 5 * 60 * 1000): void {
   isQuotaCurrentlyExhausted = true;
   quotaExhaustedUntil = Date.now() + durationMs;
   setPersistedQuotaUntil(quotaExhaustedUntil);
   if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(true);
-  notifyConnectionStatusChange(false, 'Firebase無料枠上限到達（ローカル保護モードで動作中）');
+  notifyConnectionStatusChange(false, 'Firebase一時待機中（ローカル保護モード）');
+}
+
+export function clearQuotaExhausted(): void {
+  isQuotaCurrentlyExhausted = false;
+  quotaExhaustedUntil = 0;
+  setPersistedQuotaUntil(0);
+  if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
+  notifyConnectionStatusChange(true);
 }
 
 // Connection Status Tracking
@@ -597,12 +657,75 @@ export async function testFirebaseConnection(
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     await getDoc(docRef);
     sessionDbReadCount++;
+    clearQuotaExhausted();
     notifyConnectionStatusChange(true);
     return { success: true };
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
+  }
+}
+
+/**
+ * Subscribes to real-time changes on the Firestore document (onSnapshot).
+ * Enables instantaneous sync between devices and browser tabs.
+ */
+export function subscribeToRemoteChanges(
+  onDataChanged: (remoteData: GameSaveData) => void,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  try {
+    if (!firestoreDb) {
+      initFirebase(config);
+    }
+    if (!firestoreDb) return () => {};
+
+    const docId = config.syncDocId || 'ken-chiko-global-state';
+    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
+
+    if (unsubscribeSnapshot) {
+      try {
+        unsubscribeSnapshot();
+      } catch {}
+      unsubscribeSnapshot = null;
+    }
+
+    unsubscribeSnapshot = onSnapshot(
+      docRef,
+      { includeMetadataChanges: false },
+      (snap) => {
+        // Skip local writes that haven't been committed to server yet
+        if (snap.metadata.hasPendingWrites) {
+          return;
+        }
+        if (snap.exists()) {
+          const raw = snap.data();
+          if (raw && raw.kenchiko) {
+            const reconstructed = reconstructGameSaveData(raw, INITIAL_NYANS);
+            onDataChanged(reconstructed);
+            notifyConnectionStatusChange(true);
+          }
+        }
+      },
+      (err) => {
+        console.warn('Firestore onSnapshot error:', err);
+      }
+    );
+
+    return () => {
+      if (unsubscribeSnapshot) {
+        try {
+          unsubscribeSnapshot();
+        } catch {}
+        unsubscribeSnapshot = null;
+      }
+    };
+  } catch (e) {
+    console.warn('subscribeToRemoteChanges failed to initialize:', e);
+    return () => {};
   }
 }
 
@@ -691,6 +814,19 @@ export async function fetchInitialFirebaseState(
           // Reconstruct full game data from compact UserProgressDoc
           const remoteReconstructed = reconstructGameSaveData(remoteRaw, INITIAL_NYANS);
 
+          // Smart merge for asobiList: remote is the authority, keep any offline new edits from local
+          const mergedAsobiList = mergeAsobiLists(
+            remoteReconstructed.asobiList,
+            localBackup?.asobiList,
+            remoteReconstructed.lastSaved || 0
+          );
+
+          // Merge characters (keeping highest friendship, discovery status, customImageUrl)
+          const mergedCharacters = mergeCharactersWithDefaults(
+            remoteReconstructed.characters,
+            localBackup?.characters
+          );
+
           const localIsNewer = Boolean(
             localBackup &&
             localBackup.lastSaved &&
@@ -698,27 +834,24 @@ export async function fetchInitialFirebaseState(
             localBackup.lastSaved > remoteReconstructed.lastSaved
           );
 
-          const primarySource = localIsNewer ? localBackup! : remoteReconstructed;
-          const secondarySource = localIsNewer ? remoteReconstructed : (localBackup || DEFAULT_INITIAL_STATE);
-
-          const mergedCharacters = mergeCharactersWithDefaults(
-            primarySource.characters,
-            secondarySource.characters
-          );
-
           const mergedData: GameSaveData = {
-            ...DEFAULT_INITIAL_STATE,
-            ...secondarySource,
-            ...primarySource,
+            ...remoteReconstructed,
             characters: mergedCharacters,
-            lastSaved: Math.max(primarySource.lastSaved || 0, secondarySource.lastSaved || 0, Date.now()),
+            asobiList: mergedAsobiList,
+            inventory: (localIsNewer && localBackup?.inventory?.length)
+              ? localBackup.inventory
+              : (remoteReconstructed.inventory || DEFAULT_INITIAL_STATE.inventory),
+            diary: (localIsNewer && localBackup?.diary?.length)
+              ? localBackup.diary
+              : (remoteReconstructed.diary || DEFAULT_INITIAL_STATE.diary),
+            lastSaved: Math.max(remoteReconstructed.lastSaved || 0, localBackup?.lastSaved || 0, Date.now()),
           };
 
           saveLocalBackup(mergedData);
 
-          // If legacy format was read or local was newer, save compact format back to Firestore
-          if ((!remoteRaw.nyanProgress || localIsNewer) && !getIsQuotaExhausted()) {
-            executeFirestoreWrite(mergedData, config).catch(() => {});
+          // Only write back to Firestore if remote was in legacy uncompacted format
+          if (!remoteRaw.nyanProgress && !getIsQuotaExhausted()) {
+            executeFirestoreWrite(mergedData, config, false).catch(() => {});
           }
 
           return { success: true, data: mergedData, isNew: false };
@@ -726,7 +859,7 @@ export async function fetchInitialFirebaseState(
       }
     } catch (readErr: any) {
       const errMsg = String(readErr?.message || readErr);
-      if (readErr?.code === 'resource-exhausted' || errMsg.includes('Quota') || errMsg.includes('resource-exhausted')) {
+      if (readErr?.code === 'resource-exhausted' || readErr?.status === 429) {
         markQuotaExhausted();
       } else {
         console.warn('Firestore initial read note:', readErr);
@@ -745,6 +878,7 @@ export async function fetchInitialFirebaseState(
 
 let pendingWriteTimeout: any = null;
 let latestPendingData: GameSaveData | null = null;
+let queuedImmediateData: GameSaveData | null = null;
 let isWritingToFirestore = false;
 let lastWrittenContentString: string = '';
 let sessionDbReadCount: number = 0;
@@ -771,7 +905,7 @@ export function resetFirebaseAccessStats(): void {
   sessionDbWriteCount = 0;
 }
 
-async function executeFirestoreWrite(
+export async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
   forceManual: boolean = false
@@ -779,8 +913,8 @@ async function executeFirestoreWrite(
   // Always protect data in local storage
   saveLocalBackup(data);
 
-  // 1. Check quota exhaustion
-  if (getIsQuotaExhausted()) {
+  // 1. Check quota exhaustion (skip if manual save)
+  if (!forceManual && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };
   }
 
@@ -789,7 +923,7 @@ async function executeFirestoreWrite(
     return { success: true, error: 'クラウド自動書き込みはOFF（ローカル保存中）です' };
   }
 
-  // 3. Strict daily write budget (Max 60 writes/day, 0.12% of free tier)
+  // 3. Strict daily write budget (Skip if manual save)
   const dailyStats = getDailyWriteStats();
   if (!forceManual && dailyStats.count >= MAX_DAILY_WRITES) {
     return {
@@ -834,8 +968,8 @@ async function executeFirestoreWrite(
   );
   const currentContentString = JSON.stringify(sanitizedContent);
 
-  // Skip write completely if meaningful content has not changed!
-  if (lastWrittenContentString && lastWrittenContentString === currentContentString) {
+  // Skip write completely if meaningful content has not changed (unless forced manual write)
+  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentContentString) {
     return { success: true };
   }
 
@@ -845,14 +979,12 @@ async function executeFirestoreWrite(
       const initRes = initFirebase(config);
       if (!initRes.success) {
         notifyConnectionStatusChange(false, initRes.error);
-        isWritingToFirestore = false;
         lastSuccessfulWriteTime = Date.now(); // Back off on init error
         return initRes;
       }
     }
     if (!firestoreDb) {
       notifyConnectionStatusChange(false, 'Firestore is not initialized');
-      isWritingToFirestore = false;
       lastSuccessfulWriteTime = Date.now();
       return { success: false, error: 'Firestore is not initialized' };
     }
@@ -875,27 +1007,25 @@ async function executeFirestoreWrite(
     notifyConnectionStatusChange(true);
 
     if (isQuotaCurrentlyExhausted) {
-      isQuotaCurrentlyExhausted = false;
-      setPersistedQuotaUntil(0);
-      if (onQuotaStatusChangeCallback) onQuotaStatusChangeCallback(false);
+      clearQuotaExhausted();
     }
-    isWritingToFirestore = false;
     return { success: true };
   } catch (err: any) {
-    isWritingToFirestore = false;
     lastSuccessfulWriteTime = Date.now(); // Back off on error to avoid loop
     const errMsg = err?.message || String(err);
-    if (
-      err?.code === 'resource-exhausted' ||
-      errMsg.includes('Quota') ||
-      errMsg.includes('resource-exhausted') ||
-      errMsg.includes('Free daily write units')
-    ) {
+    if (err?.code === 'resource-exhausted' || err?.status === 429) {
       markQuotaExhausted();
-      return { success: true, error: 'Firebaseの書き込み上限に達しました。ローカル保存で継続しています。' };
+      return { success: true, error: 'Firebaseの書き込み上限に達しました。一時的にローカル保存で継続しています。' };
     }
     notifyConnectionStatusChange(false, errMsg);
     return { success: false, error: errMsg };
+  } finally {
+    isWritingToFirestore = false;
+    if (queuedImmediateData) {
+      const nextData = queuedImmediateData;
+      queuedImmediateData = null;
+      executeFirestoreWrite(nextData, config, true).catch(() => {});
+    }
   }
 }
 
@@ -916,26 +1046,29 @@ export async function syncSaveDataToFirebase(
   saveLocalBackup(data);
   latestPendingData = data;
 
+  if (isImmediate) {
+    if (pendingWriteTimeout) {
+      clearTimeout(pendingWriteTimeout);
+      pendingWriteTimeout = null;
+    }
+    if (isWritingToFirestore) {
+      queuedImmediateData = data;
+      return { success: true };
+    }
+    return executeFirestoreWrite(data, config, true);
+  }
+
   if (getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
   // If user disabled auto-sync and it's not a direct manual trigger
-  if (!isImmediate && !isCloudAutoSyncEnabled()) {
+  if (!isCloudAutoSyncEnabled()) {
     return { success: true };
   }
 
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
-
-  // Manual immediate write (e.g. clicking "Save to Cloud" button)
-  if (isImmediate && !isWritingToFirestore) {
-    if (pendingWriteTimeout) {
-      clearTimeout(pendingWriteTimeout);
-      pendingWriteTimeout = null;
-    }
-    return executeFirestoreWrite(data, config, true);
-  }
 
   // Debounced write
   if (pendingWriteTimeout) {

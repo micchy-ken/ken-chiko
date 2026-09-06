@@ -176,38 +176,34 @@ export default function App() {
       }));
     }
 
-    // B. Delay initial cloud connection by ~1.5s to let UI and browser network settle
-    const initialFetchTimer = setTimeout(() => {
-      fetchInitialFirebaseState()
-        .then((res) => {
-          if (!isMounted) return;
-          if (res.success && res.data) {
-            isRemoteUpdateRef.current = true;
-            const mergedData = { ...res.data };
-            // If remote image is absent but locally saved, prioritize local image
-            if (!mergedData.kenchiko.customImageUrl && localImg) {
-              mergedData.kenchiko.customImageUrl = localImg;
-            } else if (mergedData.kenchiko.customImageUrl) {
-              saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
-            }
-            setSaveData(mergedData);
-            const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
-            setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
-            setIsFirebaseSynced(true);
+    // B. Immediate cloud connection & state initialization
+    fetchInitialFirebaseState()
+      .then((res) => {
+        if (!isMounted) return;
+        if (res.success && res.data) {
+          isRemoteUpdateRef.current = true;
+          const mergedData = { ...res.data };
+          if (!mergedData.kenchiko.customImageUrl && localImg) {
+            mergedData.kenchiko.customImageUrl = localImg;
+          } else if (mergedData.kenchiko.customImageUrl) {
+            saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
           }
-          endInitialConnectionPhase();
-          setIsLoadingFirebase(false);
-        })
-        .catch((err) => {
-          console.warn('Firebase initial load note:', err);
-          endInitialConnectionPhase();
-          if (isMounted) setIsLoadingFirebase(false);
-        });
-    }, 1500);
+          setSaveData(mergedData);
+          const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
+          setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
+          setIsFirebaseSynced(true);
+        }
+        endInitialConnectionPhase();
+        setIsLoadingFirebase(false);
+      })
+      .catch((err) => {
+        console.warn('Firebase initial load note:', err);
+        endInitialConnectionPhase();
+        if (isMounted) setIsLoadingFirebase(false);
+      });
 
     return () => {
       isMounted = false;
-      clearTimeout(initialFetchTimer);
       unsubStatus();
     };
   }, []);
@@ -1202,6 +1198,7 @@ export default function App() {
           kenchiko={saveData.kenchiko}
           onClose={() => setShowTravelModal(false)}
           onStartTravel={handleStartTravel}
+          onStartRandomTravel={handleStartRandomTravel}
         />
       )}
 

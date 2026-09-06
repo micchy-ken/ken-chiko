@@ -29,7 +29,9 @@ import {
   isCloudAutoSyncEnabled,
   setCloudAutoSyncEnabled,
   MAX_DAILY_WRITES,
+  fetchInitialFirebaseState,
 } from '../services/firebaseSync';
+import { getActiveUserId, getFirestoreDocIdForUser } from '../services/userService';
 import {
   getSavedGoogleDocUrl,
   saveGoogleDocUrl,
@@ -422,6 +424,60 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [filterCondition, setFilterCondition] = useState<string>('all');
   const [searchEventQuery, setSearchEventQuery] = useState('');
   const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
+  const [isSyncingCloudAsobi, setIsSyncingCloudAsobi] = useState(false);
+
+  // Synchronize asobiList when saveData.asobiList updates via real-time cloud sync
+  useEffect(() => {
+    if (saveData.asobiList && saveData.asobiList.length > 0) {
+      setAsobiList(saveData.asobiList);
+    }
+  }, [saveData.asobiList]);
+
+  // Pull latest asobi list directly from Firestore
+  const handlePullFromCloud = async () => {
+    setIsSyncingCloudAsobi(true);
+    setAsobiNotice('🔄 クラウド（Firebase）から最新のあそびデータを取得中...');
+    try {
+      const res = await fetchInitialFirebaseState();
+      if (res.success && res.data && res.data.asobiList) {
+        setAsobiList(res.data.asobiList);
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          asobiList: res.data.asobiList,
+          lastSaved: res.data.lastSaved || Date.now(),
+        }), false);
+        setAsobiNotice(`✅ クラウドから最新データ（${res.data.asobiList.length}件）を取得・同期しました！`);
+      } else {
+        setAsobiNotice(`⚠️ クラウドからの取得に失敗しました: ${res.error || 'データがありません'}`);
+      }
+    } catch (e: any) {
+      setAsobiNotice(`❌ 取得エラー: ${e?.message || String(e)}`);
+    } finally {
+      setIsSyncingCloudAsobi(false);
+    }
+  };
+
+  // Force push current asobi list to Firestore
+  const handlePushToCloud = async () => {
+    setIsSyncingCloudAsobi(true);
+    setAsobiNotice('☁️ 現在のあそび一覧をクラウド（Firebase）へ送信中...');
+    try {
+      const res = await syncSaveDataToFirebase({
+        ...saveData,
+        asobiList: asobiList,
+        lastSaved: Date.now(),
+      }, true);
+      if (res.success) {
+        setAsobiNotice(`✅ クラウド（Firebase）へ全${asobiList.length}件を完全保存・同期しました！`);
+      } else {
+        setAsobiNotice(`⚠️ クラウド保存時の注意: ${res.error || '不明なエラー'}`);
+      }
+    } catch (e: any) {
+      setAsobiNotice(`❌ 送信エラー: ${e?.message || String(e)}`);
+    } finally {
+      setIsSyncingCloudAsobi(false);
+    }
+  };
 
   // Database Inspector State
   const [dbSubTab, setDbSubTab] = useState<'characters' | 'inventory' | 'stats'>('characters');
@@ -1670,6 +1726,65 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Cloud Sync Status & Quick Sync Action Bar */}
+              <div className="bg-white p-3 rounded-xl border border-[#DDD7C8] flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                    connectionStatus.connected
+                      ? 'bg-[#EBF5EE] text-[#2E7D32] border border-[#C8E6C9]'
+                      : 'bg-[#FDEDEC] text-[#C62828] border border-[#FFCDD2]'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${connectionStatus.connected ? 'bg-[#2E7D32] animate-pulse' : 'bg-[#C62828]'}`} />
+                    <span>{connectionStatus.connected ? 'Firebase常時同期中' : 'クラウド未接続 / オフライン'}</span>
+                  </div>
+
+                  <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
+                    同期先: <code className="font-mono text-[#4A443F] font-bold">{getFirestoreDocIdForUser(getActiveUserId())}</code>
+                  </div>
+
+                  <span className="text-[11px] font-bold text-[#4A443F] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
+                    登録数: <strong>{asobiList.length}件</strong>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePullFromCloud}
+                    disabled={isSyncingCloudAsobi}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#EAE5D9] text-[#4A443F] text-xs font-bold rounded-lg border border-[#DDD7C8] transition disabled:opacity-50 cursor-pointer"
+                    title="クラウド（Firebase）に保存されている最新のあそびデータをこの端末へ読み込みます"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-[#6B6259] ${isSyncingCloudAsobi ? 'animate-spin' : ''}`} />
+                    <span>クラウドから最新取得</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePushToCloud}
+                    disabled={isSyncingCloudAsobi}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer"
+                    title="現在の端末のあそびデータをクラウドへ即座に送信・確定保存します"
+                  >
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>クラウドへ今すぐ保存</span>
+                  </button>
+                </div>
+              </div>
+
+              {asobiNotice && (
+                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F] animate-fadeIn flex items-center justify-between">
+                  <span>{asobiNotice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAsobiNotice(null)}
+                    className="text-[#9E958C] hover:text-[#3A342F] text-xs ml-2"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
 
               {/* Mode: TEXT BATCH BULK IMPORT */}
               {asobiViewMode === 'batch' && (

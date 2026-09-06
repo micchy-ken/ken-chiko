@@ -7,12 +7,14 @@ interface TravelModalProps {
   kenchiko: KenchikoState;
   onClose: () => void;
   onStartTravel: (destination: LocationId, transport: TransportMethod) => void;
+  onStartRandomTravel?: () => void;
 }
 
 export const TravelModal: React.FC<TravelModalProps> = ({
   kenchiko,
   onClose,
   onStartTravel,
+  onStartRandomTravel,
 }) => {
   const [selectedLoc, setSelectedLoc] = useState<LocationId>(
     (Object.keys(LOCATIONS) as LocationId[]).find((l) => l !== kenchiko.currentLocation) || 'living'
@@ -67,6 +69,31 @@ export const TravelModal: React.FC<TravelModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+          {/* Quick Random Outing Button */}
+          {onStartRandomTravel && (
+            <div className="bg-[#FAF2EB] p-3.5 rounded-2xl border border-[#F0D5C3] flex items-center justify-between gap-3 shadow-xs">
+              <div>
+                <h4 className="text-xs font-black text-[#874A2E] font-handwriting flex items-center gap-1.5">
+                  <span>🎲</span>
+                  <span>おまかせランダムお出かけ（推奨）</span>
+                </h4>
+                <p className="text-[11px] text-[#A66244] font-handwriting mt-0.5">
+                  移動先と移動手段を自動で選んで出発します（移動時間一律30秒）
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onStartRandomTravel();
+                  onClose();
+                }}
+                className="px-3.5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-xs transition shrink-0 cursor-pointer font-handwriting"
+              >
+                おまかせ出発！
+              </button>
+            </div>
+          )}
+
           {/* Section 1: Choose Location */}
           <div>
             <h4 className="text-xs font-bold text-[#7A726A] font-handwriting mb-2 flex items-center gap-1.5">
@@ -133,7 +160,7 @@ export const TravelModal: React.FC<TravelModalProps> = ({
                     </div>
                     <div>
                       <p className="text-xs font-bold text-[#2E2824] font-handwriting">{t.name}</p>
-                      <p className="text-[10px] text-[#7A726A]">{t.speedMultiplier}x スピード</p>
+                      <p className="text-[10px] text-[#7A726A]">移動時間: 30秒</p>
                     </div>
                   </button>
                 );
