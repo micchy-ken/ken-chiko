@@ -1,7 +1,132 @@
 import { KenchikoAsobi } from '../types';
 
 /**
- * 初期登録あそびリスト（空）。
- * ユーザーがFirebase上で作成・管理するオリジナルあそびのみが使用されます。
+ * ユーザー作成の正規あそびリスト（全15件）。
+ * 意図しない古いキャッシュや初期デフォルトデータによる上書きを防ぐためのマスターデータです。
  */
-export const INITIAL_ASOBI_LIST: KenchikoAsobi[] = [];
+export const INITIAL_ASOBI_LIST: KenchikoAsobi[] = [
+  {
+    id: 'asobi_1788665497156_7ure',
+    title: 'けんちこはならここの温泉に入っている',
+    content: 'かぽーん…',
+    createdAt: 1788665497156,
+    condition: 'loc_hotspring',
+    frequency: 'normal',
+  },
+  {
+    id: 'asobi_1788665147073_nol8',
+    title: 'けんちこはロードバイクに乗った',
+    content: 'めりりーん！すすめー！よいしょ、よいしょ',
+    condition: 'trans_bicycle',
+    frequency: 'normal',
+    createdAt: 1788665147073,
+  },
+  {
+    id: 'asobi_1788665099056_400q',
+    title: 'けんちこは新幹線に乗った！',
+    content: 'ばびゅーん！はやーい！',
+    condition: 'trans_train',
+    frequency: 'normal',
+    createdAt: 1788665099056,
+  },
+  {
+    id: 'asobi_1788664866939_0w1v',
+    title: 'けんちこはじんべえにゃんの背に乗った',
+    content: 'ふふー。みんなまめつぶみたーい。にんげんどもー…',
+    condition: 'trans_jinbei_nyan',
+    frequency: 'normal',
+    createdAt: 1788664866939,
+  },
+  {
+    id: 'asobi_1788664811489_6zyi',
+    title: '車を運転した',
+    content: 'なんぴとたりともおれのまえをはしるんじゃねー！！',
+    condition: 'trans_car',
+    frequency: 'normal',
+    createdAt: 1788664811489,
+  },
+  {
+    id: 'asobi_1788664777117_plh5',
+    title: 'けんちこは焚き火を眺めている',
+    content: 'もーえろよもえろーよー♪すべてをもやしつくせー…',
+    condition: 'loc_camp',
+    frequency: 'normal',
+    createdAt: 1788664777117,
+  },
+  {
+    id: 'asobi_1788664728856_fwn3',
+    title: 'けんちこはキャンプグッズを眺めている',
+    content: 'うふふー。つぎはきゃんぷいついこっかなー',
+    condition: 'loc_study',
+    frequency: 'normal',
+    createdAt: 1788664728856,
+  },
+  {
+    id: 'asobi_1788664315183_7zm3',
+    title: 'けんちこは映画を見ている',
+    content: 'おしっこー',
+    condition: 'loc_aeon',
+    frequency: 'normal',
+    createdAt: 1788664315183,
+  },
+  {
+    id: 'asobi_1788664288076_vxfz',
+    title: 'けんちこはキラキラしている',
+    content: 'あれかってー！これたべゆー♪うふふー',
+    condition: 'loc_lalaport',
+    frequency: 'normal',
+    createdAt: 1788664288076,
+  },
+  {
+    id: 'asobi_1788664252776_8gl3',
+    title: 'けんちこは狩りをしている',
+    content: 'こっちがたべられるどくきのこでー',
+    condition: 'loc_beginner_forest',
+    frequency: 'normal',
+    createdAt: 1788664252776,
+  },
+  {
+    id: 'asobi_1788664202420_ad3c',
+    title: 'けんちこは3分で熟睡した',
+    content: 'うにちゃーん…しゅきー…zzz',
+    condition: 'loc_bedroom',
+    frequency: 'normal',
+    createdAt: 1788664202420,
+  },
+  {
+    id: 'asobi_1788663788853_18ts',
+    title: 'けんちこは会議に出ている',
+    content: 'ゆうがたからのかいぎーぱちれなーい…♪',
+    condition: 'loc_office',
+    frequency: 'normal',
+    createdAt: 1788663788853,
+    updatedAt: 1788664039883,
+  },
+  {
+    id: 'asobi_1',
+    title: 'けんちこはうたをうたった',
+    content: 'すてきななけんちこさん♪ ',
+    condition: 'loc_living',
+    frequency: 'normal',
+    createdAt: 1700000000000,
+    updatedAt: 1788663709143,
+  },
+  {
+    id: 'asobi_song_strolling',
+    title: 'けんちこはお湯を沸かした',
+    content: 'おーまーえーのーこーとーをー♪ゆーるーしーはーしーなーいー♪',
+    condition: 'loc_living',
+    frequency: 'normal',
+    createdAt: 1700000000001,
+    updatedAt: 1788663657009,
+  },
+  {
+    id: 'asobi_snack_1',
+    title: 'けんちこは働いている！珍しい',
+    content: 'かえりたいよう。あさなのにかえりたいよう',
+    condition: 'loc_office',
+    frequency: 'normal',
+    createdAt: 1700000000002,
+    updatedAt: 1788663731724,
+  },
+];

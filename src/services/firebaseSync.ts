@@ -313,6 +313,73 @@ export function mergeCharactersWithDefaults(
   return Array.from(charMap.values()).sort((a, b) => a.no - b.no);
 }
 
+export const BANNED_INITIAL_ASOBI_IDS = new Set<string>([
+  'asobi_snack_2',
+  'asobi_nap_1',
+  'asobi_nap_2',
+  'asobi_nap_rec',
+  'asobi_work_1',
+  'asobi_work_2',
+  'asobi_study_1',
+  'asobi_shop_1',
+  'asobi_shop_2',
+  'asobi_onsen_1',
+  'asobi_camp_1',
+  'asobi_forest_1',
+  'asobi_trans_walk',
+  'asobi_trans_bike',
+  'asobi_trans_car',
+  'asobi_trans_jinbei',
+  'asobi_trans_train',
+  'asobi_trans_all',
+  'asobi_space_1',
+  'asobi_space_2',
+  'asobi_opt_glasses',
+  'asobi_opt_stretch',
+]);
+
+/**
+ * Ensures that deleted legacy default items can never resurrect or overwrite user items.
+ * Guarantees all 15 master user items are preserved.
+ */
+export function sanitizeAsobiList(list?: KenchikoAsobi[]): KenchikoAsobi[] {
+  const input = Array.isArray(list) ? list : [];
+  // 1. Remove all banned old default items
+  const filtered = input.filter((item) => item && item.id && !BANNED_INITIAL_ASOBI_IDS.has(item.id));
+
+  // 2. Fix legacy default texts on asobi_song_strolling and asobi_snack_1 if reverted
+  const sanitized: KenchikoAsobi[] = filtered.map((item) => {
+    if (item.id === 'asobi_song_strolling' && item.title !== 'けんちこはお湯を沸かした') {
+      return {
+        ...item,
+        title: 'けんちこはお湯を沸かした',
+        content: 'おーまーえーのーこーとーをー♪ゆーるーしーはーしーなーいー♪',
+        condition: 'loc_living' as const,
+      };
+    }
+    if (item.id === 'asobi_snack_1' && item.title !== 'けんちこは働いている！珍しい') {
+      return {
+        ...item,
+        title: 'けんちこは働いている！珍しい',
+        content: 'かえりたいよう。あさなのにかえりたいよう',
+        condition: 'loc_office' as const,
+      };
+    }
+    return item;
+  });
+
+  // 3. Ensure all 15 user master items are always present
+  const map = new Map<string, KenchikoAsobi>();
+  for (const m of INITIAL_ASOBI_LIST) {
+    map.set(m.id, { ...m });
+  }
+  for (const s of sanitized) {
+    map.set(s.id, { ...s });
+  }
+
+  return Array.from(map.values());
+}
+
 /**
  * Robustly merges remote asobi list with local asobi list.
  * Remote is authoritative for the shared cloud state.
@@ -323,18 +390,8 @@ export function mergeAsobiLists(
   localList?: KenchikoAsobi[],
   remoteLastSaved: number = 0
 ): KenchikoAsobi[] {
-  const remote = Array.isArray(remoteList) && remoteList.length > 0 ? remoteList : [];
-  const local = Array.isArray(localList) && localList.length > 0 ? localList : [];
-
-  if (remote.length === 0 && local.length === 0) {
-    return INITIAL_ASOBI_LIST;
-  }
-  if (remote.length === 0) {
-    return local;
-  }
-  if (local.length === 0) {
-    return remote;
-  }
+  const remote = sanitizeAsobiList(remoteList);
+  const local = sanitizeAsobiList(localList);
 
   const map = new Map<string, KenchikoAsobi>();
 
@@ -349,8 +406,7 @@ export function mergeAsobiLists(
     const localTime = localItem.updatedAt || localItem.createdAt || 0;
 
     if (!existing) {
-      // If local item is newly created (created after remote's last saved time, or has a custom non-default ID)
-      if (localTime > remoteLastSaved || !localItem.id.startsWith('asobi_')) {
+      if (localTime > remoteLastSaved || localItem.id.startsWith('asobi_1788')) {
         map.set(localItem.id, { ...localItem });
       }
     } else {
@@ -361,7 +417,7 @@ export function mergeAsobiLists(
     }
   }
 
-  return Array.from(map.values());
+  return sanitizeAsobiList(Array.from(map.values()));
 }
 
 // Built-in Firebase configuration for the project
@@ -727,7 +783,7 @@ export function subscribeToRemoteChanges(
             // Preserve shared master data from current local state
             const merged: GameSaveData = {
               ...reconstructed,
-              asobiList: currentLocal?.asobiList && currentLocal.asobiList.length > 0 ? currentLocal.asobiList : reconstructed.asobiList,
+              asobiList: sanitizeAsobiList(currentLocal?.asobiList && currentLocal.asobiList.length > 0 ? currentLocal.asobiList : reconstructed.asobiList),
               kenchiko: {
                 ...reconstructed.kenchiko,
                 customImageUrl: currentLocal?.kenchiko?.customImageUrl || reconstructed.kenchiko.customImageUrl,
@@ -755,7 +811,7 @@ export function subscribeToRemoteChanges(
               const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
               const merged: GameSaveData = {
                 ...currentLocal,
-                asobiList: raw.asobiList && raw.asobiList.length > 0 ? raw.asobiList : currentLocal.asobiList,
+                asobiList: sanitizeAsobiList(raw.asobiList && raw.asobiList.length > 0 ? raw.asobiList : currentLocal.asobiList),
                 kenchiko: {
                   ...currentLocal.kenchiko,
                   customImageUrl: raw.kenchiko?.customImageUrl || currentLocal.kenchiko.customImageUrl,
@@ -918,14 +974,15 @@ export async function fetchInitialFirebaseState(
     notifyConnectionStatusChange(true);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
-    const globalAsobiList =
+    const globalAsobiList = sanitizeAsobiList(
       globalRaw?.asobiList && globalRaw.asobiList.length > 0
         ? globalRaw.asobiList
         : (userRaw?.asobiList && userRaw.asobiList.length > 0
             ? userRaw.asobiList
             : (localBackup?.asobiList && localBackup.asobiList.length > 0
                 ? localBackup.asobiList
-                : INITIAL_ASOBI_LIST));
+                : INITIAL_ASOBI_LIST))
+    );
 
     const globalKenchikoAvatar =
       globalRaw?.kenchiko?.customImageUrl ||
@@ -1110,9 +1167,14 @@ export async function executeFirestoreWrite(
     const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
     const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
 
+    // Sanitize asobiList before writing to prevent legacy default items from polluting the DB
+    const cleanAsobiList = sanitizeAsobiList(compactProgressDoc.asobiList);
+    compactProgressDoc.asobiList = cleanAsobiList;
+
     // 1. Write the compact progress document to the active user's personal document
     const payload = removeUndefinedDeep({
       ...compactProgressDoc,
+      asobiList: cleanAsobiList,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
@@ -1124,7 +1186,7 @@ export async function executeFirestoreWrite(
       try {
         const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
         const globalPayload = removeUndefinedDeep({
-          asobiList: compactProgressDoc.asobiList,
+          asobiList: cleanAsobiList,
           kenchiko: {
             customImageUrl: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
           },
