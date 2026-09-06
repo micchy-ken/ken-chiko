@@ -17,7 +17,7 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     currentCompanionNyanId: null,
     mood: 'happy',
     stamina: 100,
-    hunger: 50,
+    hunger: 100,
     happiness: 100,
     monologue: '今日からけんちことのんびり生活がはじまるよ〜',
     equippedItem: null,

@@ -171,6 +171,23 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
 }
 
 /**
+ * Deduplicates diary entries recorded within 2000ms of each other (prevents double-firing)
+ */
+export function deduplicateDiary(diary: DiaryEntry[]): DiaryEntry[] {
+  if (!diary || diary.length <= 1) return diary || [];
+  const deduped: DiaryEntry[] = [];
+  for (let i = 0; i < diary.length; i++) {
+    const entry = diary[i];
+    const prev = deduped[deduped.length - 1];
+    if (prev && Math.abs(entry.timestamp - prev.timestamp) < 2000) {
+      continue;
+    }
+    deduped.push(entry);
+  }
+  return deduped;
+}
+
+/**
  * Reconstructs a full GameSaveData object by combining the static master character list (INITIAL_NYANS / Sheets)
  * with the lightweight UserProgressDoc.
  * Backward-compatible: safely reads older documents with monolithic `characters` arrays if present.
@@ -237,7 +254,7 @@ export function reconstructGameSaveData(
     },
     characters: mergedCharacters,
     inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
-    diary: remoteDoc.diary || DEFAULT_INITIAL_STATE.diary,
+    diary: deduplicateDiary(remoteDoc.diary || DEFAULT_INITIAL_STATE.diary),
     asobiList: remoteDoc.asobiList || DEFAULT_INITIAL_STATE.asobiList,
     kihonNyanCustomImageUrl: remoteDoc.kihonNyanCustomImageUrl,
     googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,

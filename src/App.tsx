@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   GameSaveData,
   KenchikoState,
@@ -31,6 +31,7 @@ import {
   testFirebaseConnection,
   endInitialConnectionPhase,
   FirebaseConnectionStatus,
+  deduplicateDiary,
 } from './services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -117,6 +118,9 @@ export default function App() {
   // Time & Simulation Controls
   const [timeSpeed, setTimeSpeed] = useState<number>(1); // 1x, 5x, 30x, 60x
   const [remainingTimeSec, setRemainingTimeSec] = useState<number>(300);
+  const remainingTimeSecRef = useRef<number>(300);
+  const isCompletingActivityRef = useRef<boolean>(false);
+  const lastCompletionTimestampRef = useRef<number>(0);
 
   // Modal States
   const [selectedZukanNyan, setSelectedZukanNyan] = useState<NyanCharacter | null>(null);
@@ -222,7 +226,9 @@ export default function App() {
           }
           setSaveData(mergedData);
           const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
-          setRemainingTimeSec(Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec));
+          const initialRemaining = Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec);
+          remainingTimeSecRef.current = initialRemaining;
+          setRemainingTimeSec(initialRemaining);
           setIsFirebaseSynced(true);
         }
         endInitialConnectionPhase();
@@ -388,192 +394,39 @@ export default function App() {
       }));
   }, [saveData.characters, saveData.diary, saveData.kenchiko.currentCompanionNyanId]);
 
-  // Primary Simulation Tick Loop (Local in-memory ticking without constant Firebase writes)
-  useEffect(() => {
-    if (isLoadingFirebase) return;
-
-    const interval = setInterval(() => {
-      setRemainingTimeSec((prev) => {
-        const nextTime = prev - timeSpeed;
-
-        if (nextTime <= 0) {
-          // Current activity has completed! Transition to next activity.
-          handleActivityCompletion();
-          return 300;
-        }
-
-        return nextTime;
-      });
-
-      // Adjust hunger & stamina in memory for smooth animations
-      setSaveData((prev) => {
-        const curKenchiko = prev.kenchiko;
-        const hungerDelta = curKenchiko.currentActivity === 'snacking' ? 0.05 : -0.02 * timeSpeed;
-        const staminaDelta = curKenchiko.currentActivity === 'nap' ? 0.08 : -0.01 * timeSpeed;
-
-        return {
-          ...prev,
-          kenchiko: {
-            ...curKenchiko,
-            hunger: Math.max(0, Math.min(100, curKenchiko.hunger + hungerDelta)),
-            stamina: Math.max(0, Math.min(100, curKenchiko.stamina + staminaDelta)),
-            totalPlayTimeSec: curKenchiko.totalPlayTimeSec + timeSpeed,
-          },
-        };
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, isLoadingFirebase]);
-
   // Activity Completion Handler (Discrete Firebase push on activity change)
-  const handleActivityCompletion = () => {
-    setSaveData((prev) => {
-      const curK = prev.kenchiko;
-      let nextLocation = curK.currentLocation;
-      let nextTargetLocation: LocationId | null = null;
-      let nextTransport: TransportMethod | null = null;
-      let nextCompanionId = curK.currentCompanionNyanId;
+  const handleActivityCompletion = useCallback(() => {
+    const now = Date.now();
+    // Re-entrancy guard to prevent multiple parallel or near-simultaneous triggers
+    if (isCompletingActivityRef.current) return;
+    if (now - lastCompletionTimestampRef.current < 1200) return;
 
-      const updatedCharacters = [...prev.characters];
-      const updatedDiary = [...prev.diary];
-      const updatedStats = { ...prev.stats };
+    isCompletingActivityRef.current = true;
+    lastCompletionTimestampRef.current = now;
 
-      let nextData: GameSaveData;
+    try {
+      setSaveData((prev) => {
+        const curK = prev.kenchiko;
+        let nextLocation = curK.currentLocation;
+        let nextTargetLocation: LocationId | null = null;
+        let nextTransport: TransportMethod | null = null;
+        let nextCompanionId = curK.currentCompanionNyanId;
 
-      // Case A: Just arrived from transit
-      if (curK.currentActivity === 'transit' && curK.targetLocation) {
-        nextLocation = curK.targetLocation;
-        nextTargetLocation = null;
-        nextTransport = null;
-        updatedStats.totalTrips += 1;
+        const updatedCharacters = [...prev.characters];
+        const updatedDiary = [...prev.diary];
+        const updatedStats = { ...prev.stats };
 
-        const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
-        nextCompanionId = actResult.companionNyanId;
+        let nextData: GameSaveData;
 
-        if (nextCompanionId) {
-          const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
-          if (compIdx >= 0) {
-            updatedCharacters[compIdx] = {
-              ...updatedCharacters[compIdx],
-              lastMetAt: Date.now(),
-              playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
-            };
-          }
-        }
+        // Case A: Just arrived from transit
+        if (curK.currentActivity === 'transit' && curK.targetLocation) {
+          nextLocation = curK.targetLocation;
+          nextTargetLocation = null;
+          nextTransport = null;
+          updatedStats.totalTrips += 1;
 
-        if (actResult.newDiscoveredNyan) {
-          const charIndex = updatedCharacters.findIndex(
-            (c) => c.no === actResult.newDiscoveredNyan!.no
-          );
-          if (charIndex >= 0) {
-            updatedCharacters[charIndex] = {
-              ...updatedCharacters[charIndex],
-              discovered: true,
-              discoveryDate: new Date().toLocaleString('ja-JP'),
-              lastMetAt: Date.now(),
-              playCount: 1,
-              friendshipLevel: 1,
-            };
-            updatedStats.totalEncounters += 1;
-            setNewEncounterToast(updatedCharacters[charIndex]);
-            confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
-          }
-        }
-
-        if (actResult.diaryText) {
-          const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
-          updatedDiary.unshift({
-            id: `diary_${Date.now()}`,
-            timestamp: Date.now(),
-            dateFormatted: new Date().toLocaleDateString('ja-JP', {
-              month: 'numeric',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-            locationName: locInfo.name,
-            activityTitle: actResult.title,
-            nyanId: nextCompanionId,
-            nyanName: actResult.companionNyanId
-              ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
-              : null,
-            itemUsed: null,
-            mood: curK.mood,
-            text: actResult.diaryText,
-          });
-        }
-
-        setRemainingTimeSec(actResult.durationSec);
-
-        const compChar = nextCompanionId
-          ? updatedCharacters.find((c) => c.no === nextCompanionId)
-          : null;
-
-        nextData = {
-          ...prev,
-          characters: updatedCharacters,
-          diary: updatedDiary.slice(0, 50),
-          stats: updatedStats,
-          lastSaved: Date.now(),
-          kenchiko: {
-            ...curK,
-            currentLocation: nextLocation,
-            targetLocation: null,
-            transportMethod: null,
-            currentActivity: actResult.type,
-            currentActivityTitle: actResult.title,
-            activityStartedAt: Date.now(),
-            activityDurationSec: actResult.durationSec,
-            currentCompanionNyanId: nextCompanionId,
-            monologue:
-              actResult.customMonologue ||
-              getRandomMonologue(
-                actResult.type,
-                nextLocation,
-                null,
-                prev.asobiList,
-                compChar?.name
-              ),
-          },
-        };
-      } else {
-        // Case B: Finished activity at current place
-        const shouldMove = Math.random() < 0.45;
-
-        if (shouldMove) {
-          const dest = pickRandomLocation(curK.currentLocation);
-          const transport = pickRandomTransport();
-          const transitInfo = startTransit(curK.currentLocation, dest, transport);
-
-          setRemainingTimeSec(transitInfo.durationSec);
-
-          nextData = {
-            ...prev,
-            lastSaved: Date.now(),
-            kenchiko: {
-              ...curK,
-              targetLocation: dest,
-              transportMethod: transport,
-              currentActivity: 'transit',
-              currentActivityTitle: transitInfo.title,
-              activityStartedAt: Date.now(),
-              activityDurationSec: transitInfo.durationSec,
-              currentCompanionNyanId: null,
-              monologue: getRandomMonologue(
-                'transit',
-                curK.currentLocation,
-                transport,
-                prev.asobiList
-              ),
-            },
-          };
-        } else {
-          const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
+          const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
           nextCompanionId = actResult.companionNyanId;
-
-          if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
-          if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
 
           if (nextCompanionId) {
             const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
@@ -606,7 +459,7 @@ export default function App() {
           }
 
           if (actResult.diaryText) {
-            const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+            const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
             updatedDiary.unshift({
               id: `diary_${Date.now()}`,
               timestamp: Date.now(),
@@ -637,11 +490,14 @@ export default function App() {
           nextData = {
             ...prev,
             characters: updatedCharacters,
-            diary: updatedDiary.slice(0, 50),
+            diary: deduplicateDiary(updatedDiary).slice(0, 50),
             stats: updatedStats,
             lastSaved: Date.now(),
             kenchiko: {
               ...curK,
+              currentLocation: nextLocation,
+              targetLocation: null,
+              transportMethod: null,
               currentActivity: actResult.type,
               currentActivityTitle: actResult.title,
               activityStartedAt: Date.now(),
@@ -651,20 +507,191 @@ export default function App() {
                 actResult.customMonologue ||
                 getRandomMonologue(
                   actResult.type,
-                  curK.currentLocation,
+                  nextLocation,
                   null,
                   prev.asobiList,
                   compChar?.name
                 ),
             },
           };
+        } else {
+          // Case B: Finished activity at current place
+          const shouldMove = Math.random() < 0.45;
+
+          if (shouldMove) {
+            const dest = pickRandomLocation(curK.currentLocation);
+            const transport = pickRandomTransport();
+            const transitInfo = startTransit(curK.currentLocation, dest, transport);
+
+            setRemainingTimeSec(transitInfo.durationSec);
+
+            nextData = {
+              ...prev,
+              lastSaved: Date.now(),
+              kenchiko: {
+                ...curK,
+                targetLocation: dest,
+                transportMethod: transport,
+                currentActivity: 'transit',
+                currentActivityTitle: transitInfo.title,
+                activityStartedAt: Date.now(),
+                activityDurationSec: transitInfo.durationSec,
+                currentCompanionNyanId: null,
+                monologue: getRandomMonologue(
+                  'transit',
+                  curK.currentLocation,
+                  transport,
+                  prev.asobiList
+                ),
+              },
+            };
+          } else {
+            const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
+            nextCompanionId = actResult.companionNyanId;
+
+            if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
+            if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
+
+            if (nextCompanionId) {
+              const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
+              if (compIdx >= 0) {
+                updatedCharacters[compIdx] = {
+                  ...updatedCharacters[compIdx],
+                  lastMetAt: Date.now(),
+                  playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
+                };
+              }
+            }
+
+            if (actResult.newDiscoveredNyan) {
+              const charIndex = updatedCharacters.findIndex(
+                (c) => c.no === actResult.newDiscoveredNyan!.no
+              );
+              if (charIndex >= 0) {
+                updatedCharacters[charIndex] = {
+                  ...updatedCharacters[charIndex],
+                  discovered: true,
+                  discoveryDate: new Date().toLocaleString('ja-JP'),
+                  lastMetAt: Date.now(),
+                  playCount: 1,
+                  friendshipLevel: 1,
+                };
+                updatedStats.totalEncounters += 1;
+                setNewEncounterToast(updatedCharacters[charIndex]);
+                confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
+              }
+            }
+
+            if (actResult.diaryText) {
+              const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+              updatedDiary.unshift({
+                id: `diary_${Date.now()}`,
+                timestamp: Date.now(),
+                dateFormatted: new Date().toLocaleDateString('ja-JP', {
+                  month: 'numeric',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+                locationName: locInfo.name,
+                activityTitle: actResult.title,
+                nyanId: nextCompanionId,
+                nyanName: actResult.companionNyanId
+                  ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
+                  : null,
+                itemUsed: null,
+                mood: curK.mood,
+                text: actResult.diaryText,
+              });
+            }
+
+            setRemainingTimeSec(actResult.durationSec);
+
+            const compChar = nextCompanionId
+              ? updatedCharacters.find((c) => c.no === nextCompanionId)
+              : null;
+
+            nextData = {
+              ...prev,
+              characters: updatedCharacters,
+              diary: deduplicateDiary(updatedDiary).slice(0, 50),
+              stats: updatedStats,
+              lastSaved: Date.now(),
+              kenchiko: {
+                ...curK,
+                currentActivity: actResult.type,
+                currentActivityTitle: actResult.title,
+                activityStartedAt: Date.now(),
+                activityDurationSec: actResult.durationSec,
+                currentCompanionNyanId: nextCompanionId,
+                monologue:
+                  actResult.customMonologue ||
+                  getRandomMonologue(
+                    actResult.type,
+                    curK.currentLocation,
+                    null,
+                    prev.asobiList,
+                    compChar?.name
+                  ),
+              },
+            };
+          }
+        }
+
+        saveLocalBackup(nextData);
+        return nextData;
+      });
+    } finally {
+      setTimeout(() => {
+        isCompletingActivityRef.current = false;
+      }, 800);
+    }
+  }, []);
+
+  // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
+  useEffect(() => {
+    if (isLoadingFirebase) return;
+
+    const interval = setInterval(() => {
+      let isCompleted = false;
+
+      setRemainingTimeSec((prev) => {
+        const nextTime = prev - timeSpeed;
+        if (nextTime <= 0) {
+          isCompleted = true;
+          return 0;
+        }
+        return nextTime;
+      });
+
+      if (isCompleted) {
+        handleActivityCompletion();
+      }
+    }, 1000);
+
+    // Reconcile remaining time when returning to the tab / window focus
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const startedAt = saveData.kenchiko.activityStartedAt || Date.now();
+        const durationSec = saveData.kenchiko.activityDurationSec || 300;
+        const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+        const remaining = Math.max(0, durationSec - elapsedSec);
+        setRemainingTimeSec(remaining);
+        if (remaining <= 0) {
+          handleActivityCompletion();
         }
       }
+    };
 
-      saveLocalBackup(nextData);
-      return nextData;
-    });
-  };
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, handleActivityCompletion]);
 
   // User Actions: Petting
   const handlePetKenchiko = () => {
