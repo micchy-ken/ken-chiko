@@ -84,6 +84,7 @@ import {
   ListPlus,
   BookOpen,
   Users,
+  Gamepad2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -110,6 +111,7 @@ interface DataSyncModalProps {
   onUpdateSaveData: (updater: (prev: GameSaveData) => GameSaveData, isImmediate?: boolean) => void;
   initialTab?: AdminTab;
   initialPass?: string;
+  isStandalone?: boolean;
 }
 
 const DEFAULT_AUTH_PASSWORD = 'wakaro';
@@ -124,6 +126,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   onUpdateSaveData,
   initialTab,
   initialPass,
+  isStandalone = false,
 }) => {
   // Password protection state - supports session storage, initialPass prop, or query params (?pass=wakaro or ?admin=wakaro)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -1004,8 +1007,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   // --- RENDER PASSWORD LOCK SCREEN ---
   if (!isAuthenticated) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn">
-        <div className="relative w-full max-w-md bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col">
+      <div
+        className={
+          isStandalone
+            ? 'min-h-screen w-full bg-[#F4EFE6] flex items-center justify-center p-4 animate-fadeIn'
+            : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn'
+        }
+      >
+        <div className="relative w-full max-w-md bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col shadow-2xl">
           <div className="bg-[#ECE7DC] px-6 py-4 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
             <div className="flex items-center gap-2.5">
               <div className="p-2 sketch-tag bg-[#D97543] text-white shadow-sm">
@@ -1018,9 +1027,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition"
+              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition flex items-center gap-1 text-xs font-handwriting font-bold"
+              title={isStandalone ? 'ゲーム画面へ' : '閉じる'}
             >
-              <X className="w-5 h-5" />
+              {isStandalone ? (
+                <>
+                  <Gamepad2 className="w-4 h-4 text-[#487560]" />
+                  <span className="text-[#487560]">ゲームへ</span>
+                </>
+              ) : (
+                <X className="w-5 h-5" />
+              )}
             </button>
           </div>
 
@@ -1056,13 +1073,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 rounded-xl bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#6B6259] font-bold text-xs transition"
+                className="flex-1 py-2.5 rounded-xl bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#6B6259] font-bold text-xs transition font-handwriting"
               >
-                キャンセル
+                {isStandalone ? 'ゲーム画面へ' : 'キャンセル'}
               </button>
               <button
                 type="submit"
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs transition shadow-sm"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs transition shadow-sm font-handwriting"
               >
                 <Unlock className="w-4 h-4" />
                 <span>ロック解除</span>
@@ -1076,24 +1093,40 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // --- RENDER MAIN AUTHENTICATED MANAGEMENT CONSOLE ---
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-4xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col max-h-[92vh]">
+    <div
+      className={
+        isStandalone
+          ? 'min-h-screen w-full bg-[#F4EFE6] p-2 sm:p-5 flex flex-col animate-fadeIn'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#2E2824]/70 backdrop-blur-sm animate-fadeIn'
+      }
+    >
+      <div
+        className={
+          isStandalone
+            ? 'relative w-full max-w-6xl mx-auto bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col flex-1 shadow-2xl min-h-[90vh]'
+            : 'relative w-full max-w-4xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col max-h-[92vh]'
+        }
+      >
         {/* Header */}
-        <div className="bg-[#ECE7DC] px-6 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
-          <div className="flex items-center gap-3">
+        <div className="bg-[#ECE7DC] px-4 sm:px-6 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="p-2 sketch-tag bg-[#3E3833] text-white shadow-sm">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">開発・データ連携コンソール</h3>
+                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">
+                  {isStandalone ? 'けんちこの世界 管理画面' : '開発・データ連携コンソール'}
+                </h3>
                 <span className="bg-[#487560] text-white text-[10px] font-bold px-2 py-0.5 sketch-tag flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   認証済み
                 </span>
               </div>
-              <p className="text-xs text-[#7A726A] font-handwriting">
-                開発者向け：全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携
+              <p className="text-[11px] sm:text-xs text-[#7A726A] font-handwriting">
+                {isStandalone
+                  ? '管理画面モード（全イベント編集・図鑑修正・画像登録・ユーザー管理・データ連携）'
+                  : '開発者向け：全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携'}
               </p>
             </div>
           </div>
@@ -1108,9 +1141,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition"
+              className={
+                isStandalone
+                  ? 'px-3.5 py-1.5 sketch-tag bg-[#487560] hover:bg-[#3B614F] text-white font-black text-xs transition flex items-center gap-1.5 shadow-sm font-handwriting'
+                  : 'p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition'
+              }
+              title={isStandalone ? 'ゲーム画面へ移動' : '閉じる'}
             >
-              <X className="w-5 h-5" />
+              {isStandalone ? (
+                <>
+                  <Gamepad2 className="w-4 h-4" />
+                  <span>ゲーム画面へ</span>
+                </>
+              ) : (
+                <X className="w-5 h-5" />
+              )}
             </button>
           </div>
         </div>
@@ -1249,7 +1294,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         </div>
 
         {/* Tab Content Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]">
+        <div className={isStandalone ? 'p-4 sm:p-6 overflow-y-auto space-y-4 flex-1' : 'p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]'}>
           {/* ========================================================= */}
           {/* TAB 0: NYANKO ZUKAN & CHARACTER MASTER EDITOR */}
           {/* ========================================================= */}
@@ -2998,9 +3043,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           <span>パスワード保護コンソール (ログイン中)</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm"
+            className={
+              isStandalone
+                ? 'px-4 py-1.5 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl font-bold transition shadow-sm flex items-center gap-1.5 font-handwriting'
+                : 'px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm font-handwriting'
+            }
           >
-            閉じる
+            {isStandalone && <Gamepad2 className="w-3.5 h-3.5" />}
+            <span>{isStandalone ? 'ゲーム画面へ戻る' : '閉じる'}</span>
           </button>
         </div>
       </div>

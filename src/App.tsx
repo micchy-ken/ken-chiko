@@ -129,6 +129,7 @@ export default function App() {
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
   const [showTravelModal, setShowTravelModal] = useState<boolean>(false);
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
+  const [isStandaloneAdmin, setIsStandaloneAdmin] = useState<boolean>(false);
   const [showUserSettingsModal, setShowUserSettingsModal] = useState<boolean>(false);
   const [showTutorialModal, setShowTutorialModal] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
@@ -138,7 +139,13 @@ export default function App() {
   useEffect(() => {
     try {
       const seen = localStorage.getItem('kenchiko_tutorial_seen');
-      if (!seen) {
+      const isDevOrAdmin = typeof window !== 'undefined' && (
+        window.location.search.includes('admin') ||
+        window.location.search.includes('dev') ||
+        window.location.search.includes('modal=admin') ||
+        window.location.search.includes('tab=admin')
+      );
+      if (!seen && !isDevOrAdmin) {
         setShowTutorialModal(true);
       }
     } catch (_e) {
@@ -193,6 +200,7 @@ export default function App() {
         } else if (subtabParam && validAdminTabs.includes(subtabParam as AdminTab)) {
           setAdminInitialTab(subtabParam as AdminTab);
         }
+        setIsStandaloneAdmin(true);
         setShowSyncModal(true);
       }
     } catch (_e) {
@@ -992,6 +1000,30 @@ export default function App() {
       });
   };
 
+  const handleCloseAdmin = () => {
+    setIsStandaloneAdmin(false);
+    setShowSyncModal(false);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        let changed = false;
+        ['admin', 'dev', 'develop', 'modal', 'mode', 'subtab', 'admintab', 'section', 'pass', 'key', 'password'].forEach((k) => {
+          if (url.searchParams.has(k)) {
+            url.searchParams.delete(k);
+            changed = true;
+          }
+        });
+        if (url.searchParams.get('tab') === 'admin' || url.searchParams.get('tab') === 'dev' || url.searchParams.get('tab') === 'sync') {
+          url.searchParams.delete('tab');
+          changed = true;
+        }
+        if (changed) {
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        }
+      } catch (_e) {}
+    }
+  };
+
   // Loading Screen while connecting to Firestore
   if (isLoadingFirebase) {
     return (
@@ -1006,6 +1038,36 @@ export default function App() {
             <div className="w-full h-full bg-[#728C7E] animate-pulse rounded-full" />
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Standalone Admin Screen (When accessed via ?admin= or ?dev=)
+  // No game screen or stage is rendered in the background!
+  if (isStandaloneAdmin) {
+    return (
+      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <DataSyncModal
+          isStandalone={true}
+          characters={saveData.characters}
+          saveData={saveData}
+          initialTab={adminInitialTab}
+          onClose={handleCloseAdmin}
+          onImportNyans={handleImportNyans}
+          onSaveFirebaseConfig={(_cfg) => {}}
+          onUpdateSaveData={(updater, isImmediate = false) => {
+            setSaveData((prev) => {
+              const next = updater(prev);
+              if (isImmediate) {
+                syncSaveDataToFirebase(next, true).catch(() => {});
+              } else {
+                saveOnUserAction(next).catch(() => {});
+              }
+              return next;
+            });
+          }}
+        />
       </div>
     );
   }
@@ -1439,24 +1501,7 @@ export default function App() {
           characters={saveData.characters}
           saveData={saveData}
           initialTab={adminInitialTab}
-          onClose={() => {
-            setShowSyncModal(false);
-            if (typeof window !== 'undefined') {
-              try {
-                const url = new URL(window.location.href);
-                let changed = false;
-                ['admin', 'modal', 'mode', 'subtab', 'admintab', 'section', 'pass', 'key', 'password'].forEach((k) => {
-                  if (url.searchParams.has(k)) {
-                    url.searchParams.delete(k);
-                    changed = true;
-                  }
-                });
-                if (changed) {
-                  window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
-                }
-              } catch (_e) {}
-            }
-          }}
+          onClose={handleCloseAdmin}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
           onUpdateSaveData={(updater, isImmediate = false) => {
