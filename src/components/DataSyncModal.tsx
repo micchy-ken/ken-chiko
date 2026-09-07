@@ -21,6 +21,7 @@ import {
   saveFirebaseConfig,
   FirebaseCustomConfig,
   syncSaveDataToFirebase,
+  saveGlobalAsobiList,
   getEnvFirebaseConfig,
   getFirebaseConnectionStatus,
   subscribeFirebaseConnectionStatus,
@@ -430,13 +431,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [searchEventQuery, setSearchEventQuery] = useState('');
   const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
   const [isSyncingCloudAsobi, setIsSyncingCloudAsobi] = useState(false);
+  const [hasUnsavedAsobi, setHasUnsavedAsobi] = useState(false);
 
-  // Synchronize asobiList when saveData.asobiList updates via real-time cloud sync
+  // Synchronize asobiList when saveData.asobiList updates via real-time cloud sync (only if user does not have unsaved edits)
   useEffect(() => {
-    if (saveData.asobiList) {
+    if (saveData.asobiList && !hasUnsavedAsobi) {
       setAsobiList(saveData.asobiList);
     }
-  }, [saveData.asobiList]);
+  }, [saveData.asobiList, hasUnsavedAsobi]);
 
   // Pull latest data directly from Firestore (Cloud-First)
   const handlePullFromCloud = async () => {
@@ -447,6 +449,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       if (res.success && res.data) {
         if (res.data.asobiList) {
           setAsobiList(res.data.asobiList);
+          setHasUnsavedAsobi(false);
         }
         if (res.data.kenchiko?.customImageUrl) {
           saveLocalKenchikoImage(res.data.kenchiko.customImageUrl);
@@ -463,18 +466,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   };
 
-  // Force push current asobi list to Firestore
+  // Push current asobi list to Firestore (EXCLUSIVELY to Global Shared Master DB, 1 single write)
   const handlePushToCloud = async () => {
     setIsSyncingCloudAsobi(true);
-    setAsobiNotice('☁️ 現在のあそび一覧をクラウド（Firebase）へ送信中...');
+    setAsobiNotice('☁️ あそびマスターデータをクラウド（Firebase）へ送信中...');
     try {
-      const res = await syncSaveDataToFirebase({
-        ...saveData,
-        asobiList: asobiList,
-        lastSaved: Date.now(),
-      }, true);
+      const res = await saveGlobalAsobiList(asobiList);
       if (res.success) {
-        setAsobiNotice(`✅ クラウド（Firebase）へ全${asobiList.length}件を完全保存・同期しました！`);
+        setHasUnsavedAsobi(false);
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          asobiList: asobiList,
+          lastSaved: Date.now(),
+        }), false);
+        setAsobiNotice(`✅ クラウド（マスター）へ全${asobiList.length}件を完全確定保存しました！（消費書き込み: たった1回）`);
       } else {
         setAsobiNotice(`⚠️ クラウド保存時の注意: ${res.error || '不明なエラー'}`);
       }
@@ -602,18 +607,24 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
 
     setAsobiList(updatedList);
+    setHasUnsavedAsobi(true);
     setEditingAsobiId(null);
     setNewTitle('');
     setNewContent('');
     setNewCondition('all');
     setNewFrequency('normal');
 
-    // Update global save state & Firebase
+    // Update local save state only (ZERO cloud writes while editing)
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }), true);
+    }), false);
+    setAsobiNotice(
+      editingAsobiId
+        ? `✅ イベントを更新しました（未保存）。上部の「クラウドへ今すぐ保存」を押して確定してください。`
+        : `✅ 新しいイベントを追加しました（未保存）。上部の「クラウドへ今すぐ保存」を押して確定してください。`
+    );
   };
 
   const handleEditAsobi = (item: KenchikoAsobi) => {
@@ -635,18 +646,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       () => {
         const updatedList = asobiList.filter((item) => item.id !== id);
         setAsobiList(updatedList);
+        setHasUnsavedAsobi(true);
         if (editingAsobiId === id) {
           setEditingAsobiId(null);
           setNewTitle('');
           setNewContent('');
         }
-        setAsobiNotice(`🗑️ イベント「${title}」を削除しました。`);
+        setAsobiNotice(`🗑️ イベント「${title}」を削除しました（未保存）。`);
 
         onUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
-        }), true);
+        }), false);
       }
     );
   };
@@ -680,15 +692,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     };
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
+    setHasUnsavedAsobi(true);
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }), true);
-    setAsobiNotice(`📋 「${item.title}」を複製しました。リスト上部でセリフを編集できます。`);
+    }), false);
+    setAsobiNotice(`📋 「${item.title}」を複製しました（未保存）。上部の「クラウドへ今すぐ保存」で確定してください。`);
   };
 
-  // Quick Inline cell update for Spreadsheet Table (Debounced, does not hammer Firestore on every keystroke)
+  // Quick Inline cell update for Spreadsheet Table (NEVER hammers Firestore on keystrokes)
   const handleInlineUpdateAsobi = (id: string, field: keyof KenchikoAsobi, value: any) => {
     const updatedList = asobiList.map((item) =>
       item.id === id
@@ -700,7 +713,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         : item
     );
     setAsobiList(updatedList);
-    // Use debounced sync (isImmediate: false) so keystrokes are batched and don't consume write quota
+    setHasUnsavedAsobi(true);
+    // CRITICAL: Pure in-memory update with local persistence only. Exactly ZERO Firestore write requests!
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
@@ -720,12 +734,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     };
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
+    setHasUnsavedAsobi(true);
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }), true);
-    setAsobiNotice('➕ 新しい行を追加しました。表のセルを直接クリックして文字を編集できます。');
+    }), false);
+    setAsobiNotice('➕ 新しい行を追加しました（未保存）。表のセルを直接クリックして文字を編集後、「クラウドへ今すぐ保存」を押してください。');
   };
 
   // Batch Bulk Parse & Import
@@ -797,14 +812,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     const updatedList = [...newItems, ...asobiList];
     setAsobiList(updatedList);
+    setHasUnsavedAsobi(true);
     setBatchRawText('');
     onUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
-    }), true);
+    }), false);
     setAsobiViewMode('sheet');
-    setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました！スプレッドシート表で即時確認・編集できます。`);
+    setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました（未保存）。内容を確認し、「クラウドへ今すぐ保存」を押すと1回の通信で安全に保存されます。`);
     confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
   };
 
@@ -834,13 +850,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       () => {
         const updatedList = asobiList.filter((item) => !selectedAsobiIds.has(item.id));
         setAsobiList(updatedList);
+        setHasUnsavedAsobi(true);
         setSelectedAsobiIds(new Set());
         onUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
-        }), true);
-        setAsobiNotice(`🗑️ 選択したイベントを一括削除しました。`);
+        }), false);
+        setAsobiNotice(`🗑️ 選択したイベントを一括削除しました（未保存）。上部の「クラウドへ今すぐ保存」で確定してください。`);
       }
     );
   };
@@ -1739,12 +1756,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       <Smile className="w-4 h-4 text-[#C8744E]" />
                       全イベント・行動・セリフ設定コンソール
                     </h4>
-                    <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      Firestore即時同期
+                    <span className="bg-[#438363] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      マスター管理（1回で安全一括保存）
                     </span>
                   </div>
                   <p className="text-xs text-[#874A2E] leading-relaxed">
-                    けんちこの行動・セリフ・場所を<strong>スプレッドシート形式</strong>で表から直接編集・追加・複製できます。
+                    けんちこの行動・セリフ・場所を<strong>スプレッドシート形式</strong>で直接編集できます。<br className="hidden sm:inline" />
+                    文字入力や行追加では<strong>Firestore書き込みは一切消費されません</strong>。編集完了後に「クラウドへ今すぐ保存」を押すと、<strong>たった1回の書き込み</strong>でマスターDBに一括保存されます。
                   </p>
                 </div>
 
@@ -1788,6 +1806,35 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               </div>
 
+              {/* Unsaved Changes Floating Warning Bar */}
+              {hasUnsavedAsobi && (
+                <div className="bg-[#FFF8E7] border-2 border-[#E5A93C] p-3.5 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 animate-fadeIn shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-3 w-3 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-[#D97706]"></span>
+                    </span>
+                    <div>
+                      <span className="text-xs font-black text-[#92400E]">
+                        あそびマスターに未保存の変更があります（全{asobiList.length}件）
+                      </span>
+                      <p className="text-[11px] text-[#B45309]">
+                        ※ 入力作業中は書き込み制限を消費していません。「クラウドへ今すぐ保存」を押すと1回の通信でマスターDBに一括反映されます。
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePushToCloud}
+                    disabled={isSyncingCloudAsobi}
+                    className="w-full sm:w-auto px-4 py-2 bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-black rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <Cloud className="w-4 h-4" />
+                    <span>クラウドへ今すぐ保存（消費1回）</span>
+                  </button>
+                </div>
+              )}
+
               {/* Cloud Sync Status & Quick Sync Action Bar */}
               <div className="bg-white p-3 rounded-xl border border-[#DDD7C8] flex flex-wrap items-center justify-between gap-2.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1797,15 +1844,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       : 'bg-[#FDEDEC] text-[#C62828] border border-[#FFCDD2]'
                   }`}>
                     <span className={`w-2 h-2 rounded-full ${connectionStatus.connected ? 'bg-[#2E7D32] animate-pulse' : 'bg-[#C62828]'}`} />
-                    <span>{connectionStatus.connected ? 'Firebase常時同期中' : 'クラウド未接続 / オフライン'}</span>
+                    <span>{connectionStatus.connected ? 'Firebase接続OK' : 'クラウド未接続 / オフライン'}</span>
                   </div>
 
                   <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
-                    共通DB: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-state</code>
-                  </div>
-
-                  <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
-                    進行状況DB: <code className="font-mono text-[#4A443F] font-bold">{getFirestoreDocIdForUser(getActiveUserId())}</code>
+                    マスターDB保存先: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-state</code>
                   </div>
 
                   <span className="text-[11px] font-bold text-[#4A443F] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
@@ -1829,11 +1872,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     type="button"
                     onClick={handlePushToCloud}
                     disabled={isSyncingCloudAsobi}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer"
-                    title="現在の端末のあそびデータをクラウドへ即座に送信・確定保存します"
+                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer ${
+                      hasUnsavedAsobi
+                        ? 'bg-[#D97706] hover:bg-[#B45309] text-white ring-2 ring-[#FCD34D] ring-offset-1'
+                        : 'bg-[#C8744E] hover:bg-[#B3633E] text-white'
+                    }`}
+                    title="現在の端末のあそびデータをクラウドへ即座に送信・確定保存します（1回のみ書き込み）"
                   >
                     <Cloud className="w-3.5 h-3.5" />
-                    <span>クラウドへ今すぐ保存</span>
+                    <span>{hasUnsavedAsobi ? '☁️ クラウドへ今すぐ保存（未保存あり）' : 'クラウドへ今すぐ保存'}</span>
                   </button>
                 </div>
               </div>
@@ -2293,15 +2340,36 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
 
                   {/* Table Footer */}
-                  <div className="bg-[#FAF8F5] p-3 border-t border-[#DDD7C8] flex items-center justify-between text-xs text-[#7D756D]">
-                    <span>表示中: {filteredEvents.length} 件 / 全 {asobiList.length} 件</span>
-                    <button
-                      onClick={handleAddBlankSpreadsheetRow}
-                      className="flex items-center gap-1 text-[#C8744E] hover:underline font-bold"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      一番下に新しい行を追加
-                    </button>
+                  <div className="bg-[#FAF8F5] p-3 border-t border-[#DDD7C8] flex flex-wrap items-center justify-between gap-2 text-xs text-[#7D756D]">
+                    <div className="flex items-center gap-3">
+                      <span>表示中: {filteredEvents.length} 件 / 全 {asobiList.length} 件</span>
+                      {hasUnsavedAsobi && (
+                        <span className="text-[11px] font-bold text-[#D97706] bg-[#FFF8E7] px-2 py-0.5 rounded-full border border-[#FCD34D]">
+                          ● 未保存の変更あり
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleAddBlankSpreadsheetRow}
+                        className="flex items-center gap-1 text-[#C8744E] hover:underline font-bold mr-2"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        新しい行を追加
+                      </button>
+
+                      {hasUnsavedAsobi && (
+                        <button
+                          type="button"
+                          onClick={handlePushToCloud}
+                          disabled={isSyncingCloudAsobi}
+                          className="flex items-center gap-1.5 px-3 py-1 bg-[#D97706] hover:bg-[#B45309] text-white font-bold rounded-lg transition shadow-xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Cloud className="w-3.5 h-3.5" />
+                          <span>クラウドへ今すぐ保存（消費1回）</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

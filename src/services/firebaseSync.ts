@@ -1089,14 +1089,13 @@ export async function fetchInitialFirebaseState(
     notifyConnectionStatusChange(true);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
+    // Asobi list is strictly loaded from the Global Shared Master document (or local backup / initial defaults)
     const globalAsobiList = sanitizeAsobiList(
       globalRaw?.asobiList && globalRaw.asobiList.length > 0
         ? globalRaw.asobiList
-        : (userRaw?.asobiList && userRaw.asobiList.length > 0
-            ? userRaw.asobiList
-            : (localBackup?.asobiList && localBackup.asobiList.length > 0
-                ? localBackup.asobiList
-                : INITIAL_ASOBI_LIST))
+        : (localBackup?.asobiList && localBackup.asobiList.length > 0
+            ? localBackup.asobiList
+            : INITIAL_ASOBI_LIST)
     );
 
     const globalKenchikoAvatar =
@@ -1296,9 +1295,10 @@ export async function executeFirestoreWrite(
     compactProgressDoc.asobiList = cleanAsobiList;
 
     // 1. Write the compact progress document to the active user's personal document
+    // NOTE: asobiList is strictly a global master collection and is EXCLUDED from user progress docs!
+    const { asobiList: _ignoredAsobi, ...userProgressOnly } = compactProgressDoc as any;
     const payload = removeUndefinedDeep({
-      ...compactProgressDoc,
-      asobiList: cleanAsobiList,
+      ...userProgressOnly,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
@@ -1307,13 +1307,12 @@ export async function executeFirestoreWrite(
     incrementDailyWriteCount();
     lastWrittenContentString = currentContentString;
 
-    // 2. ONLY write to the Global Shared Master DB (ken-chiko-global-state) IF master data actually changed
-    // (This saves 50% of writes on routine player actions like petting/feeding/traveling)
+    // 2. ONLY write to the Global Shared Master DB (ken-chiko-global-state) IF global avatar/image/drive settings actually changed
+    // NOTE: Routine user actions never write to global master DB unless global assets changed.
     if (userDocId !== GLOBAL_SHARED_DOC_ID && (forceManual || currentGlobalString !== lastWrittenGlobalString)) {
       try {
         const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
         const globalPayload = removeUndefinedDeep({
-          asobiList: cleanAsobiList,
           kenchiko: {
             customImageUrl: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
           },
@@ -1472,6 +1471,58 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     saveOnAppExit();
   });
+}
+
+/**
+ * Saves asobiList EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
+ * This completely isolates asobi management from individual user progress documents,
+ * consuming exactly ONE single write operation for the entire batch.
+ */
+export async function saveGlobalAsobiList(
+  asobiList: KenchikoAsobi[],
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    const cleanList = sanitizeAsobiList(asobiList);
+
+    // 1. Immediately update local storage backup so changes are never lost locally
+    const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
+    const updatedLocal: GameSaveData = {
+      ...currentLocal,
+      asobiList: cleanList,
+      lastSaved: Date.now(),
+    };
+    saveLocalBackup(updatedLocal);
+
+    // 2. Initialize Firestore if needed
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) {
+        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+      }
+    }
+    if (!firestoreDb) {
+      return { success: false, error: 'Firestoreが初期化されていません' };
+    }
+
+    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+    const globalPayload = removeUndefinedDeep({
+      asobiList: cleanList,
+      lastSaved: Date.now(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await setDoc(globalDocRef, globalPayload, { merge: true });
+    sessionDbWriteCount++;
+    incrementDailyWriteCount();
+    notifyConnectionStatusChange(true);
+
+    return { success: true, count: cleanList.length };
+  } catch (err: any) {
+    console.error('Failed to save global asobiList:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
 }
 
 /**

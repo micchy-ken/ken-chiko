@@ -159,20 +159,10 @@ export function getActiveUserId(): string | null {
       registerKnownUserId(sanitized);
       return sanitized;
     }
-  } catch (_e) {
-    // Ignore URL errors
-  }
-
-  // Fallback to persisted active user if stored
-  try {
-    const stored = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
-    const sanitized = sanitizeUserId(stored);
-    if (sanitized) {
-      registerKnownUserId(sanitized);
-      return sanitized;
-    }
+    // If no user parameter in URL, clear stale storage so user defaults to standard @default
+    localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
     return null;
-  } catch {
+  } catch (_e) {
     return null;
   }
 }

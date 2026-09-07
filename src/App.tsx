@@ -419,6 +419,9 @@ export default function App() {
 
   // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = useCallback(() => {
+    // CRITICAL: Never advance game simulation or write to DB if admin panel or sync modal is open!
+    if (isStandaloneAdmin || showSyncModal) return;
+
     const now = Date.now();
     // Re-entrancy guard to prevent multiple parallel or near-simultaneous triggers
     if (isCompletingActivityRef.current) return;
@@ -682,7 +685,8 @@ export default function App() {
 
   // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
   useEffect(() => {
-    if (isLoadingFirebase) return;
+    // Completely freeze simulation loop if Firebase is loading, or if admin / sync modal is open
+    if (isLoadingFirebase || isStandaloneAdmin || showSyncModal) return;
 
     const interval = setInterval(() => {
       let isCompleted = false;
@@ -703,6 +707,7 @@ export default function App() {
 
     // Reconcile remaining time when returning to the tab / window focus
     const handleVisibilityOrFocus = () => {
+      if (isStandaloneAdmin || showSyncModal) return;
       if (document.visibilityState === 'visible') {
         const startedAt = saveData.kenchiko.activityStartedAt || Date.now();
         const durationSec = saveData.kenchiko.activityDurationSec || 300;
@@ -723,7 +728,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, handleActivityCompletion]);
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, isStandaloneAdmin, showSyncModal, handleActivityCompletion]);
 
   // User Actions: Petting (local update only, zero Firestore writes)
   const handlePetKenchiko = () => {
