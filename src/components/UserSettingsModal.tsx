@@ -307,18 +307,29 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
-                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex items-center justify-between">
+                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
                     <span className="text-[#558B2F]">セッション読込</span>
-                    <span className="font-mono font-bold text-[#1B5E20]">{stats.sessionReads} 回</span>
+                    <div className="flex items-baseline justify-between mt-1">
+                      <span className="font-mono font-bold text-[#1B5E20] text-sm">{stats.sessionReads} 回</span>
+                      <span className="text-[9px] text-[#2E7D32]/80">（起動時2件のみ）</span>
+                    </div>
                   </div>
-                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex items-center justify-between">
+                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
                     <span className="text-[#558B2F]">セッション書込</span>
-                    <span className="font-mono font-bold text-[#1B5E20]">{stats.sessionWrites} 回</span>
+                    <div className="flex items-baseline justify-between mt-1">
+                      <span className="font-mono font-bold text-[#1B5E20] text-sm">{stats.sessionWrites} 回</span>
+                      <span className="text-[9px] text-[#2E7D32]/80">（重要進行時のみ）</span>
+                    </div>
                   </div>
                 </div>
-                <p className="text-[10px] text-[#4E7A5A]">
-                  ※同一データ時の無駄なFirestore書き込みを自動スキップし、無料枠（50,000回/日）を完全に保護しています。
-                </p>
+                <div className="space-y-0.5 pt-0.5 text-[10px] text-[#4E7A5A]">
+                  <p>
+                    📖 <strong>読み込み</strong>：ページ読み込み時に共通設定と個人データの<strong>計2件のみ</strong>読み込みます。プレイ中の定期自動読み込みは<strong>0回</strong>です。
+                  </p>
+                  <p>
+                    📊 <strong>無料枠の基準</strong>：Firestore無料枠は1日<strong>50,000回の読込</strong>・<strong>20,000回の書込</strong>が可能です。現在の利用量は無料枠の0.01%以下です。
+                  </p>
+                </div>
               </div>
             );
           })()}

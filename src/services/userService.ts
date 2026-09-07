@@ -333,7 +333,7 @@ function buildUserDetailData(
 
 let cachedUsersData: UserDetailData[] | null = null;
 let lastUsersFetchTime = 0;
-const USERS_CACHE_TTL = 30000; // 30 seconds
+const USERS_CACHE_TTL = 60000; // 60 seconds (1 minute cache to avoid repeated Firestore collection reads)
 
 export function invalidateUsersCache(): void {
   cachedUsersData = null;
@@ -369,6 +369,7 @@ export async function fetchAllRegisteredUsers(
     if (db) {
       const colRef = collection(db, 'kenchiko_world');
       const snap = await getDocs(colRef);
+      console.log(`[CloudSync] 👥 ユーザー一覧の取得 [${snap.docs.length}件読込]: 管理画面のユーザー一覧表示`);
       for (const docSnap of snap.docs) {
         const docId = docSnap.id;
         // Skip global shared state document

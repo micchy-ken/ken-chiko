@@ -6,9 +6,7 @@ import {
   doc,
   setDoc,
   getDoc,
-  onSnapshot,
   Firestore,
-  Unsubscribe,
   collection,
   getDocs,
   deleteDoc,
@@ -512,7 +510,6 @@ export function saveFirebaseConfig(_config: FirebaseCustomConfig): void {
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
-let unsubscribeSnapshot: Unsubscribe | null = null;
 
 // Quota & Rate Limit Protection State
 const QUOTA_STORAGE_KEY = 'kenchiko_firestore_quota_until';
@@ -836,6 +833,7 @@ export async function testFirebaseConnection(
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     await getDoc(docRef);
     sessionDbReadCount++;
+    console.log(`[CloudSync] 🔍 Firestore疎通確認 [1件読込]: ドキュメント=kenchiko_world/${docId}`);
     lastConnectionCheckTime = Date.now();
     lastConnectionCheckResult = { success: true };
     clearQuotaExhausted();
@@ -851,126 +849,14 @@ export async function testFirebaseConnection(
 }
 
 /**
- * Subscribes to real-time changes on the Firestore documents (onSnapshot).
- * Enables instantaneous sync between devices and browser tabs for both:
- * 1. User-specific progress (nyanProgress, diary, inventory, stats)
- * 2. Shared master data (Asobi list & Kenchiko avatar/name)
+ * Real-time changes subscription (disabled to prevent background read traffic).
+ * Game state is maintained locally with zero periodic cloud reads.
  */
 export function subscribeToRemoteChanges(
-  onDataChanged: (remoteData: GameSaveData) => void,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _onDataChanged: (remoteData: GameSaveData) => void,
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): () => void {
-  if (typeof window === 'undefined') return () => {};
-
-  try {
-    if (!firestoreDb) {
-      initFirebase(config);
-    }
-    if (!firestoreDb) return () => {};
-
-    const activeUid = getActiveUserId();
-    const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
-    const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-
-    if (unsubscribeSnapshot) {
-      try {
-        unsubscribeSnapshot();
-      } catch {}
-      unsubscribeSnapshot = null;
-    }
-
-    let unsubGlobal: Unsubscribe | null = null;
-
-    const unsubUser = onSnapshot(
-      userDocRef,
-      { includeMetadataChanges: false },
-      (snap) => {
-        // Skip local writes that haven't been committed to server yet
-        if (snap.metadata.hasPendingWrites) {
-          return;
-        }
-        if (snap.exists()) {
-          const raw = snap.data();
-          if (raw && raw.kenchiko) {
-            const reconstructed = reconstructGameSaveData(raw, INITIAL_NYANS);
-            const currentLocal = loadLocalBackup();
-            // Preserve shared master data from current local state
-            const merged: GameSaveData = {
-              ...reconstructed,
-              asobiList: sanitizeAsobiList(currentLocal?.asobiList && currentLocal.asobiList.length > 0 ? currentLocal.asobiList : reconstructed.asobiList),
-              kenchiko: {
-                ...reconstructed.kenchiko,
-                customImageUrl: currentLocal?.kenchiko?.customImageUrl || reconstructed.kenchiko.customImageUrl,
-              },
-            };
-            onDataChanged(merged);
-            notifyConnectionStatusChange(true);
-          }
-        }
-      },
-      (err) => {
-        console.warn('Firestore onSnapshot user error:', err);
-      }
-    );
-
-    if (userDocId !== GLOBAL_SHARED_DOC_ID) {
-      unsubGlobal = onSnapshot(
-        globalDocRef,
-        { includeMetadataChanges: false },
-        (snap) => {
-          if (snap.metadata.hasPendingWrites) return;
-          if (snap.exists()) {
-            const raw = snap.data();
-            if (raw) {
-              const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
-              const merged: GameSaveData = {
-                ...currentLocal,
-                asobiList: sanitizeAsobiList(raw.asobiList && raw.asobiList.length > 0 ? raw.asobiList : currentLocal.asobiList),
-                kenchiko: {
-                  ...currentLocal.kenchiko,
-                  customImageUrl: raw.kenchiko?.customImageUrl || currentLocal.kenchiko.customImageUrl,
-                },
-                kihonNyanCustomImageUrl: raw.kihonNyanCustomImageUrl || currentLocal.kihonNyanCustomImageUrl,
-                googleDriveFolderUrl: raw.googleDriveFolderUrl || currentLocal.googleDriveFolderUrl,
-              };
-              saveLocalBackup(merged);
-              if (raw.kenchiko?.customImageUrl) {
-                saveLocalKenchikoImage(raw.kenchiko.customImageUrl);
-              }
-              onDataChanged(merged);
-            }
-          }
-        },
-        (err) => {
-          console.warn('Firestore onSnapshot global error:', err);
-        }
-      );
-    }
-
-    unsubscribeSnapshot = () => {
-      try {
-        unsubUser();
-      } catch {}
-      if (unsubGlobal) {
-        try {
-          unsubGlobal();
-        } catch {}
-      }
-    };
-
-    return () => {
-      if (unsubscribeSnapshot) {
-        try {
-          unsubscribeSnapshot();
-        } catch {}
-        unsubscribeSnapshot = null;
-      }
-    };
-  } catch (e) {
-    console.warn('subscribeToRemoteChanges failed to initialize:', e);
-    return () => {};
-  }
+  return () => {};
 }
 
 // Local Backup Safety Net Key (Dynamic by user)
@@ -1021,73 +907,89 @@ export function purgeLocalData(): void {
 // Fetch initial state from Firestore:
 // 1. Common Master DB (GLOBAL_SHARED_DOC_ID): Kenchiko appearance (avatar & name) and Asobi list
 // 2. User Progress DB (userDocId): Progress state (nekozukan, omoide enikki, inventory, stats)
+let inFlightInitialFetchPromise: Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> | null = null;
+let lastInitialFetchTime = 0;
+let lastInitialFetchResult: { success: boolean; data: GameSaveData; isNew?: boolean; error?: string } | null = null;
+let lastInitialFetchUid: string | null = null;
+
 export async function fetchInitialFirebaseState(
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
+  forceRefresh: boolean = false
 ): Promise<{ success: boolean; data: GameSaveData; isNew?: boolean; error?: string }> {
-  const localBackup = loadLocalBackup();
+  const activeUid = getActiveUserId();
 
-  try {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      notifyConnectionStatusChange(false, 'オフライン状態です');
-      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
-    }
+  if (!forceRefresh && inFlightInitialFetchPromise) {
+    return inFlightInitialFetchPromise;
+  }
 
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        notifyConnectionStatusChange(false, initRes.error);
-        return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: initRes.error };
-      }
-    }
-    if (!firestoreDb) {
-      notifyConnectionStatusChange(false, 'Firestore is not ready');
-      return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
-    }
+  if (!forceRefresh && lastInitialFetchResult && Date.now() - lastInitialFetchTime < 15000 && lastInitialFetchUid === activeUid) {
+    return lastInitialFetchResult;
+  }
 
-    // --- STEP 1: Fetch Common Shared Master Document (ken-chiko-global-state) ---
-    // けんちこの見た目（画像・名前）と遊びリストは全ユーザー共通のDBから読み込む
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-    let globalRaw: any = null;
+  const doFetch = async () => {
+    const localBackup = loadLocalBackup();
+
     try {
-      const globalSnap = await getDoc(globalDocRef);
-      sessionDbReadCount++;
-      if (globalSnap.exists()) {
-        globalRaw = globalSnap.data();
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        notifyConnectionStatusChange(false, 'オフライン状態です');
+        return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'オフライン状態です' };
       }
-    } catch (gErr: any) {
-      if (gErr?.code === 'resource-exhausted' || gErr?.status === 429) {
-        markQuotaExhausted();
-      }
-      console.warn('Firestore global shared read note:', gErr);
-    }
 
-    // --- STEP 2: Fetch User-specific Progress Document (ken-chiko-user-ken, ken-chiko-user-chiko, etc.) ---
-    // 進行状況（ねこずかん・思い出絵日記・持ち物・統計）はユーザー個別DBから読み込む
-    const activeUid = getActiveUserId();
-    const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
-
-    let userRaw: any = null;
-    if (userDocId === GLOBAL_SHARED_DOC_ID) {
-      userRaw = globalRaw;
-    } else {
-      try {
-        const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
-        const userSnap = await getDoc(userDocRef);
-        sessionDbReadCount++;
-        if (userSnap.exists()) {
-          userRaw = userSnap.data();
+      if (!firestoreDb) {
+        const initRes = initFirebase(config);
+        if (!initRes.success) {
+          notifyConnectionStatusChange(false, initRes.error);
+          return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: initRes.error };
         }
-      } catch (uErr: any) {
-        if (uErr?.code === 'resource-exhausted' || uErr?.status === 429) {
+      }
+      if (!firestoreDb) {
+        notifyConnectionStatusChange(false, 'Firestore is not ready');
+        return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: 'Firestore is not ready' };
+      }
+
+      // --- STEP 1: Fetch Common Shared Master Document (ken-chiko-global-state) ---
+      // けんちこの見た目（画像・名前）と遊びリストは全ユーザー共通のDBから読み込む
+      const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+      let globalRaw: any = null;
+      try {
+        const globalSnap = await getDoc(globalDocRef);
+        sessionDbReadCount++;
+        if (globalSnap.exists()) {
+          globalRaw = globalSnap.data();
+        }
+      } catch (gErr: any) {
+        if (gErr?.code === 'resource-exhausted' || gErr?.status === 429) {
           markQuotaExhausted();
         }
-        console.warn('Firestore user progress read note:', uErr);
+        console.warn('Firestore global shared read note:', gErr);
       }
-    }
 
-    clearQuotaExhausted();
-    notifyConnectionStatusChange(true);
-    console.log(`[CloudSync] 📥 Firestore読込完了 [2件]: global-state + user(${userDocId})`);
+      // --- STEP 2: Fetch User-specific Progress Document (ken-chiko-user-ken, ken-chiko-user-chiko, etc.) ---
+      // 進行状況（ねこずかん・思い出絵日記・持ち物・統計）はユーザー個別DBから読み込む
+      const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
+
+      let userRaw: any = null;
+      if (userDocId === GLOBAL_SHARED_DOC_ID) {
+        userRaw = globalRaw;
+      } else {
+        try {
+          const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
+          const userSnap = await getDoc(userDocRef);
+          sessionDbReadCount++;
+          if (userSnap.exists()) {
+            userRaw = userSnap.data();
+          }
+        } catch (uErr: any) {
+          if (uErr?.code === 'resource-exhausted' || uErr?.status === 429) {
+            markQuotaExhausted();
+          }
+          console.warn('Firestore user progress read note:', uErr);
+        }
+      }
+
+      clearQuotaExhausted();
+      notifyConnectionStatusChange(true);
+      console.log(`[CloudSync] 📥 Firestore読込完了 [2件]: global-state + user(${userDocId}) (累計セッション読込: ${sessionDbReadCount}回)`);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
     // Asobi list is strictly loaded from the Global Shared Master document (or local backup / initial defaults)
@@ -1158,11 +1060,22 @@ export async function fetchInitialFirebaseState(
       saveLocalKenchikoImage(globalKenchikoAvatar);
     }
 
-    return { success: true, data: mergedData, isNew: !userRaw };
+    const result = { success: true, data: mergedData, isNew: !userRaw };
+    lastInitialFetchTime = Date.now();
+    lastInitialFetchUid = activeUid;
+    lastInitialFetchResult = result;
+    return result;
   } catch (err: any) {
     notifyConnectionStatusChange(false, err?.message || String(err));
     return { success: true, data: localBackup || DEFAULT_INITIAL_STATE, error: err.message };
   }
+  };
+
+  inFlightInitialFetchPromise = doFetch().finally(() => {
+    inFlightInitialFetchPromise = null;
+  });
+
+  return inFlightInitialFetchPromise;
 }
 
 let pendingWriteTimeout: any = null;
