@@ -4,6 +4,7 @@ import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { KenchikoFigure } from './KenchikoFigure';
 import { KenchikoAvatar } from './KenchikoAvatar';
 import { NyanIllustration } from './NyanIllustration';
+import { TransitVehicleView } from './TransitVehicleView';
 import {
   MapPin,
   Clock,
@@ -19,6 +20,7 @@ import confetti from 'canvas-confetti';
 interface KenchikoStageProps {
   kenchiko: KenchikoState;
   companionNyan: NyanCharacter | null;
+  characters?: NyanCharacter[];
   remainingTimeSec: number;
   timeSpeed: number;
   onPet: () => void;
@@ -33,6 +35,7 @@ interface KenchikoStageProps {
 export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   kenchiko,
   companionNyan,
+  characters = [],
   remainingTimeSec,
   timeSpeed,
   onPet,
@@ -191,20 +194,36 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                   </div>
                 </div>
               )}
-              <KenchikoFigure
-                activity={kenchiko.currentActivity}
-                transportMethod={kenchiko.transportMethod}
-                customImageUrl={kenchiko.customImageUrl}
-                mood={kenchiko.mood}
-                size={185}
-              />
+              {kenchiko.currentActivity === 'transit' ? (
+                <TransitVehicleView
+                  transportMethod={kenchiko.transportMethod}
+                  kenchikoImageUrl={kenchiko.customImageUrl}
+                  characters={characters}
+                  targetLocationName={targetLocInfo?.name}
+                  size={270}
+                />
+              ) : (
+                <KenchikoFigure
+                  activity={kenchiko.currentActivity}
+                  transportMethod={kenchiko.transportMethod}
+                  customImageUrl={kenchiko.customImageUrl}
+                  mood={kenchiko.mood}
+                  size={185}
+                />
+              )}
             </div>
 
             <div className="flex items-center gap-1.5 mt-1">
               <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag shadow-sm flex items-center gap-1 font-handwriting">
                 <span>けんちこ</span>
                 <span className="text-[10px] text-[#8C5A3E] font-normal">
-                  ({kenchiko.currentActivity === 'nap' ? '睡眠中' : kenchiko.currentActivity === 'snacking' ? 'カフェ休憩' : '活動中'})
+                  ({kenchiko.currentActivity === 'nap'
+                    ? '睡眠中'
+                    : kenchiko.currentActivity === 'snacking'
+                    ? 'カフェ休憩'
+                    : kenchiko.currentActivity === 'transit'
+                    ? `${transportInfo?.name || 'とほ'}で移動中`
+                    : '活動中'})
                 </span>
               </div>
             </div>
@@ -287,9 +306,15 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           </button>
 
           <button
-            onClick={onStartRandomTravel}
+            onClick={() => {
+              if (onOpenTravelModal) {
+                onOpenTravelModal();
+              } else {
+                onStartRandomTravel();
+              }
+            }}
             className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
-            title="ランダムな移動手段と行き先でお出かけします（移動時間30秒）"
+            title="3つの候補からお出かけ先を選びます（移動時間30秒）"
           >
             <Compass className="w-4 h-4 text-[#3C5C7A]" />
             <span>お出かけ</span>

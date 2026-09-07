@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LocationId, TransportMethod, KenchikoState } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
-import { X, Compass, Footprints, Bike, Car, CloudSun, Train, MapPin } from 'lucide-react';
+import { X, Compass, Footprints, Bike, Car, CloudSun, Train, RefreshCw, Sparkles } from 'lucide-react';
+import confetti from 'canvas-confetti';
 
 interface TravelModalProps {
   kenchiko: KenchikoState;
@@ -14,48 +15,106 @@ export const TravelModal: React.FC<TravelModalProps> = ({
   kenchiko,
   onClose,
   onStartTravel,
-  onStartRandomTravel,
 }) => {
-  const [selectedLoc, setSelectedLoc] = useState<LocationId>(
-    (Object.keys(LOCATIONS) as LocationId[]).find((l) => l !== kenchiko.currentLocation) || 'living'
-  );
-  const [selectedTransport, setSelectedTransport] = useState<TransportMethod>('bicycle');
+  // Available locations strictly excluding current location (9 registered locations in locations.ts)
+  const getEligibleLocations = useCallback((): LocationId[] => {
+    const allKeys = Object.keys(LOCATIONS) as LocationId[];
+    return allKeys.filter((locId) => locId !== kenchiko.currentLocation);
+  }, [kenchiko.currentLocation]);
 
-  const locEntries = Object.entries(LOCATIONS) as [LocationId, typeof LOCATIONS.living][];
+  // Pick 3 unique random candidate locations
+  const pick3RandomCandidates = useCallback((): LocationId[] => {
+    const eligible = getEligibleLocations();
+    const shuffled = [...eligible].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 3);
+  }, [getEligibleLocations]);
 
-  const handleGo = () => {
-    onStartTravel(selectedLoc, selectedTransport);
-    onClose();
+  // 3 candidates state
+  const [candidates, setCandidates] = useState<LocationId[]>([]);
+  const [isRerolling, setIsRerolling] = useState(false);
+
+  // Selected destination & lottery state
+  const [selectedDestination, setSelectedDestination] = useState<LocationId | null>(null);
+  const [decidedTransport, setDecidedTransport] = useState<TransportMethod | null>(null);
+  const [isRollingTransport, setIsRollingTransport] = useState(false);
+
+  // Initialize candidates on open
+  useEffect(() => {
+    setCandidates(pick3RandomCandidates());
+  }, [pick3RandomCandidates]);
+
+  // Reroll 3 candidates
+  const handleReroll = () => {
+    setIsRerolling(true);
+    setTimeout(() => {
+      setCandidates(pick3RandomCandidates());
+      setIsRerolling(false);
+    }, 200);
   };
 
+  // Get Transport Icon helper
   const getTransportIcon = (id: TransportMethod) => {
     switch (id) {
       case 'walk':
-        return <Footprints className="w-4 h-4" />;
+        return <Footprints className="w-4 h-4 text-[#7A6B5D]" />;
       case 'bicycle':
-        return <Bike className="w-4 h-4" />;
+        return <Bike className="w-4 h-4 text-[#3D7053]" />;
       case 'car':
-        return <Car className="w-4 h-4" />;
+        return <Car className="w-4 h-4 text-[#2E6088]" />;
       case 'jinbei_nyan':
-        return <CloudSun className="w-4 h-4" />;
+        return <CloudSun className="w-4 h-4 text-[#D9822B]" />;
       case 'train':
-        return <Train className="w-4 h-4" />;
+        return <Train className="w-4 h-4 text-[#5A4582]" />;
     }
   };
 
+  // When user clicks one of the 3 candidate locations:
+  const handleSelectCandidate = (destination: LocationId) => {
+    if (isRollingTransport) return;
+
+    setSelectedDestination(destination);
+    setIsRollingTransport(true);
+
+    // Randomly select one of the transport methods
+    const randomTransport =
+      TRANSPORT_METHODS[Math.floor(Math.random() * TRANSPORT_METHODS.length)].id;
+    setDecidedTransport(randomTransport);
+
+    // Little celebration sparkle
+    try {
+      confetti({
+        particleCount: 25,
+        spread: 50,
+        origin: { y: 0.6 },
+      });
+    } catch {
+      // ignore
+    }
+
+    // Auto depart after 1.1 seconds so user can see what was chosen
+    setTimeout(() => {
+      onStartTravel(destination, randomTransport);
+      onClose();
+    }, 1100);
+  };
+
+  const currentLocationInfo = LOCATIONS[kenchiko.currentLocation] || LOCATIONS.living;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-lg bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="bg-[#ECE7DC] px-6 py-4 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
+        <div className="bg-[#ECE7DC] px-5 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 sketch-tag bg-[#3E3833] text-white shadow-sm">
               <Compass className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-[#2E2824] font-handwriting">おでかけ先を提案する</h3>
-              <p className="text-xs text-[#7A726A] font-handwriting">
-                行き先と移動手段を選んで出発します（移動時間: 30秒）
+              <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">
+                お出かけ先を選ぶ（3つの候補）
+              </h3>
+              <p className="text-[11px] text-[#7A726A] font-handwriting">
+                現在地: <span className="font-bold text-[#3E3833]">{currentLocationInfo.name}</span>
               </p>
             </div>
           </div>
@@ -68,114 +127,109 @@ export const TravelModal: React.FC<TravelModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
-          {/* Quick Random Outing Button */}
-          {onStartRandomTravel && (
-            <div className="bg-[#FAF2EB] p-3.5 rounded-2xl border border-[#F0D5C3] flex items-center justify-between gap-3 shadow-xs">
-              <div>
-                <h4 className="text-xs font-black text-[#874A2E] font-handwriting flex items-center gap-1.5">
-                  <span>🎲</span>
-                  <span>おまかせランダムお出かけ（推奨）</span>
-                </h4>
-                <p className="text-[11px] text-[#A66244] font-handwriting mt-0.5">
-                  移動先と移動手段を自動で選んで出発します（移動時間一律30秒）
-                </p>
+        <div className="p-5 sm:p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+          {/* Instruction Note */}
+          <div className="bg-[#FAF2EB] p-3 rounded-2xl border border-[#F0D5C3] text-xs font-handwriting text-[#874A2E] flex items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-[#D97706] shrink-0" />
+              <span>
+                行きたい場所を1つタップすると、<strong>ランダムな移動手段</strong>が決まって出発します！
+              </span>
+            </div>
+            <button
+              onClick={handleReroll}
+              disabled={isRerolling || isRollingTransport}
+              title="別の3つの候補を引き直す"
+              className="px-2.5 py-1 bg-white hover:bg-[#FAF8F4] border border-[#E0BC9E] text-[#874A2E] rounded-xl text-[11px] font-bold flex items-center gap-1 transition shrink-0 active:scale-95 shadow-xs"
+            >
+              <RefreshCw className={`w-3 h-3 ${isRerolling ? 'animate-spin' : ''}`} />
+              <span>引き直す</span>
+            </button>
+          </div>
+
+          {/* Lottery Reveal Animation (when chosen) */}
+          {isRollingTransport && selectedDestination && decidedTransport && (
+            <div className="p-4 bg-[#EAF2F8] border-2 border-[#5B9BBF] rounded-2xl text-center space-y-2 animate-bounce">
+              <div className="text-xs text-[#2A4D69] font-bold font-handwriting">
+                ✨ 行き先：【{LOCATIONS[selectedDestination]?.name}】に決定！
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onStartRandomTravel();
-                  onClose();
-                }}
-                className="px-3.5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-xs transition shrink-0 cursor-pointer font-handwriting"
-              >
-                おまかせ出発！
-              </button>
+              <div className="flex items-center justify-center gap-2 text-base font-black text-[#1E3A52] font-handwriting">
+                <span className="p-1.5 bg-white rounded-full shadow-xs">
+                  {getTransportIcon(decidedTransport)}
+                </span>
+                <span>
+                  移動手段：【
+                  {TRANSPORT_METHODS.find((t) => t.id === decidedTransport)?.name || 'とほ'}
+                  】で出発します！💨
+                </span>
+              </div>
             </div>
           )}
 
-          {/* Section 1: Choose Location */}
-          <div>
-            <h4 className="text-xs font-bold text-[#7A726A] font-handwriting mb-2 flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-[#487560]" />
-              1. 行き先を選択
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {locEntries.map(([id, info]) => {
-                const isCurrent = kenchiko.currentLocation === id && kenchiko.currentActivity !== 'transit';
-                const isSelected = selectedLoc === id;
+          {/* The 3 Random Candidate Destination Cards */}
+          <div className="space-y-3">
+            {candidates.map((locId, idx) => {
+              const info = LOCATIONS[locId];
+              if (!info) return null;
+              const isSelected = selectedDestination === locId;
 
-                return (
-                  <button
-                    key={id}
-                    disabled={isCurrent}
-                    onClick={() => setSelectedLoc(id)}
-                    className={`p-3 text-left transition flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-[#FFFDF9] sketch-border shadow-sm'
-                        : isCurrent
-                        ? 'bg-[#EAE6DC]/60 sketch-card-subtle opacity-50 cursor-not-allowed'
-                        : 'bg-[#FAF8F4] sketch-card-subtle hover:bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xl">{info.bgIcon}</span>
-                      {isCurrent && (
-                        <span className="text-[10px] bg-[#3E3833] text-white px-1.5 py-0.5 rounded font-handwriting">
-                          現在地
-                        </span>
-                      )}
+              return (
+                <button
+                  key={locId}
+                  disabled={isRollingTransport}
+                  onClick={() => handleSelectCandidate(locId)}
+                  className={`w-full p-4 text-left transition rounded-2xl border-2 flex items-start gap-3.5 relative overflow-hidden group active:scale-[0.98] ${
+                    isSelected
+                      ? 'bg-[#FFFDF9] border-[#3E3833] shadow-md ring-2 ring-[#487560]'
+                      : 'bg-white hover:bg-[#FAF8F4] border-[#DDD7C8] hover:border-[#8C7E72] shadow-xs'
+                  }`}
+                >
+                  {/* Badge Number */}
+                  <div className="absolute top-2.5 right-3 px-2 py-0.5 bg-[#EAE5D9] text-[#5A524A] text-[10px] font-bold rounded-full font-handwriting">
+                    候補 {idx + 1}
+                  </div>
+
+                  {/* Icon */}
+                  <div className="w-12 h-12 rounded-2xl bg-[#FAF8F4] border border-[#DDD7C8] flex items-center justify-center text-2xl shrink-0 group-hover:scale-110 transition-transform">
+                    {info.bgIcon}
+                  </div>
+
+                  {/* Text Details */}
+                  <div className="flex-1 pr-10">
+                    <h4 className="text-sm font-black text-[#2E2824] font-handwriting group-hover:text-[#487560] transition-colors flex items-center gap-1.5">
+                      <span>{info.name}</span>
+                    </h4>
+                    <p className="text-xs text-[#7A726A] mt-1 line-clamp-2 leading-relaxed font-handwriting">
+                      {info.description}
+                    </p>
+
+                    <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-[#487560] font-bold font-handwriting">
+                      <span>ここへお出かけする</span>
+                      <span>→</span>
                     </div>
-                    <div className="mt-2">
-                      <p className="text-xs font-bold text-[#2E2824] font-handwriting">{info.name}</p>
-                      <p className="text-[10px] text-[#7A726A] line-clamp-1">{info.description}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Section 2: Choose Transport */}
-          <div>
-            <h4 className="text-xs font-bold text-[#7A726A] font-handwriting mb-2 flex items-center gap-1.5">
-              <Footprints className="w-4 h-4 text-[#3C5C7A]" />
-              2. 移動手段を選択
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {TRANSPORT_METHODS.map((t) => {
-                const isSelected = selectedTransport === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setSelectedTransport(t.id)}
-                    className={`p-3 text-left transition flex items-center gap-2.5 ${
-                      isSelected
-                        ? 'bg-[#FFFDF9] sketch-border shadow-sm'
-                        : 'bg-[#FAF8F4] sketch-card-subtle hover:bg-white'
-                    }`}
-                  >
-                    <div className={`p-2 sketch-tag ${isSelected ? 'bg-[#3E3833] text-white' : 'bg-[#EAE6DC] text-[#3E3833]'}`}>
-                      {getTransportIcon(t.id)}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-[#2E2824] font-handwriting">{t.name}</p>
-                      <p className="text-[10px] text-[#7A726A]">移動時間: 30秒</p>
-                    </div>
-                  </button>
-                );
-              })}
+          {/* Random transport explanation pills */}
+          <div className="pt-2 border-t border-[#EAE5D9]">
+            <p className="text-[11px] text-[#7A726A] font-handwriting text-center mb-2">
+              🎲 移動手段は以下のいずれかがランダムに選ばれます（一律30秒）
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              {TRANSPORT_METHODS.map((t) => (
+                <div
+                  key={t.id}
+                  className="px-2.5 py-1 bg-[#FAF8F4] border border-[#DDD7C8] rounded-xl text-[10px] font-bold text-[#4A423B] flex items-center gap-1 font-handwriting"
+                >
+                  {getTransportIcon(t.id)}
+                  <span>{t.name}</span>
+                </div>
+              ))}
             </div>
           </div>
-
-          {/* Action Button */}
-          <button
-            onClick={handleGo}
-            className="w-full py-3 bg-[#3E3833] hover:bg-[#2E2824] text-white text-sm font-bold sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting flex items-center justify-center gap-2"
-          >
-            <Compass className="w-4 h-4 text-white" />
-            <span>{LOCATIONS[selectedLoc]?.name || 'そこ'} へ出発する！</span>
-          </button>
         </div>
       </div>
     </div>

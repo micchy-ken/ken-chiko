@@ -1354,6 +1354,7 @@ export default function App() {
             <KenchikoStage
               kenchiko={saveData.kenchiko}
               companionNyan={companionNyan}
+              characters={saveData.characters}
               remainingTimeSec={remainingTimeSec}
               timeSpeed={timeSpeed}
               onPet={handlePetKenchiko}
