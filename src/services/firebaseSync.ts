@@ -49,11 +49,30 @@ export interface NyanProgressEntry {
 }
 
 /**
+ * Lightweight, parameter-free Kenchiko state for cloud synchronization.
+ * Strips out unused status parameters (mood, stamina, hunger, happiness).
+ */
+export interface KenchikoSyncState {
+  currentLocation: string;
+  targetLocation: string | null;
+  transportMethod: string | null;
+  currentActivity: string;
+  currentActivityTitle: string;
+  activityStartedAt: number;
+  activityDurationSec: number;
+  currentCompanionNyanId: number | null;
+  customImageUrl?: string;
+  monologue: string;
+  equippedItem?: string | null;
+  totalPlayTimeSec?: number;
+}
+
+/**
  * Highly optimized, lightweight Firestore document schema (2-5KB vs 300KB).
  */
 export interface UserProgressDoc {
   version: number;
-  kenchiko: KenchikoState;
+  kenchiko: KenchikoSyncState;
   nyanProgress: Record<number, NyanProgressEntry>;
   inventory: GiftItem[];
   diary: DiaryEntry[];
@@ -95,6 +114,7 @@ export function removeUndefinedDeep<T>(obj: T): T {
 
 /**
  * Extracts ONLY user-specific progress, discoveries, and custom image overrides.
+ * Strictly strips out obsolete parameters (mood, stamina, hunger, happiness).
  * Strictly guarantees no `undefined` keys exist in the output object.
  */
 export function extractUserProgress(data: GameSaveData): UserProgressDoc {
@@ -140,14 +160,21 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
   // Cap diary to latest 30 entries for optimal payload size
   const cappedDiary = Array.isArray(data.diary) ? data.diary.slice(0, 30) : [];
 
-  const cleanedKenchiko = { ...data.kenchiko };
-  // Ensure Kenchiko's custom avatar image is synced across devices (fallback to local if memory is empty)
-  if (!cleanedKenchiko.customImageUrl) {
-    const localImg = loadLocalKenchikoImage();
-    if (localImg) {
-      cleanedKenchiko.customImageUrl = localImg;
-    }
-  }
+  const localImg = loadLocalKenchikoImage();
+  const cleanedKenchiko: KenchikoSyncState = {
+    currentLocation: data.kenchiko?.currentLocation || 'living',
+    targetLocation: data.kenchiko?.targetLocation || null,
+    transportMethod: data.kenchiko?.transportMethod || null,
+    currentActivity: data.kenchiko?.currentActivity || 'spacing_out',
+    currentActivityTitle: data.kenchiko?.currentActivityTitle || 'のんびり過ごしている',
+    activityStartedAt: data.kenchiko?.activityStartedAt || Date.now(),
+    activityDurationSec: data.kenchiko?.activityDurationSec || 300,
+    currentCompanionNyanId: data.kenchiko?.currentCompanionNyanId || null,
+    customImageUrl: data.kenchiko?.customImageUrl || localImg || '',
+    monologue: data.kenchiko?.monologue || '',
+    equippedItem: data.kenchiko?.equippedItem || null,
+    totalPlayTimeSec: data.kenchiko?.totalPlayTimeSec || 0,
+  };
 
   const rawDoc: UserProgressDoc = {
     version: data.version || 2,

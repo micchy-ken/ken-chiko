@@ -631,60 +631,9 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                     )}
                   </div>
 
-                  <p className="text-xs text-[#5A524A] italic line-clamp-1">
-                    {user.kenchiko.currentActivityTitle || 'のんびり日向ぼっこしている'}
+                  <p className="text-xs text-[#5A524A] italic line-clamp-2">
+                    {user.kenchiko.monologue ? `「${user.kenchiko.monologue}」` : (user.kenchiko.currentActivityTitle || 'のんびり過ごしている')}
                   </p>
-
-                  {/* Status bars (Happiness, Hunger, Stamina) */}
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    <div>
-                      <div className="flex items-center justify-between text-[10px] text-[#7A726A] mb-0.5">
-                        <span className="flex items-center gap-0.5">
-                          <Heart className="w-2.5 h-2.5 text-[#C85A53]" />
-                          機嫌
-                        </span>
-                        <span className="font-bold">{user.kenchiko.happiness}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-[#EAE5D9] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#C85A53] rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(0, user.kenchiko.happiness))}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between text-[10px] text-[#7A726A] mb-0.5">
-                        <span className="flex items-center gap-0.5">
-                          <Coffee className="w-2.5 h-2.5 text-[#D99B3D]" />
-                          満腹
-                        </span>
-                        <span className="font-bold">{user.kenchiko.hunger}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-[#EAE5D9] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#D99B3D] rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(0, user.kenchiko.hunger))}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between text-[10px] text-[#7A726A] mb-0.5">
-                        <span className="flex items-center gap-0.5">
-                          <Zap className="w-2.5 h-2.5 text-[#438363]" />
-                          体力
-                        </span>
-                        <span className="font-bold">{user.kenchiko.stamina}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-[#EAE5D9] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#438363] rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(0, user.kenchiko.stamina))}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Progress & Data Metrics */}
@@ -881,7 +830,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                         けんちこの現在のステータス
                       </span>
                       <span className="text-[11px] text-[#7A726A]">
-                        気分: <strong className="text-[#2E2824]">{selectedUser.kenchiko.mood}</strong>
+                        {selectedUser.companionNyan ? `一緒: ${selectedUser.companionNyan.name}` : 'ひとり'}
                       </span>
                     </div>
 

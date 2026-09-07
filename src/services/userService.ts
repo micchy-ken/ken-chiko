@@ -39,10 +39,6 @@ export interface UserDetailData {
     targetLocation: string | null;
     transportMethod: string | null;
     currentActivityTitle: string;
-    mood: string;
-    stamina: number;
-    hunger: number;
-    happiness: number;
     monologue: string;
     currentCompanionNyanId: number | null;
     totalPlayTimeSec: number;
@@ -322,11 +318,7 @@ function buildUserDetailData(
       currentLocation: saveData.kenchiko?.currentLocation || 'living',
       targetLocation: saveData.kenchiko?.targetLocation || null,
       transportMethod: saveData.kenchiko?.transportMethod || null,
-      currentActivityTitle: saveData.kenchiko?.currentActivityTitle || 'のんびり日向ぼっこしている',
-      mood: saveData.kenchiko?.mood || 'happy',
-      stamina: saveData.kenchiko?.stamina ?? 100,
-      hunger: saveData.kenchiko?.hunger ?? 50,
-      happiness: saveData.kenchiko?.happiness ?? 100,
+      currentActivityTitle: saveData.kenchiko?.currentActivityTitle || 'のんびり過ごしている',
       monologue: saveData.kenchiko?.monologue || '',
       currentCompanionNyanId: saveData.kenchiko?.currentCompanionNyanId || null,
       totalPlayTimeSec: saveData.kenchiko?.totalPlayTimeSec || 0,
