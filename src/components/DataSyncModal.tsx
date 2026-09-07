@@ -2753,7 +2753,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       🛡️ クラウド通信量セーフガード（意図しない書き込み防止）
                     </h4>
                     <p className="text-[11px] text-[#7D756D] mt-0.5">
-                      1日の書き込み上限（最大{MAX_DAILY_WRITES}回）と最低60秒のスロットルで、無料枠を超えないよう物理的に保護されています。
+                      1日の書き込み上限（最大{MAX_DAILY_WRITES}回）と最低120秒のスロットル・重要差分検知で、放置時や無操作時に意図しない通信が発生しないよう物理的に保護されています。
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -2770,7 +2770,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     </span>
                     <span className="text-[10px] text-[#8C8275]">
                       {connectionStatus.isAutoSyncEnabled
-                        ? 'ON: 新規にゃんこ発見時など、重要なイベント時のみ安全にクラウドへ同期します（最低60秒間隔）'
+                        ? 'ON: 新規にゃんこ発見などの重要進行時のみ同期（最低120秒間隔・重要差分検知付きで無駄な書き込みゼロ）'
                         : 'OFF: クラウドへの自動書き込みを完全停止中。意図しない通信はゼロで、ローカルにのみ安全保存されます'}
                     </span>
                   </div>

@@ -519,8 +519,8 @@ const QUOTA_STORAGE_KEY = 'kenchiko_firestore_quota_until';
 const DAILY_WRITES_KEY = 'kenchiko_daily_writes_v2';
 const AUTO_SYNC_ENABLED_KEY = 'kenchiko_cloud_auto_sync_enabled_v2';
 
-// Safe daily budget: 500 writes per day (only ~2.5% of the 20,000 free daily writes)
-export const MAX_DAILY_WRITES = 500;
+// Safe daily budget: 150 writes per day (far below the 20,000 free daily writes)
+export const MAX_DAILY_WRITES = 150;
 
 export interface DailyWriteStats {
   date: string; // YYYY-MM-DD
@@ -1169,9 +1169,14 @@ let latestPendingData: GameSaveData | null = null;
 let queuedImmediateData: GameSaveData | null = null;
 let isWritingToFirestore = false;
 let lastWrittenContentString: string = '';
-let lastWrittenGlobalString: string = '';
 let sessionDbReadCount: number = 0;
 let sessionDbWriteCount: number = 0;
+
+/**
+ * Cooldown between automatic routine cloud writes: 120 seconds (2 minutes).
+ * LocalStorage updates at 0ms latency for 100% data safety.
+ */
+export const MIN_AUTO_SYNC_INTERVAL_MS = 120000;
 
 export interface FirebaseAccessStats {
   sessionReads: number;
@@ -1194,12 +1199,44 @@ export function resetFirebaseAccessStats(): void {
   sessionDbWriteCount = 0;
 }
 
+/**
+ * Computes a deterministic content signature of meaningful user progress.
+ * Strictly excludes fluctuating ambient states (monologue, activity timer, lastMetAt, lastSaved, etc.)
+ * so routine simulation ticks or background tab updates generate 0 Firestore writes.
+ */
+export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
+  const nyanKeys = Object.keys(doc.nyanProgress || {}).sort((a, b) => Number(a) - Number(b));
+  const nyanStr = nyanKeys
+    .map((k) => {
+      const entry = doc.nyanProgress[Number(k)];
+      return `${k}:${entry.discovered ? 1 : 0}:${entry.friendshipLevel || 0}:${entry.playCount || 0}:${entry.customImageUrl || ''}:${entry.rawImageUrl || ''}`;
+    })
+    .join(';');
+
+  const invStr = (doc.inventory || [])
+    .map((item) => `${item.id}:${item.count}`)
+    .sort()
+    .join(';');
+
+  // Diary length and summary (ignore millisecond timestamps)
+  const diaryStr = (doc.diary || [])
+    .slice(0, 30)
+    .map((d) => `${d.activityTitle || ''}@${d.locationName || ''}`)
+    .join(';');
+
+  const statsStr = `${doc.stats?.totalEncounters || 0}:${doc.stats?.totalSnacksEaten || 0}:${doc.stats?.totalNapMinutes || 0}:${doc.stats?.totalTrips || 0}`;
+
+  const assetsStr = `${doc.kenchiko?.customImageUrl || ''}|${doc.kihonNyanCustomImageUrl || ''}|${doc.googleDriveFolderUrl || ''}|${doc.kenchiko?.equippedItem || ''}|${doc.kenchiko?.currentLocation || ''}`;
+
+  return `${nyanStr}#${invStr}#${diaryStr}#${statsStr}#${assetsStr}`;
+}
+
 export async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
   forceManual: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
-  // Always protect data in local storage
+  // Always protect data in local storage immediately (0 latency, 0 quota)
   saveLocalBackup(data);
 
   // 1. Check quota exhaustion (skip if manual save)
@@ -1221,9 +1258,18 @@ export async function executeFirestoreWrite(
     };
   }
 
+  // Extract compact UserProgressDoc (removes static character lore)
+  const compactProgressDoc = extractUserProgress(data);
+  const currentMeaningfulHash = getMeaningfulUserProgressHash(compactProgressDoc);
+
+  // Skip write completely if meaningful game progress has not changed (even on forced exit calls)
+  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
+    return { success: true };
+  }
+
   const now = Date.now();
-  // 4. Enforce strict rate-limit throttle: Minimum 25s between non-manual writes
-  if (!forceManual && now - lastSuccessfulWriteTime < 25000) {
+  // 4. Enforce strict rate-limit throttle: Minimum 120s between routine non-manual writes
+  if (!forceManual && now - lastSuccessfulWriteTime < MIN_AUTO_SYNC_INTERVAL_MS) {
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -1231,42 +1277,8 @@ export async function executeFirestoreWrite(
         if (latestPendingData) {
           executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
         }
-      }, 25000 - (now - lastSuccessfulWriteTime));
+      }, MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime));
     }
-    return { success: true };
-  }
-
-  // Extract compact UserProgressDoc (removes 260KB of static character lore)
-  const compactProgressDoc = extractUserProgress(data);
-
-  // Hash content without fluctuating in-memory fields (hunger, stamina, playTime, timestamps)
-  const sanitizedContent = JSON.parse(
-    JSON.stringify(compactProgressDoc, (key, value) => {
-      if (
-        key === 'lastSaved' ||
-        key === 'updatedAt' ||
-        key === 'totalPlayTimeSec' ||
-        key === 'stamina' ||
-        key === 'hunger' ||
-        key === 'activityStartedAt'
-      ) {
-        return undefined;
-      }
-      return value === undefined ? null : value;
-    })
-  );
-  const currentContentString = JSON.stringify(sanitizedContent);
-
-  // Global shared master data hash
-  const currentGlobalString = JSON.stringify({
-    asobiList: compactProgressDoc.asobiList,
-    kenchikoAvatar: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
-    kihonNyanCustomImageUrl: compactProgressDoc.kihonNyanCustomImageUrl || '',
-    googleDriveFolderUrl: compactProgressDoc.googleDriveFolderUrl || '',
-  });
-
-  // Skip write completely if meaningful content has not changed (unless forced manual write)
-  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentContentString) {
     return { success: true };
   }
 
@@ -1290,12 +1302,8 @@ export async function executeFirestoreWrite(
     const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
     const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
 
-    // Sanitize asobiList before writing to prevent legacy default items from polluting the DB
-    const cleanAsobiList = sanitizeAsobiList(compactProgressDoc.asobiList);
-    compactProgressDoc.asobiList = cleanAsobiList;
-
-    // 1. Write the compact progress document to the active user's personal document
-    // NOTE: asobiList is strictly a global master collection and is EXCLUDED from user progress docs!
+    // 1. Write the compact progress document EXCLUSIVELY to the active user's personal document
+    // NOTE: asobiList and master configs are global master collections and are NEVER written here!
     const { asobiList: _ignoredAsobi, ...userProgressOnly } = compactProgressDoc as any;
     const payload = removeUndefinedDeep({
       ...userProgressOnly,
@@ -1305,30 +1313,7 @@ export async function executeFirestoreWrite(
     await setDoc(userDocRef, payload);
     sessionDbWriteCount++;
     incrementDailyWriteCount();
-    lastWrittenContentString = currentContentString;
-
-    // 2. ONLY write to the Global Shared Master DB (ken-chiko-global-state) IF global avatar/image/drive settings actually changed
-    // NOTE: Routine user actions never write to global master DB unless global assets changed.
-    if (userDocId !== GLOBAL_SHARED_DOC_ID && (forceManual || currentGlobalString !== lastWrittenGlobalString)) {
-      try {
-        const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-        const globalPayload = removeUndefinedDeep({
-          kenchiko: {
-            customImageUrl: compactProgressDoc.kenchiko?.customImageUrl || loadLocalKenchikoImage() || '',
-          },
-          kihonNyanCustomImageUrl: compactProgressDoc.kihonNyanCustomImageUrl || '',
-          googleDriveFolderUrl: compactProgressDoc.googleDriveFolderUrl || '',
-          lastSaved: Date.now(),
-          updatedAt: new Date().toISOString(),
-        });
-        await setDoc(globalDocRef, globalPayload, { merge: true });
-        sessionDbWriteCount++;
-        incrementDailyWriteCount();
-        lastWrittenGlobalString = currentGlobalString;
-      } catch (globalWriteErr) {
-        console.warn('Failed to update global shared master state:', globalWriteErr);
-      }
-    }
+    lastWrittenContentString = currentMeaningfulHash;
 
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
@@ -1354,15 +1339,6 @@ export async function executeFirestoreWrite(
       executeFirestoreWrite(nextData, config, true).catch(() => {});
     }
   }
-}
-
-// Protect state in local storage on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    if (latestPendingData) {
-      saveLocalBackup(latestPendingData);
-    }
-  });
 }
 
 export async function syncSaveDataToFirebase(
@@ -1397,7 +1373,6 @@ export async function syncSaveDataToFirebase(
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  // Debounced write (15s cooldown)
   if (pendingWriteTimeout) {
     return { success: true };
   }
@@ -1407,7 +1382,7 @@ export async function syncSaveDataToFirebase(
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
     }
-  }, Math.max(3000, 25000 - timeSinceLast));
+  }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
   return { success: true };
 }
@@ -1417,7 +1392,7 @@ export async function saveOnUserAction(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
-  // Always update local storage first (instant, 0 latency, 0 data loss)
+  // Always update local storage first (instant, 0 latency, 0 data loss, 0 quota)
   saveLocalBackup(data);
   latestPendingData = data;
 
@@ -1426,11 +1401,18 @@ export async function saveOnUserAction(
     return { success: true };
   }
 
-  // Debounce consecutive fast user actions (e.g. rapid tapping, feeding, petting)
+  // Check if meaningful changes exist before scheduling any cloud write
+  const compact = extractUserProgress(data);
+  const hash = getMeaningfulUserProgressHash(compact);
+  if (lastWrittenContentString && hash === lastWrittenContentString) {
+    return { success: true }; // Skip scheduling cloud write completely
+  }
+
+  // Debounce consecutive user actions (minimum 120s cooldown)
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 
-  if (timeSinceLast >= 25000 && !isWritingToFirestore) {
+  if (timeSinceLast >= MIN_AUTO_SYNC_INTERVAL_MS && !isWritingToFirestore) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -1447,7 +1429,7 @@ export async function saveOnUserAction(
     if (latestPendingData) {
       executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
     }
-  }, Math.max(3000, 25000 - timeSinceLast));
+  }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
   return { success: true };
 }
@@ -1458,19 +1440,19 @@ export async function saveOnAppExit(
 ): Promise<void> {
   const dataToSave = data || latestPendingData;
   if (!dataToSave) return;
+  // Always synchronously protect in local storage (0 latency, 0 network quota)
   saveLocalBackup(dataToSave);
 
   if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) return;
 
-  // Fire-and-forget sync on exit if meaningful changes exist
-  executeFirestoreWrite(dataToSave, config, true).catch(() => {});
-}
+  // Only perform a cloud write if genuine milestone progress changed!
+  const compact = extractUserProgress(dataToSave);
+  const hash = getMeaningfulUserProgressHash(compact);
+  if (lastWrittenContentString && hash === lastWrittenContentString) {
+    return; // Completely skip cloud write!
+  }
 
-// Global page unload handler: Save to localStorage and try final cloud sync
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    saveOnAppExit();
-  });
+  executeFirestoreWrite(dataToSave, config, false).catch(() => {});
 }
 
 /**
