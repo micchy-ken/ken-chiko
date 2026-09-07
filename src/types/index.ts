@@ -13,6 +13,7 @@ export type LocationId =
 
 export type ActivityType =
   | 'transit'
+  | 'arrived'
   | 'snacking'
   | 'nap'
   | 'play_with_nyan'

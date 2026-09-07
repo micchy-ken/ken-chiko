@@ -103,7 +103,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-[#7A726A] font-bold font-handwriting tracking-wider">
-                {kenchiko.currentActivity === 'transit' ? 'いどう中' : 'げんざいち'}
+                {kenchiko.currentActivity === 'transit' ? 'いどう中' : kenchiko.currentActivity === 'arrived' ? 'とうちゃく！' : 'げんざいち'}
               </span>
               {timeSpeed > 1 && (
                 <span className="bg-[#487560] text-white text-[10px] px-2 py-0.5 rounded-full font-bold">
@@ -223,6 +223,8 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                     ? 'カフェ休憩'
                     : kenchiko.currentActivity === 'transit'
                     ? `${transportInfo?.name || 'とほ'}で移動中`
+                    : kenchiko.currentActivity === 'arrived'
+                    ? '到着！見回し中'
                     : '活動中'})
                 </span>
               </div>

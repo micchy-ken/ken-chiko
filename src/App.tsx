@@ -104,9 +104,40 @@ function formatEncounterTimeBadge(timestamp: number, isCurrent: boolean): string
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/**
+ * Safely merge newly synced master character definitions with current user progress
+ * Strictly protects discovered status, encounter history, friendship, and custom attributes.
+ */
+function mergeMasterWithCurrentProgress(
+  currentNyans: NyanCharacter[],
+  masterNyans: NyanCharacter[]
+): NyanCharacter[] {
+  const map = new Map(currentNyans.map((c) => [c.no, c]));
+  return masterNyans.map((up) => {
+    const cur = map.get(up.no);
+    if (!cur) return up;
+    return {
+      ...up,
+      discovered: Boolean(cur.discovered || up.discovered),
+      discoveryDate: cur.discoveryDate || up.discoveryDate,
+      lastMetAt: Math.max(cur.lastMetAt || 0, up.lastMetAt || 0),
+      friendshipLevel: Math.max(cur.friendshipLevel || 0, up.friendshipLevel || 0),
+      playCount: Math.max(cur.playCount || 0, up.playCount || 0),
+      customImageUrl: cur.customImageUrl || up.customImageUrl,
+      rawImageUrl: cur.rawImageUrl || up.rawImageUrl,
+      transparency: cur.transparency ?? up.transparency,
+    };
+  });
+}
+
 export default function App() {
   // Main Game Save Data State (Pure Firestore Source of Truth)
   const [saveData, setSaveData] = useState<GameSaveData>(DEFAULT_INITIAL_STATE);
+  const saveDataRef = useRef<GameSaveData>(saveData);
+  useEffect(() => {
+    saveDataRef.current = saveData;
+  }, [saveData]);
+
   const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(true);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState<boolean>(false);
   const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
@@ -122,6 +153,7 @@ export default function App() {
   const [remainingTimeSec, setRemainingTimeSec] = useState<number>(300);
   const remainingTimeSecRef = useRef<number>(300);
   const isCompletingActivityRef = useRef<boolean>(false);
+  const handleActivityCompletionRef = useRef<() => void>(() => {});
   const lastCompletionTimestampRef = useRef<number>(0);
 
   // Modal States
@@ -136,6 +168,19 @@ export default function App() {
   const tutorialOpenTimestampRef = useRef<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+
+  // Guard flag: Ensure the encounter/activity lottery never begins until initial sync has fully settled
+  const [isInitialSyncCompleted, setIsInitialSyncCompleted] = useState<boolean>(false);
+  const isInitialSyncCompletedRef = useRef<boolean>(false);
+
+  // Auto-dismiss new encounter toast after 12 seconds so it never lingers indefinitely
+  useEffect(() => {
+    if (!newEncounterToast) return;
+    const timer = setTimeout(() => {
+      setNewEncounterToast(null);
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [newEncounterToast]);
 
   // Synchronize ref states
   useEffect(() => {
@@ -269,9 +314,12 @@ export default function App() {
       }));
     }
 
-    // B. Immediate cloud connection & state initialization
-    fetchInitialFirebaseState()
-      .then((res) => {
+    // B. Immediate cloud connection & master synchronization pipeline
+    const runInitialBootSync = async () => {
+      let activeData = saveDataRef.current;
+
+      try {
+        const res = await fetchInitialFirebaseState();
         if (!isMounted) return;
         if (res.success && res.data) {
           isRemoteUpdateRef.current = true;
@@ -281,36 +329,123 @@ export default function App() {
           } else if (mergedData.kenchiko.customImageUrl) {
             saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
           }
+          activeData = mergedData;
           setSaveData(mergedData);
-          const elapsedRealSec = Math.floor((Date.now() - res.data.kenchiko.activityStartedAt) / 1000);
-          const initialRemaining = Math.max(0, res.data.kenchiko.activityDurationSec - elapsedRealSec);
-          remainingTimeSecRef.current = initialRemaining;
-          setRemainingTimeSec(initialRemaining);
           setIsFirebaseSynced(true);
         }
-        endInitialConnectionPhase();
-        setIsLoadingFirebase(false);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.warn('Firebase initial load note:', err);
+      }
+
+      // Master Data Refresh Check (at most once every 12 hours)
+      const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
+      const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
+      const now = Date.now();
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+      if (now - lastCheckTime >= TWELVE_HOURS) {
+        localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
+        try {
+          const masterCheckPromise = async () => {
+            let workingCharacters = activeData.characters;
+            // 1. Google Docs Master Read
+            const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
+            if (docUrl && docUrl.trim().length > 0) {
+              try {
+                const docRes = await syncNyansFromGoogleDoc(docUrl, workingCharacters);
+                if (docRes.success && (docRes.addedCount > 0 || docRes.updatedCount > 0)) {
+                  workingCharacters = mergeMasterWithCurrentProgress(workingCharacters, docRes.updatedNyans);
+                }
+              } catch {}
+            }
+
+            // 2. Google Drive Images Master Read
+            const driveFolderUrl =
+              activeData.googleDriveFolderUrl ||
+              getSavedGoogleDriveFolderUrl() ||
+              DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
+            let newKihonImg = activeData.kihonNyanCustomImageUrl;
+            if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
+              try {
+                const driveRes = await syncImagesFromGoogleDriveFolder(driveFolderUrl, workingCharacters);
+                if (driveRes.success) {
+                  if (driveRes.matchedCount > 0) {
+                    workingCharacters = mergeMasterWithCurrentProgress(workingCharacters, driveRes.updatedNyans);
+                  }
+                  if (driveRes.kihonNyanImageUrl && driveRes.kihonNyanImageUrl !== activeData.kihonNyanCustomImageUrl) {
+                    newKihonImg = driveRes.kihonNyanImageUrl;
+                  }
+                }
+              } catch {}
+            }
+
+            if (workingCharacters !== activeData.characters || newKihonImg !== activeData.kihonNyanCustomImageUrl) {
+              const nextData: GameSaveData = {
+                ...activeData,
+                characters: workingCharacters,
+                googleDriveFolderUrl: driveFolderUrl,
+                kihonNyanCustomImageUrl: newKihonImg || activeData.kihonNyanCustomImageUrl,
+                lastSaved: Date.now(),
+              };
+              activeData = nextData;
+              setSaveData(nextData);
+              saveLocalBackup(nextData);
+            }
+          };
+
+          // Limit master sync during boot to 3.5s so game never stalls
+          await Promise.race([
+            masterCheckPromise(),
+            new Promise((resolve) => setTimeout(resolve, 3500)),
+          ]);
+        } catch (err) {
+          console.warn('Master check during startup note:', err);
+        }
+      }
+
+      if (!isMounted) return;
+
+      // Synchronization is now 100% complete!
+      endInitialConnectionPhase();
+      setIsLoadingFirebase(false);
+      isInitialSyncCompletedRef.current = true;
+      setIsInitialSyncCompleted(true);
+
+      // Now calculate remaining time
+      const elapsedRealSec = Math.floor((Date.now() - activeData.kenchiko.activityStartedAt) / 1000);
+      const initialRemaining = Math.max(0, activeData.kenchiko.activityDurationSec - elapsedRealSec);
+      remainingTimeSecRef.current = initialRemaining;
+      setRemainingTimeSec(initialRemaining);
+
+      // If activity finished while user was away, trigger completion now that sync has settled!
+      if (initialRemaining <= 0) {
+        setTimeout(() => {
+          if (isMounted) handleActivityCompletionRef.current();
+        }, 150);
+      }
+    };
+
+    runInitialBootSync();
+
+    // Fallback timer: guarantee sync completion flag is set within 5 seconds even under total network cutoff
+    const fallbackTimer = setTimeout(() => {
+      if (!isInitialSyncCompletedRef.current) {
+        isInitialSyncCompletedRef.current = true;
+        setIsInitialSyncCompleted(true);
+        setIsLoadingFirebase(false);
         endInitialConnectionPhase();
-        if (isMounted) setIsLoadingFirebase(false);
-      });
+      }
+    }, 5000);
 
     return () => {
       isMounted = false;
+      clearTimeout(fallbackTimer);
       unsubStatus();
     };
   }, []);
 
-  // Master Data Refresh Interval: Checks at most once every 12 hours on launch (e.g. for Monday morning updates)
-  // CRITICAL: This is strictly READ-ONLY. It never writes to Firestore.
+  // Master Data Refresh key
   const LAST_MASTER_CHECK_KEY = 'kenchiko_last_master_check_time_v2';
-  const hasAttemptedInitialSyncRef = useRef<boolean>(false);
-  const saveDataRef = useRef<GameSaveData>(saveData);
-  useEffect(() => {
-    saveDataRef.current = saveData;
-  }, [saveData]);
 
   // Hook up exit save (beforeunload)
   useEffect(() => {
@@ -322,79 +457,6 @@ export default function App() {
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
-
-  useEffect(() => {
-    if (isLoadingFirebase || hasAttemptedInitialSyncRef.current) return;
-    hasAttemptedInitialSyncRef.current = true;
-
-    const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
-    const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
-    const now = Date.now();
-    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-
-    // Only check master data if >12 hours since last check (e.g. Monday morning updates)
-    if (now - lastCheckTime < TWELVE_HOURS) {
-      return;
-    }
-
-    const executeMasterDataCheck = async () => {
-      localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
-
-      // 1. Google Docs/Sheets Master Read
-      const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
-      if (docUrl && docUrl.trim().length > 0) {
-        try {
-          const res = await syncNyansFromGoogleDoc(docUrl, saveDataRef.current.characters);
-          if (res.success && (res.addedCount > 0 || res.updatedCount > 0)) {
-            setSaveData((prev) => {
-              const nextData: GameSaveData = {
-                ...prev,
-                characters: res.updatedNyans,
-                lastSaved: Date.now(),
-              };
-              saveLocalBackup(nextData); // Keep local only! Zero cloud write
-              return nextData;
-            });
-          }
-        } catch {}
-      }
-
-      // 2. Google Drive Folder Image Master Read
-      const driveFolderUrl =
-        saveDataRef.current.googleDriveFolderUrl ||
-        getSavedGoogleDriveFolderUrl() ||
-        DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
-      if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
-        try {
-          const res = await syncImagesFromGoogleDriveFolder(
-            driveFolderUrl,
-            saveDataRef.current.characters
-          );
-          if (
-            res.success &&
-            (res.matchedCount > 0 ||
-              (res.kihonNyanImageUrl &&
-                res.kihonNyanImageUrl !== saveDataRef.current.kihonNyanCustomImageUrl))
-          ) {
-            setSaveData((prev) => {
-              const nextData: GameSaveData = {
-                ...prev,
-                characters: res.updatedNyans,
-                googleDriveFolderUrl: driveFolderUrl,
-                kihonNyanCustomImageUrl: res.kihonNyanImageUrl || prev.kihonNyanCustomImageUrl,
-                lastSaved: Date.now(),
-              };
-              saveLocalBackup(nextData); // Keep local only! Zero cloud write
-              return nextData;
-            });
-          }
-        } catch {}
-      }
-    };
-
-    const timer = setTimeout(executeMasterDataCheck, 3500);
-    return () => clearTimeout(timer);
-  }, [isLoadingFirebase]);
 
   // Current Companion Nyan
   const companionNyan = useMemo(() => {
@@ -453,8 +515,8 @@ export default function App() {
 
   // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = useCallback(() => {
-    // CRITICAL: Never advance game simulation or write to DB if admin panel, sync modal, or tutorial is open!
-    if (isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+    // CRITICAL: Never advance game simulation or write to DB if initial sync is running or modal is open!
+    if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
 
     const now = Date.now();
     // Re-entrancy guard to prevent multiple parallel or near-simultaneous triggers
@@ -479,80 +541,23 @@ export default function App() {
         let nextData: GameSaveData;
         let isNewlyDiscoveredNyan = false;
 
-        // Case A: Just arrived from transit
+        // Case A: Just arrived from transit -> Wait 5 seconds before running encounter lottery
         if (curK.currentActivity === 'transit' && curK.targetLocation) {
           nextLocation = curK.targetLocation;
           nextTargetLocation = null;
           nextTransport = null;
           updatedStats.totalTrips += 1;
 
-          const actResult = generateNextActivity(nextLocation, updatedCharacters, prev.asobiList);
-          nextCompanionId = actResult.companionNyanId;
+          // Clear any active encounter toast when arriving
+          setNewEncounterToast(null);
 
-          if (nextCompanionId) {
-            const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
-            if (compIdx >= 0) {
-              updatedCharacters[compIdx] = {
-                ...updatedCharacters[compIdx],
-                lastMetAt: Date.now(),
-                playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
-              };
-            }
-          }
-
-          if (actResult.newDiscoveredNyan) {
-            isNewlyDiscoveredNyan = true;
-            const charIndex = updatedCharacters.findIndex(
-              (c) => c.no === actResult.newDiscoveredNyan!.no
-            );
-            if (charIndex >= 0) {
-              updatedCharacters[charIndex] = {
-                ...updatedCharacters[charIndex],
-                discovered: true,
-                discoveryDate: new Date().toLocaleString('ja-JP'),
-                lastMetAt: Date.now(),
-                playCount: 1,
-                friendshipLevel: 1,
-              };
-              updatedStats.totalEncounters += 1;
-              setNewEncounterToast(updatedCharacters[charIndex]);
-              confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
-            }
-          }
-
-          if (actResult.diaryText) {
-            const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
-            updatedDiary.unshift({
-              id: `diary_${Date.now()}`,
-              timestamp: Date.now(),
-              dateFormatted: new Date().toLocaleDateString('ja-JP', {
-                month: 'numeric',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-              locationName: locInfo.name,
-              activityTitle: actResult.title,
-              nyanId: nextCompanionId,
-              nyanName: actResult.companionNyanId
-                ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
-                : null,
-              itemUsed: null,
-              mood: curK.mood,
-              text: actResult.diaryText,
-            });
-          }
-
-          setRemainingTimeSec(actResult.durationSec);
-
-          const compChar = nextCompanionId
-            ? updatedCharacters.find((c) => c.no === nextCompanionId)
-            : null;
+          const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
+          const ARRIVAL_WAIT_SEC = 5;
+          setRemainingTimeSec(ARRIVAL_WAIT_SEC);
 
           nextData = {
             ...prev,
             characters: updatedCharacters,
-            diary: deduplicateDiary(updatedDiary).slice(0, 50),
             stats: updatedStats,
             lastSaved: Date.now(),
             kenchiko: {
@@ -560,27 +565,22 @@ export default function App() {
               currentLocation: nextLocation,
               targetLocation: null,
               transportMethod: null,
-              currentActivity: actResult.type,
-              currentActivityTitle: actResult.title,
+              currentActivity: 'arrived',
+              currentActivityTitle: `${locInfo.name}に到着！`,
               activityStartedAt: Date.now(),
-              activityDurationSec: actResult.durationSec,
-              currentCompanionNyanId: nextCompanionId,
-              monologue:
-                actResult.customMonologue ||
-                getRandomMonologue(
-                  actResult.type,
-                  nextLocation,
-                  null,
-                  prev.asobiList,
-                  compChar?.name
-                ),
+              activityDurationSec: ARRIVAL_WAIT_SEC,
+              currentCompanionNyanId: null,
+              monologue: `${locInfo.name}に到着したにゃ！辺りを見回しているにゃ…`,
             },
           };
         } else {
-          // Case B: Finished activity at current place
-          const shouldMove = Math.random() < 0.45;
+          // Case B: Finished activity or 5-second arrival wait at current place
+          const isAfterArrival = curK.currentActivity === 'arrived';
+          // When Kenchiko just arrived, Kenchiko should NOT immediately travel again!
+          const shouldMove = !isAfterArrival && Math.random() < 0.45;
 
           if (shouldMove) {
+            setNewEncounterToast(null); // Clear toast when departing
             const dest = pickRandomLocation(curK.currentLocation);
             const transport = pickRandomTransport();
             const transitInfo = startTransit(curK.currentLocation, dest, transport);
@@ -608,6 +608,7 @@ export default function App() {
               },
             };
           } else {
+            // Case C: Perform encounter lottery & next activity at current location!
             const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
             nextCompanionId = actResult.companionNyanId;
 
@@ -715,12 +716,16 @@ export default function App() {
       isCompletingActivityRef.current = false;
     }, 800);
   }
-}, []);
+  }, []);
+
+  useEffect(() => {
+    handleActivityCompletionRef.current = handleActivityCompletion;
+  }, [handleActivityCompletion]);
 
   // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
   useEffect(() => {
-    // Completely freeze simulation loop if Firebase is loading, or if admin / sync modal / tutorial is open
-    if (isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
+    // Completely freeze simulation loop until initial sync is 100% complete, or if admin / sync modal / tutorial is open
+    if (!isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
 
     const interval = setInterval(() => {
       let isCompleted = false;
@@ -741,7 +746,7 @@ export default function App() {
 
     // Reconcile remaining time when returning to the tab / window focus
     const handleVisibilityOrFocus = () => {
-      if (isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+      if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
       if (document.visibilityState === 'visible') {
         const startedAt = saveData.kenchiko.activityStartedAt || Date.now();
         const durationSec = saveData.kenchiko.activityDurationSec || 300;
@@ -762,7 +767,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion]);
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isInitialSyncCompleted, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion]);
 
   // User Actions: Petting (local update only, zero Firestore writes)
   const handlePetKenchiko = () => {
@@ -811,6 +816,7 @@ export default function App() {
 
   // User Actions: Start Travel to specific destination
   const handleStartTravel = (destination: LocationId, transport: TransportMethod) => {
+    setNewEncounterToast(null);
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
     setRemainingTimeSec(transitInfo.durationSec);
 
