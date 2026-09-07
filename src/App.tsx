@@ -132,8 +132,42 @@ export default function App() {
   const [isStandaloneAdmin, setIsStandaloneAdmin] = useState<boolean>(false);
   const [showUserSettingsModal, setShowUserSettingsModal] = useState<boolean>(false);
   const [showTutorialModal, setShowTutorialModal] = useState<boolean>(false);
+  const showTutorialModalRef = useRef<boolean>(false);
+  const tutorialOpenTimestampRef = useRef<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+
+  // Synchronize ref states
+  useEffect(() => {
+    showTutorialModalRef.current = showTutorialModal;
+  }, [showTutorialModal]);
+
+  useEffect(() => {
+    remainingTimeSecRef.current = remainingTimeSec;
+  }, [remainingTimeSec]);
+
+  // Pause game progression while tutorial modal is visible
+  // When closing tutorial, shift activityStartedAt forward by the exact paused duration
+  useEffect(() => {
+    if (showTutorialModal) {
+      tutorialOpenTimestampRef.current = Date.now();
+    } else if (tutorialOpenTimestampRef.current !== null) {
+      const pausedDurationMs = Date.now() - tutorialOpenTimestampRef.current;
+      tutorialOpenTimestampRef.current = null;
+      if (pausedDurationMs > 300) {
+        setSaveData((prev) => {
+          const currentStartedAt = prev.kenchiko.activityStartedAt || Date.now();
+          return {
+            ...prev,
+            kenchiko: {
+              ...prev.kenchiko,
+              activityStartedAt: currentStartedAt + pausedDurationMs,
+            },
+          };
+        });
+      }
+    }
+  }, [showTutorialModal]);
 
   // Check if first-time user tutorial should be shown on app launch
   useEffect(() => {
@@ -419,8 +453,8 @@ export default function App() {
 
   // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = useCallback(() => {
-    // CRITICAL: Never advance game simulation or write to DB if admin panel or sync modal is open!
-    if (isStandaloneAdmin || showSyncModal) return;
+    // CRITICAL: Never advance game simulation or write to DB if admin panel, sync modal, or tutorial is open!
+    if (isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
 
     const now = Date.now();
     // Re-entrancy guard to prevent multiple parallel or near-simultaneous triggers
@@ -685,8 +719,8 @@ export default function App() {
 
   // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
   useEffect(() => {
-    // Completely freeze simulation loop if Firebase is loading, or if admin / sync modal is open
-    if (isLoadingFirebase || isStandaloneAdmin || showSyncModal) return;
+    // Completely freeze simulation loop if Firebase is loading, or if admin / sync modal / tutorial is open
+    if (isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
 
     const interval = setInterval(() => {
       let isCompleted = false;
@@ -707,7 +741,7 @@ export default function App() {
 
     // Reconcile remaining time when returning to the tab / window focus
     const handleVisibilityOrFocus = () => {
-      if (isStandaloneAdmin || showSyncModal) return;
+      if (isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
       if (document.visibilityState === 'visible') {
         const startedAt = saveData.kenchiko.activityStartedAt || Date.now();
         const durationSec = saveData.kenchiko.activityDurationSec || 300;
@@ -728,7 +762,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, isStandaloneAdmin, showSyncModal, handleActivityCompletion]);
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion]);
 
   // User Actions: Petting (local update only, zero Firestore writes)
   const handlePetKenchiko = () => {
