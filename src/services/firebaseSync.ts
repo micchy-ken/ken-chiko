@@ -169,7 +169,9 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
     currentActivity: data.kenchiko?.currentActivity || 'spacing_out',
     currentActivityTitle: data.kenchiko?.currentActivityTitle || 'のんびり過ごしている',
     activityStartedAt: data.kenchiko?.activityStartedAt || Date.now(),
-    activityDurationSec: data.kenchiko?.activityDurationSec || 300,
+    activityDurationSec: data.kenchiko?.currentActivity === 'transit'
+      ? 20
+      : (data.kenchiko?.activityDurationSec || 300),
     currentCompanionNyanId: data.kenchiko?.currentCompanionNyanId || null,
     customImageUrl: data.kenchiko?.customImageUrl || localImg || '',
     monologue: data.kenchiko?.monologue || '',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Compass,
@@ -21,10 +21,25 @@ import confetti from 'canvas-confetti';
 interface TutorialModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialStep?: number;
+  isNewFeatureOnly?: boolean;
 }
 
-export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose }) => {
-  const [currentStep, setCurrentStep] = useState<number>(0);
+export const TutorialModal: React.FC<TutorialModalProps> = ({
+  isOpen,
+  onClose,
+  initialStep = 0,
+  isNewFeatureOnly = false,
+}) => {
+  const [currentStep, setCurrentStep] = useState<number>(initialStep);
+  const [showAllStepsMode, setShowAllStepsMode] = useState<boolean>(!isNewFeatureOnly);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentStep(initialStep);
+      setShowAllStepsMode(!isNewFeatureOnly);
+    }
+  }, [isOpen, initialStep, isNewFeatureOnly]);
 
   if (!isOpen) return null;
 
@@ -74,7 +89,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
       stepNumber: 3,
       badge: 'みまもり・ふれあい',
       title: 'のんびり見守りとなでなで',
-      icon: Heart,
+      icon: Smile,
       iconColor: 'text-[#BA7323]',
       bgColor: 'bg-[#FEF5E7]',
       borderColor: 'border-[#BA7323]',
@@ -87,9 +102,27 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
       ],
       hint: '疲れたらいつでも開いて、けんちこの様子を覗いてみてください。',
     },
+    {
+      stepNumber: 4,
+      badge: 'しんきのう・おうえん',
+      title: 'けんちこに応援してもらう',
+      icon: Heart,
+      iconColor: 'text-[#D45366]',
+      bgColor: 'bg-[#FDF2F4]',
+      borderColor: 'border-[#D45366]',
+      mainText: '「応援して」ボタンをタップすると、けんちこが応援してくれます！',
+      subText: '「お仕事・勉強」「家事・日常」「自分磨き」の3つのカテゴリから今の気持ちを選ぶと、けんちこがポンポンを持って元気いっぱい応援してくれます。',
+      tags: [
+        { label: '「応援して」ボタン', icon: Sparkles },
+        { label: '3つのカテゴリから選ぶ', icon: CheckCircle2 },
+        { label: 'ポンポン応援モーション', icon: Heart },
+      ],
+      hint: 'がんばりたい時や疲れた時に、いつでもけんちこに応援してもらおう！',
+    },
   ];
 
-  const current = steps[currentStep];
+  const current = steps[currentStep] || steps[0];
+  const isNewFeatureMode = !showAllStepsMode && isNewFeatureOnly && currentStep === 3;
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
@@ -108,6 +141,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
   const handleComplete = () => {
     try {
       localStorage.setItem('kenchiko_tutorial_seen', 'true');
+      localStorage.setItem('kenchiko_ouen_tutorial_seen', 'true');
     } catch (_e) {
       // ignore localstorage errors
     }
@@ -117,6 +151,11 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
       origin: { y: 0.6 },
     });
     onClose();
+  };
+
+  const handleShowAllGuide = () => {
+    setShowAllStepsMode(true);
+    setCurrentStep(0);
   };
 
   return (
@@ -133,13 +172,20 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
         {/* Modal Header */}
         <div className="bg-[#ECE7DC] px-5 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-lg">📖</span>
+            <span className="text-lg">{isNewFeatureMode ? '✨' : '📖'}</span>
             <div>
-              <h2 className="font-handwriting font-black text-base text-[#2E2824] leading-tight">
-                けんちこの世界へようこそ！
+              <h2 className="font-handwriting font-black text-base text-[#2E2824] leading-tight flex items-center gap-1.5">
+                <span>{isNewFeatureMode ? '新機能のお知らせ！' : 'けんちこの世界へようこそ！'}</span>
+                {isNewFeatureMode && (
+                  <span className="px-1.5 py-0.2 bg-[#D45366] text-white text-[10px] font-bold rounded-full font-handwriting animate-pulse">
+                    NEW!
+                  </span>
+                )}
               </h2>
               <p className="font-handwriting text-xs text-[#71685F]">
-                あそびかたガイド ({currentStep + 1} / {steps.length})
+                {isNewFeatureMode
+                  ? 'けんちこに応援してもらえる機能が追加されました'
+                  : `あそびかたガイド (${currentStep + 1} / ${steps.length})`}
               </p>
             </div>
           </div>
@@ -148,7 +194,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
             onClick={handleComplete}
             className="text-xs font-handwriting font-bold px-2.5 py-1 text-[#71685F] hover:text-[#2E2824] hover:bg-[#DDD7C8] rounded-md transition flex items-center gap-1"
           >
-            <span>スキップ</span>
+            <span>{isNewFeatureMode ? '閉じる' : 'スキップ'}</span>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -159,9 +205,14 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
             {/* Step Badge & Icon */}
             <div className="flex items-center justify-between mb-3">
               <span
-                className={`text-xs font-black font-handwriting px-3 py-1 rounded-full border ${current.bgColor} ${current.borderColor} ${current.iconColor}`}
+                className={`text-xs font-black font-handwriting px-3 py-1 rounded-full border flex items-center gap-1 ${current.bgColor} ${current.borderColor} ${current.iconColor}`}
               >
-                ステップ {current.stepNumber}: {current.badge}
+                {current.stepNumber === 4 && <Sparkles className="w-3 h-3" />}
+                <span>
+                  {isNewFeatureMode
+                    ? '新機能：' + current.badge
+                    : `ステップ ${current.stepNumber}: ${current.badge}`}
+                </span>
               </span>
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center border-1.5 ${current.borderColor} ${current.bgColor}`}
@@ -192,7 +243,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
                       key={idx}
                       className="flex items-center gap-1 bg-white border border-[#DDD7C8] px-2.5 py-1 rounded-full text-xs font-handwriting text-[#4A433D]"
                     >
-                      <tag.icon className="w-3 h-3 text-[#BA7323]" />
+                      <tag.icon className="w-3 h-3 text-[#D45366]" />
                       <span>{tag.label}</span>
                     </div>
                   ))}
@@ -227,59 +278,89 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ isOpen, onClose })
               <Sparkles className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-[#BA7323]" />
               <span>{current.hint}</span>
             </div>
+
+            {/* If in single new feature notice mode, provide option to view full guide */}
+            {isNewFeatureMode && (
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  onClick={handleShowAllGuide}
+                  className="text-[11px] font-handwriting text-[#71685F] hover:text-[#2E2824] underline underline-offset-2 transition"
+                >
+                  📖 他のあそびかた（全4ステップ）を最初から見る
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Dots Indicator */}
-          <div className="flex items-center justify-center gap-2 pt-2">
-            {steps.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentStep(idx)}
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  currentStep === idx
-                    ? 'w-6 bg-[#3E3833]'
-                    : 'w-2 bg-[#DDD7C8] hover:bg-[#B0A79A]'
-                }`}
-                title={`ステップ ${idx + 1}`}
-              />
-            ))}
-          </div>
+          {/* Dots Indicator (shown when in full guide mode) */}
+          {showAllStepsMode && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              {steps.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentStep(idx)}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    currentStep === idx
+                      ? 'w-6 bg-[#3E3833]'
+                      : 'w-2 bg-[#DDD7C8] hover:bg-[#B0A79A]'
+                  }`}
+                  title={`ステップ ${idx + 1}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Modal Footer Controls */}
         <div className="bg-[#ECE7DC] px-5 py-3 border-t-1.5 border-[#3E3833] flex items-center justify-between gap-3">
-          <button
-            id="tutorial-prev-btn"
-            onClick={handlePrev}
-            disabled={currentStep === 0}
-            className={`flex items-center gap-1 px-3 py-2 rounded-lg font-handwriting text-xs font-bold transition ${
-              currentStep === 0
-                ? 'opacity-0 pointer-events-none'
-                : 'bg-[#FAF8F4] text-[#4A433D] border border-[#DDD7C8] hover:bg-white shadow-xs'
-            }`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>もどる</span>
-          </button>
+          {showAllStepsMode ? (
+            <>
+              <button
+                id="tutorial-prev-btn"
+                onClick={handlePrev}
+                disabled={currentStep === 0}
+                className={`flex items-center gap-1 px-3 py-2 rounded-lg font-handwriting text-xs font-bold transition ${
+                  currentStep === 0
+                    ? 'opacity-0 pointer-events-none'
+                    : 'bg-[#FAF8F4] text-[#4A433D] border border-[#DDD7C8] hover:bg-white shadow-xs'
+                }`}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>もどる</span>
+              </button>
 
-          {currentStep < steps.length - 1 ? (
-            <button
-              id="tutorial-next-btn"
-              onClick={handleNext}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-[#3E3833] hover:bg-[#2A2522] text-[#FAF8F4] font-handwriting text-xs sm:text-sm font-bold shadow-sm transition active:scale-98"
-            >
-              <span>つぎへ</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+              {currentStep < steps.length - 1 ? (
+                <button
+                  id="tutorial-next-btn"
+                  onClick={handleNext}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-[#3E3833] hover:bg-[#2A2522] text-[#FAF8F4] font-handwriting text-xs sm:text-sm font-bold shadow-sm transition active:scale-98"
+                >
+                  <span>つぎへ</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  id="tutorial-start-btn"
+                  onClick={handleComplete}
+                  className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-[#487560] hover:bg-[#3B614F] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <span>けんちこと旅に出発する！</span>
+                </button>
+              )}
+            </>
           ) : (
-            <button
-              id="tutorial-start-btn"
-              onClick={handleComplete}
-              className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-[#487560] hover:bg-[#3B614F] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98"
-            >
-              <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>けんちこと旅に出発する！</span>
-            </button>
+            <div className="w-full flex items-center justify-end gap-2">
+              <button
+                id="tutorial-ouen-got-it-btn"
+                onClick={handleComplete}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-lg bg-[#D45366] hover:bg-[#B84052] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98"
+              >
+                <Heart className="w-4 h-4 fill-white" />
+                <span>わかった！けんちこに応援してもらう</span>
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -94,8 +94,8 @@ export function getMatchingAsobiList(
 
   return asobiList.filter((item) => {
     const cond = item.condition;
-    // 1. All (any state)
-    if (cond === 'all') return true;
+    // 1. All (any location, but EXCLUDING transit)
+    if (cond === 'all' && !isTransit) return true;
 
     // 2. All locations (when not in transit)
     if (cond === 'all_locations' && !isTransit) return true;
@@ -258,13 +258,13 @@ export function startNewActivity(
 }
 
 /**
- * Rolls encounter lottery 5 seconds into an ongoing activity.
+ * Rolls encounter lottery (Flat 30% chance, equal probability for all Nyans, no modifiers).
  */
 export function rollEncounterForActivity(
   currentLoc: LocationId,
   allNyans: NyanCharacter[],
   baseActivity: { type: ActivityType; title: string },
-  asobiList: KenchikoAsobi[] = []
+  _asobiList: KenchikoAsobi[] = []
 ): {
   companionNyan: NyanCharacter | null;
   newDiscoveredNyan: NyanCharacter | null;
@@ -273,54 +273,37 @@ export function rollEncounterForActivity(
   customMonologue?: string;
 } {
   const locInfo = LOCATIONS[currentLoc] || LOCATIONS.living;
-  let companionNyan: NyanCharacter | null = null;
-  let isNewDiscovery: NyanCharacter | null = null;
 
-  // Decide if a Nyan visits
-  if (locInfo.possibleNyanIds && locInfo.possibleNyanIds.length > 0 && Math.random() < 0.75) {
-    const randomNyanId = locInfo.possibleNyanIds[Math.floor(Math.random() * locInfo.possibleNyanIds.length)];
-    const found = allNyans.find((n) => n.no === randomNyanId);
-    if (found) {
-      companionNyan = found;
-      if (!found.discovered) {
-        isNewDiscovery = found;
-      }
-    }
-  } else if (Math.random() < 0.4) {
-    const randomNyan = allNyans[Math.floor(Math.random() * allNyans.length)];
-    if (randomNyan) {
-      companionNyan = randomNyan;
-      if (!randomNyan.discovered) {
-        isNewDiscovery = randomNyan;
-      }
-    }
-  }
-
-  if (companionNyan) {
-    let updatedTitle = `${companionNyan.name}とおしゃべり中`;
-    let diaryText = `${locInfo.name}で「${companionNyan.name}」と遭遇！${companionNyan.episode || 'のんびり一緒に過ごした。'}`;
-
-    if (baseActivity.type === 'snacking') {
-      updatedTitle = `${companionNyan.name}とおやつ休憩`;
-      diaryText = `${locInfo.name}で${companionNyan.name}とおやつを分け合って休憩した。平和な時間。`;
-    } else if (baseActivity.type === 'nap') {
-      updatedTitle = `${companionNyan.name}とお昼寝`;
-      diaryText = `${locInfo.name}で${companionNyan.name}が隣で丸くなってきたので、いっしょにお昼寝した。`;
-    } else if (baseActivity.type === 'custom_action') {
-      updatedTitle = `${baseActivity.title} (${companionNyan.name}と一緒)`;
-    }
-
+  // Simple 30% probability, no mood or location bonuses
+  if (allNyans.length === 0 || Math.random() >= 0.30) {
     return {
-      companionNyan,
-      newDiscoveredNyan: isNewDiscovery,
-      updatedTitle,
-      diaryText,
+      companionNyan: null,
+      newDiscoveredNyan: null,
     };
   }
 
+  // Pick completely random Nyan with equal chance
+  const randomNyan = allNyans[Math.floor(Math.random() * allNyans.length)];
+  const isNewDiscovery = !randomNyan.discovered ? randomNyan : null;
+
+  let updatedTitle = `${randomNyan.name}とおしゃべり中`;
+  let diaryText = `${locInfo.name}で「${randomNyan.name}」と遭遇！${randomNyan.episode || 'のんびり一緒に過ごした。'}`;
+
+  if (baseActivity.type === 'snacking') {
+    updatedTitle = `${randomNyan.name}とおやつ休憩`;
+    diaryText = `${locInfo.name}で${randomNyan.name}とおやつを分け合って休憩した。平和な時間。`;
+  } else if (baseActivity.type === 'nap') {
+    updatedTitle = `${randomNyan.name}とお昼寝`;
+    diaryText = `${locInfo.name}で${randomNyan.name}が隣で丸くなってきたので、いっしょにお昼寝した。`;
+  } else if (baseActivity.type === 'custom_action') {
+    updatedTitle = `${baseActivity.title} (${randomNyan.name}と一緒)`;
+  }
+
   return {
-    companionNyan: null,
-    newDiscoveredNyan: null,
+    companionNyan: randomNyan,
+    newDiscoveredNyan: isNewDiscovery,
+    updatedTitle,
+    diaryText,
   };
 }
 

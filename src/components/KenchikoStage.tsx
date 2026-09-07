@@ -4,6 +4,7 @@ import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { KenchikoFigure } from './KenchikoFigure';
 import { KenchikoAvatar } from './KenchikoAvatar';
 import { NyanIllustration } from './NyanIllustration';
+import { LocationIllustration } from './LocationIllustration';
 import { TransitVehicleView } from './TransitVehicleView';
 import {
   MapPin,
@@ -14,6 +15,7 @@ import {
   Footprints,
   Sparkles,
   Camera,
+  Check,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -25,6 +27,8 @@ interface KenchikoStageProps {
   timeSpeed: number;
   onPet: () => void;
   onOpenOuenModal?: () => void;
+  onCheerMore?: () => void;
+  onCheerDone?: () => void;
   onOpenGiftModal?: () => void;
   onStartRandomTravel: () => void;
   onOpenTravelModal?: () => void;
@@ -41,6 +45,8 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   timeSpeed,
   onPet,
   onOpenOuenModal,
+  onCheerMore,
+  onCheerDone,
   onOpenGiftModal,
   onStartRandomTravel,
   onOpenTravelModal,
@@ -169,9 +175,6 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             <g stroke="#3E3833" strokeWidth="1.2" fill="none">
               {/* Background Wall Doodles */}
               <line x1="20" y1="280" x2="600" y2="280" strokeDasharray="6 6" />
-              {/* Little framed picture on wall */}
-              <rect x="40" y="40" width="50" height="40" rx="3" />
-              <circle cx="65" cy="60" r="10" />
               {/* Potted plant doodle */}
               <path d="M480 260 L495 280 L465 280 Z" />
               <path d="M480 260 Q460 230 475 220 Q480 250 480 260" fill="#789A82" opacity="0.4" />
@@ -206,6 +209,32 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             </div>
           </button>
         </div>
+
+        {/* Scenic Location Postcard / Sketch Pin on Left Wall */}
+        {kenchiko.currentActivity !== 'transit' && (
+          <div
+            className="absolute top-14 left-2.5 sm:left-5 z-10 select-none group pointer-events-auto cursor-default animate-fadeIn"
+            title={`現在地: ${locInfo.name} (${locInfo.reading}) - ${locInfo.description}`}
+          >
+            {/* Cute Washi Tape Strip */}
+            <div className="w-10 sm:w-14 h-3 sm:h-3.5 bg-[#E4D9C5]/90 border-t border-b border-[#C9BFAD] mx-auto -mb-1 shadow-2xs rotate-[-4deg] relative z-10" />
+
+            {/* Polaroid / Postcard Frame */}
+            <div className="bg-white p-1 sm:p-1.5 rounded-xl border border-[#D5CCBC] shadow-sm transform -rotate-2 group-hover:rotate-0 group-hover:scale-105 transition-all duration-200 w-20 sm:w-28 md:w-32">
+              <div className="w-full aspect-[4/3] rounded-lg overflow-hidden border border-[#EAE5D9] bg-[#FAF8F4]">
+                <LocationIllustration
+                  locationId={kenchiko.currentLocation}
+                  variant="card"
+                  className="w-full h-full"
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-center gap-0.5 text-[9px] sm:text-[11px] font-bold text-[#4A423B] font-handwriting truncate px-0.5">
+                <MapPin className="w-2.5 h-2.5 text-[#D4736A] shrink-0" />
+                <span className="truncate">{locInfo.name}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Central Characters Interaction Area */}
         <div className="relative z-10 w-full flex items-end justify-center gap-4 md:gap-10 my-2">
@@ -242,6 +271,36 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                   mood={kenchiko.mood}
                   size={185}
                 />
+              )}
+
+              {/* '気がすんだ' (Satisfied) button placed on the opposite (left) side during cheering */}
+              {isCheering && onCheerDone && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCheerDone();
+                  }}
+                  className="absolute top-[48%] -left-10 sm:-left-12 z-30 group/done flex items-center gap-1.5 bg-[#4F8655] hover:bg-[#3D6942] active:scale-95 text-white font-bold font-handwriting text-xs sm:text-sm px-3.5 py-1.5 rounded-full shadow-lg border-2 border-[#FAF8F4] transition-all transform hover:scale-110"
+                  title="気がすんだので次の行動へ進む"
+                >
+                  <Check className="w-3.5 h-3.5 text-[#E8F5E9]" />
+                  <span>気がすんだ</span>
+                </button>
+              )}
+
+              {/* 'もっと！' (More!) button placed at Kenchiko's waist area during cheering */}
+              {isCheering && onCheerMore && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCheerMore();
+                  }}
+                  className="absolute top-[48%] -right-8 sm:-right-10 z-30 group/more flex items-center gap-1.5 bg-[#D4736A] hover:bg-[#B94E45] active:scale-95 text-white font-bold font-handwriting text-xs sm:text-sm px-3.5 py-1.5 rounded-full shadow-lg border-2 border-[#FAF8F4] animate-bounce transition-all transform hover:scale-110"
+                  title="新しい応援メッセージを表示してさらに15秒待つ"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#FFEBE8]" />
+                  <span>もっと！</span>
+                </button>
               )}
             </div>
 
@@ -361,7 +420,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           <button
             onClick={onOpenOuenModal}
             className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
-            title="けんちこに応援してもらう（3分間）"
+            title="けんちこに応援してもらう（15秒間）"
           >
             <Heart className="w-4 h-4 text-[#D4736A]" />
             <span>応援して</span>

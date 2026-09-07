@@ -917,7 +917,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Helper condition label
   const getConditionLabel = (cond: AsobiConditionScope) => {
-    if (cond === 'all') return 'すべて（常時）';
+    if (cond === 'all') return '常時（滞在中・移動時以外）';
     if (cond === 'all_locations') return 'すべての場所（滞在中）';
     if (cond === 'all_transports') return 'すべての移動手段（移動中）';
     if (cond.startsWith('loc_')) {
@@ -2044,7 +2044,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                           : 'bg-white border border-[#DDD7C8] text-[#6B6259] hover:bg-[#FAF2EB]'
                       }`}
                     >
-                      🌟 常時（どこでも）
+                      🌟 常時（滞在中）
                     </button>
                     {Object.values(LOCATIONS).map((loc) => (
                       <button

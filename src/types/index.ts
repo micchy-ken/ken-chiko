@@ -114,7 +114,7 @@ export interface DiaryEntry {
 
 // Custom Asobi (Action / Play / Monologue Event)
 export type AsobiConditionScope =
-  | 'all' // すべて（滞在・移動を問わず）
+  | 'all' // 常時（滞在中・移動時以外）
   | 'all_locations' // すべての場所（滞在中ならどこでも）
   | 'all_transports' // すべての移動手段（移動中ならなんでも）
   | `loc_${LocationId}` // 特定の場所 (例: loc_living, loc_bedroom, loc_office)

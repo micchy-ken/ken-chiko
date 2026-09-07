@@ -83,7 +83,7 @@ export const OuenModal: React.FC<OuenModalProps> = ({
         {/* Footer info */}
         <div className="text-center pt-2 border-t border-[#EAE5D9]">
           <p className="text-[11px] text-[#8C837A] font-bold">
-            ※ 応援中は3分間、けんちこが寄り添ってくれます（猫は出ません）
+            ※ 応援中は15秒間、けんちこが寄り添ってくれます（猫は出ません）
           </p>
         </div>
       </div>

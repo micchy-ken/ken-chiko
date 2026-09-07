@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LocationId, TransportMethod, KenchikoState } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
-import { X, Compass, Footprints, Bike, Car, CloudSun, Train, RefreshCw, Sparkles } from 'lucide-react';
+import { LocationIllustration } from './LocationIllustration';
+import { X, Compass, Footprints, Bike, Car, CloudSun, Train, RefreshCw, Sparkles, MapPin } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface TravelModalProps {
@@ -149,11 +150,16 @@ export const TravelModal: React.FC<TravelModalProps> = ({
 
           {/* Lottery Reveal Animation (when chosen) */}
           {isRollingTransport && selectedDestination && decidedTransport && (
-            <div className="p-4 bg-[#EAF2F8] border-2 border-[#5B9BBF] rounded-2xl text-center space-y-2 animate-bounce">
-              <div className="text-xs text-[#2A4D69] font-bold font-handwriting">
-                ✨ 行き先：【{LOCATIONS[selectedDestination]?.name}】に決定！
+            <div className="p-3.5 bg-[#EAF2F8] border-2 border-[#5B9BBF] rounded-2xl text-center space-y-2 animate-bounce shadow-md">
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-10 h-8 rounded-lg overflow-hidden border border-[#5B9BBF] shadow-xs shrink-0">
+                  <LocationIllustration locationId={selectedDestination} variant="card" className="w-full h-full" />
+                </div>
+                <div className="text-xs sm:text-sm text-[#2A4D69] font-black font-handwriting">
+                  ✨ 行き先：【{LOCATIONS[selectedDestination]?.name}】に決定！
+                </div>
               </div>
-              <div className="flex items-center justify-center gap-2 text-base font-black text-[#1E3A52] font-handwriting">
+              <div className="flex items-center justify-center gap-2 text-sm sm:text-base font-black text-[#1E3A52] font-handwriting">
                 <span className="p-1.5 bg-white rounded-full shadow-xs">
                   {getTransportIcon(decidedTransport)}
                 </span>
@@ -178,32 +184,43 @@ export const TravelModal: React.FC<TravelModalProps> = ({
                   key={locId}
                   disabled={isRollingTransport}
                   onClick={() => handleSelectCandidate(locId)}
-                  className={`w-full p-4 text-left transition rounded-2xl border-2 flex items-start gap-3.5 relative overflow-hidden group active:scale-[0.98] ${
+                  className={`w-full p-3 sm:p-4 text-left transition rounded-2xl border-2 flex flex-col sm:flex-row items-start sm:items-center gap-3.5 relative overflow-hidden group active:scale-[0.98] ${
                     isSelected
                       ? 'bg-[#FFFDF9] border-[#3E3833] shadow-md ring-2 ring-[#487560]'
                       : 'bg-white hover:bg-[#FAF8F4] border-[#DDD7C8] hover:border-[#8C7E72] shadow-xs'
                   }`}
                 >
-                  {/* Badge Number */}
-                  <div className="absolute top-2.5 right-3 px-2 py-0.5 bg-[#EAE5D9] text-[#5A524A] text-[10px] font-bold rounded-full font-handwriting">
+                  {/* Badge Number / Postcard Tag */}
+                  <div className="absolute top-2.5 right-3 px-2 py-0.5 bg-[#EAE5D9] text-[#5A524A] text-[10px] font-bold rounded-full font-handwriting shadow-2xs z-10">
                     候補 {idx + 1}
                   </div>
 
-                  {/* Icon */}
-                  <div className="w-12 h-12 rounded-2xl bg-[#FAF8F4] border border-[#DDD7C8] flex items-center justify-center text-2xl shrink-0 group-hover:scale-110 transition-transform">
-                    {info.bgIcon}
+                  {/* Location Scenic Illustration (Postcard / Ticket Style) */}
+                  <div className="w-full sm:w-28 sm:h-20 aspect-[16/10] sm:aspect-auto rounded-xl overflow-hidden shrink-0 border border-[#C9BFAD] shadow-xs group-hover:scale-[1.03] transition-transform duration-200">
+                    <LocationIllustration
+                      locationId={locId}
+                      variant="card"
+                      className="w-full h-full"
+                    />
                   </div>
 
                   {/* Text Details */}
-                  <div className="flex-1 pr-10">
-                    <h4 className="text-sm font-black text-[#2E2824] font-handwriting group-hover:text-[#487560] transition-colors flex items-center gap-1.5">
-                      <span>{info.name}</span>
-                    </h4>
-                    <p className="text-xs text-[#7A726A] mt-1 line-clamp-2 leading-relaxed font-handwriting">
+                  <div className="flex-1 min-w-0 pr-8 sm:pr-10">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm sm:text-base font-black text-[#2E2824] font-handwriting group-hover:text-[#487560] transition-colors flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5 text-[#D4736A] shrink-0" />
+                        <span>{info.name}</span>
+                      </h4>
+                      <span className="text-[10px] text-[#7A726A] font-bold bg-[#EFECE4] px-1.5 py-0.5 rounded-md font-handwriting">
+                        {info.reading}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-[#6A625A] mt-1 line-clamp-2 leading-relaxed font-handwriting">
                       {info.description}
                     </p>
 
-                    <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-[#487560] font-bold font-handwriting">
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#487560] font-bold font-handwriting group-hover:translate-x-0.5 transition-transform">
                       <span>ここへお出かけする</span>
                       <span>→</span>
                     </div>
