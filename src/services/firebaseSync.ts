@@ -1087,6 +1087,7 @@ export async function fetchInitialFirebaseState(
 
     clearQuotaExhausted();
     notifyConnectionStatusChange(true);
+    console.log(`[CloudSync] 📥 Firestore読込完了 [2件]: global-state + user(${userDocId})`);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
     // Asobi list is strictly loaded from the Global Shared Master document (or local backup / initial defaults)
@@ -1246,12 +1247,14 @@ export async function executeFirestoreWrite(
 
   // 2. Check user auto-sync toggle (if false, only manual save allowed)
   if (!forceManual && !isCloudAutoSyncEnabled()) {
+    console.log('[CloudSync] 🛑 クラウド自動書き込みOFF: ローカル保存のみ実施（Firestore通信: 0回）');
     return { success: true, error: 'クラウド自動書き込みはOFF（ローカル保存中）です' };
   }
 
   // 3. Strict daily write budget (Skip if manual save)
   const dailyStats = getDailyWriteStats();
   if (!forceManual && dailyStats.count >= MAX_DAILY_WRITES) {
+    console.warn(`[CloudSync] ⚠️ 本日の安全書き込み上限(${MAX_DAILY_WRITES}回)に達したためローカル保存に切り替え`);
     return {
       success: true,
       error: `本日の安全書き込み上限（${MAX_DAILY_WRITES}回）に達したため、ローカル保存で安全に保護しています`,
@@ -1264,12 +1267,15 @@ export async function executeFirestoreWrite(
 
   // Skip write completely if meaningful game progress has not changed (even on forced exit calls)
   if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
+    console.log('[CloudSync] ⏭️ クラウド書き込みスキップ: 有意な進行度（新発見・アイテム等）の変化なし（Firestore通信: 0回）');
     return { success: true };
   }
 
   const now = Date.now();
   // 4. Enforce strict rate-limit throttle: Minimum 120s between routine non-manual writes
   if (!forceManual && now - lastSuccessfulWriteTime < MIN_AUTO_SYNC_INTERVAL_MS) {
+    const waitSec = Math.round((MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime)) / 1000);
+    console.log(`[CloudSync] ⏳ スロットル待機中: 最低120秒間隔のため待機 (${waitSec}秒後に保留分を書き込み)`);
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -1314,6 +1320,8 @@ export async function executeFirestoreWrite(
     sessionDbWriteCount++;
     incrementDailyWriteCount();
     lastWrittenContentString = currentMeaningfulHash;
+
+    console.log(`[CloudSync] 💾 Firestore書き込み完了 [1回]: ドキュメント=kenchiko_world/${userDocId} (本日累計: ${getDailyWriteStats().count}/${MAX_DAILY_WRITES})`);
 
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
