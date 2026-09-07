@@ -440,6 +440,7 @@ export default function App() {
         const updatedStats = { ...prev.stats };
 
         let nextData: GameSaveData;
+        let isNewlyDiscoveredNyan = false;
 
         // Case A: Just arrived from transit
         if (curK.currentActivity === 'transit' && curK.targetLocation) {
@@ -463,6 +464,7 @@ export default function App() {
           }
 
           if (actResult.newDiscoveredNyan) {
+            isNewlyDiscoveredNyan = true;
             const charIndex = updatedCharacters.findIndex(
               (c) => c.no === actResult.newDiscoveredNyan!.no
             );
@@ -587,6 +589,7 @@ export default function App() {
             }
 
             if (actResult.newDiscoveredNyan) {
+              isNewlyDiscoveredNyan = true;
               const charIndex = updatedCharacters.findIndex(
                 (c) => c.no === actResult.newDiscoveredNyan!.no
               );
@@ -622,54 +625,60 @@ export default function App() {
                 nyanName: actResult.companionNyanId
                   ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
                   : null,
-                itemUsed: null,
-                mood: curK.mood,
-                text: actResult.diaryText,
-              });
-            }
-
-            setRemainingTimeSec(actResult.durationSec);
-
-            const compChar = nextCompanionId
-              ? updatedCharacters.find((c) => c.no === nextCompanionId)
-              : null;
-
-            nextData = {
-              ...prev,
-              characters: updatedCharacters,
-              diary: deduplicateDiary(updatedDiary).slice(0, 50),
-              stats: updatedStats,
-              lastSaved: Date.now(),
-              kenchiko: {
-                ...curK,
-                currentActivity: actResult.type,
-                currentActivityTitle: actResult.title,
-                activityStartedAt: Date.now(),
-                activityDurationSec: actResult.durationSec,
-                currentCompanionNyanId: nextCompanionId,
-                monologue:
-                  actResult.customMonologue ||
-                  getRandomMonologue(
-                    actResult.type,
-                    curK.currentLocation,
-                    null,
-                    prev.asobiList,
-                    compChar?.name
-                  ),
-              },
-            };
+              itemUsed: null,
+              mood: curK.mood,
+              text: actResult.diaryText,
+            });
           }
-        }
 
-        saveLocalBackup(nextData);
-        return nextData;
-      });
-    } finally {
-      setTimeout(() => {
-        isCompletingActivityRef.current = false;
-      }, 800);
-    }
-  }, []);
+          setRemainingTimeSec(actResult.durationSec);
+
+          const compChar = nextCompanionId
+            ? updatedCharacters.find((c) => c.no === nextCompanionId)
+            : null;
+
+          nextData = {
+            ...prev,
+            characters: updatedCharacters,
+            diary: deduplicateDiary(updatedDiary).slice(0, 50),
+            stats: updatedStats,
+            lastSaved: Date.now(),
+            kenchiko: {
+              ...curK,
+              currentActivity: actResult.type,
+              currentActivityTitle: actResult.title,
+              activityStartedAt: Date.now(),
+              activityDurationSec: actResult.durationSec,
+              currentCompanionNyanId: nextCompanionId,
+              monologue:
+                actResult.customMonologue ||
+                getRandomMonologue(
+                  actResult.type,
+                  curK.currentLocation,
+                  null,
+                  prev.asobiList,
+                  compChar?.name
+                ),
+            },
+          };
+        }
+      }
+
+      saveLocalBackup(nextData);
+      // When a new nyan is discovered, trigger an immediate & reliable cloud save to Firestore!
+      if (isNewlyDiscoveredNyan) {
+        syncSaveDataToFirebase(nextData, true).catch((err) => {
+          console.warn('Discovered nyan cloud sync note:', err);
+        });
+      }
+      return nextData;
+    });
+  } finally {
+    setTimeout(() => {
+      isCompletingActivityRef.current = false;
+    }, 800);
+  }
+}, []);
 
   // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
   useEffect(() => {
@@ -716,7 +725,7 @@ export default function App() {
     };
   }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isLoadingFirebase, handleActivityCompletion]);
 
-  // User Actions: Petting
+  // User Actions: Petting (local update only, zero Firestore writes)
   const handlePetKenchiko = () => {
     setSaveData((prev) => {
       const nextData: GameSaveData = {
@@ -727,7 +736,7 @@ export default function App() {
           happiness: Math.min(100, prev.kenchiko.happiness + 10),
         },
       };
-      saveOnUserAction(nextData).catch(() => {});
+      saveLocalBackup(nextData);
       return nextData;
     });
   };
