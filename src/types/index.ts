@@ -21,7 +21,8 @@ export type ActivityType =
   | 'spacing_out'
   | 'working'
   | 'shopping'
-  | 'custom_action';
+  | 'custom_action'
+  | 'cheering';
 
 export interface NyanTransparencyOptions {
   enableTransparency: boolean;
@@ -72,6 +73,8 @@ export interface KenchikoState {
   activityStartedAt: number; // timestamp in ms
   activityDurationSec: number; // duration in simulated seconds
   currentCompanionNyanId: number | null;
+  encounterChecked?: boolean;
+  lastArrivedAt?: number; // timestamp in ms when arrived from transit (2 min cooldown for travel)
   customImageUrl?: string;
   mood: 'happy' | 'sleepy' | 'hungry' | 'chill' | 'excited' | 'zapped';
   stamina: number; // 0 - 100
@@ -129,6 +132,20 @@ export interface KenchikoAsobi {
   updatedAt?: number;
 }
 
+// Ouen (Cheer / 応援)
+export interface OuenCategory {
+  id: string; // e.g. 'tired', 'irritated', 'angry'
+  label: string; // e.g. 'つかれた', 'いらいらする', 'はらがたつ'
+}
+
+export interface OuenItem {
+  id: string;
+  categoryId: string; // references OuenCategory.id
+  message: string; // e.g. 'よしよし'
+  createdAt: number;
+  updatedAt?: number;
+}
+
 export interface GameSaveData {
   version: number;
   kenchiko: KenchikoState;
@@ -136,6 +153,8 @@ export interface GameSaveData {
   inventory: GiftItem[];
   diary: DiaryEntry[];
   asobiList: KenchikoAsobi[]; // カスタムあそびリスト
+  ouenCategories?: OuenCategory[]; // 応援カテゴリー（選択肢）
+  ouenList?: OuenItem[]; // 応援メッセージリスト
   kihonNyanCustomImageUrl?: string; // きほんのにゃんこ公式ベース透過画像 (Firebase / LocalStorage同期)
   googleDriveFolderUrl?: string; // Google Drive画像フォルダURL (Firebase / LocalStorage同期)
   stats: {

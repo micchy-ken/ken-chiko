@@ -216,7 +216,7 @@ export const TravelModal: React.FC<TravelModalProps> = ({
           {/* Random transport explanation pills */}
           <div className="pt-2 border-t border-[#EAE5D9]">
             <p className="text-[11px] text-[#7A726A] font-handwriting text-center mb-2">
-              🎲 移動手段は以下のいずれかがランダムに選ばれます（一律30秒）
+              🎲 移動手段は以下のいずれかがランダムに選ばれます（一律20秒）
             </p>
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {TRANSPORT_METHODS.map((t) => (

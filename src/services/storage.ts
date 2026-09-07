@@ -2,6 +2,7 @@ import { GameSaveData } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
 import { DEFAULT_GOOGLE_DRIVE_FOLDER_URL } from './googleDriveFolderSync';
 
 export const DEFAULT_INITIAL_STATE: GameSaveData = {
@@ -15,6 +16,7 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     activityStartedAt: Date.now(),
     activityDurationSec: 300, // 5 minutes
     currentCompanionNyanId: null,
+    encounterChecked: false,
     mood: 'happy',
     stamina: 100,
     hunger: 100,
@@ -27,6 +29,8 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
   googleDriveFolderUrl: DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
   inventory: INITIAL_ITEMS,
   asobiList: INITIAL_ASOBI_LIST,
+  ouenCategories: INITIAL_OUEN_CATEGORIES,
+  ouenList: INITIAL_OUEN_LIST,
   diary: [],
   stats: {
     totalEncounters: 0,

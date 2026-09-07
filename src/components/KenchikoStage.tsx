@@ -24,6 +24,7 @@ interface KenchikoStageProps {
   remainingTimeSec: number;
   timeSpeed: number;
   onPet: () => void;
+  onOpenOuenModal?: () => void;
   onOpenGiftModal?: () => void;
   onStartRandomTravel: () => void;
   onOpenTravelModal?: () => void;
@@ -39,6 +40,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   remainingTimeSec,
   timeSpeed,
   onPet,
+  onOpenOuenModal,
   onOpenGiftModal,
   onStartRandomTravel,
   onOpenTravelModal,
@@ -76,6 +78,36 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
 
   const totalDuration = Math.max(1, kenchiko.activityDurationSec);
   const progressPercent = Math.min(100, Math.max(0, ((totalDuration - remainingTimeSec) / totalDuration) * 100));
+
+  // Movement & Arrival Cooldown State Check (2 minutes = 120 seconds lock)
+  const isTransit = kenchiko.currentActivity === 'transit';
+  const isCheering = kenchiko.currentActivity === 'cheering';
+  const now = Date.now();
+  const elapsedSinceArrivalSec = kenchiko.lastArrivedAt
+    ? Math.floor((now - kenchiko.lastArrivedAt) / 1000)
+    : 9999;
+  const isArrivalCooldown = !isTransit && elapsedSinceArrivalSec < 120;
+  const arrivalCooldownRemainingSec = isArrivalCooldown
+    ? Math.max(1, 120 - elapsedSinceArrivalSec)
+    : 0;
+  const canTravel = !isTransit && !isArrivalCooldown;
+
+  // Gauge Visual Distinction Colors
+  const progressBarColor = isTransit
+    ? 'bg-[#3C5C7A]'
+    : isCheering
+    ? 'bg-[#D4736A]'
+    : isArrivalCooldown
+    ? 'bg-[#D97706]'
+    : 'bg-[#487560]';
+
+  const progressDotColor = isTransit
+    ? 'bg-[#3C5C7A]'
+    : isCheering
+    ? 'bg-[#D4736A]'
+    : isArrivalCooldown
+    ? 'bg-[#D97706]'
+    : 'bg-[#487560]';
 
   const handlePetClick = () => {
     setPettingEffect(true);
@@ -279,17 +311,36 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
         {/* Activity Progress Bar Bottom (Pencil Line Progress) */}
         <div className="relative z-10 w-full max-w-lg mt-2 bg-[#FFFDF9] text-[#2E2824] sketch-card-subtle px-4 py-2.5">
           <div className="flex items-center justify-between text-xs font-bold mb-1.5 font-handwriting">
-            <span className="text-[#3E3833] flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#487560] animate-ping" />
-              {kenchiko.currentActivityTitle}
+            <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[250px]">
+              <span className={`w-2 h-2 rounded-full ${progressDotColor} animate-ping shrink-0`} />
+              <span className="truncate">{kenchiko.currentActivityTitle}</span>
             </span>
-            <span className="font-mono text-[#7A726A] text-[11px]">
-              {Math.floor(progressPercent)}% 完了
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {isTransit ? (
+                <span className="text-[10px] bg-[#E8EEF5] text-[#2A4D69] px-2 py-0.5 rounded-full font-bold border border-[#BDD6EE] flex items-center gap-1">
+                  <Footprints className="w-3 h-3" /> 移動中 ({remainingTimeSec}s)
+                </span>
+              ) : isCheering ? (
+                <span className="text-[10px] bg-[#FFF2F0] text-[#D4736A] px-2 py-0.5 rounded-full font-bold border border-[#FAD6D2] flex items-center gap-1 animate-pulse">
+                  <Heart className="w-3 h-3 fill-current" /> 応援中 ({remainingTimeSec}s)
+                </span>
+              ) : isArrivalCooldown ? (
+                <span className="text-[10px] bg-[#FEF3C7] text-[#92400E] px-2 py-0.5 rounded-full font-bold border border-[#FCD34D] flex items-center gap-1 animate-pulse">
+                  <span>🔒 滞在中・移動不可 (あと{arrivalCooldownRemainingSec}s)</span>
+                </span>
+              ) : (
+                <span className="text-[10px] bg-[#EBF4EE] text-[#2C6E49] px-2 py-0.5 rounded-full font-bold border border-[#BDE0C7] flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> お出かけ可能
+                </span>
+              )}
+              <span className="font-mono text-[#7A726A] text-[11px]">
+                {Math.floor(progressPercent)}%
+              </span>
+            </div>
           </div>
-          <div className="w-full bg-[#EAE6DC] rounded-full h-2 overflow-hidden border border-[#3E3833]">
+          <div className="w-full bg-[#EAE6DC] rounded-full h-2.5 overflow-hidden border border-[#3E3833]">
             <div
-              className="bg-[#487560] h-full rounded-full transition-all duration-300 ease-out"
+              className={`${progressBarColor} h-full rounded-full transition-all duration-300 ease-out`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -298,7 +349,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
 
       {/* Bottom Action Bar */}
       <div className="bg-[#ECE7DC] px-4 py-3 border-t-1.5 border-[#3E3833] flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handlePetClick}
             className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
@@ -308,18 +359,45 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           </button>
 
           <button
+            onClick={onOpenOuenModal}
+            className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
+            title="けんちこに応援してもらう（3分間）"
+          >
+            <Heart className="w-4 h-4 text-[#D4736A]" />
+            <span>応援して</span>
+          </button>
+
+          <button
             onClick={() => {
+              if (!canTravel) return;
               if (onOpenTravelModal) {
                 onOpenTravelModal();
               } else {
                 onStartRandomTravel();
               }
             }}
-            className="flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting"
-            title="3つの候補からお出かけ先を選びます（移動時間30秒）"
+            disabled={!canTravel}
+            className={`flex items-center gap-1.5 font-bold text-xs px-3.5 py-2 sketch-tag shadow-sm transition active:translate-y-0.5 font-handwriting ${
+              !canTravel
+                ? 'bg-[#EAE6DC] text-[#9E958C] cursor-not-allowed opacity-75'
+                : 'bg-[#FAF8F4] hover:bg-white text-[#2E2824]'
+            }`}
+            title={
+              isTransit
+                ? '現在移動中です（20秒）'
+                : isArrivalCooldown
+                ? `到着後2分間は滞在・散策中のため移動できません（残り${arrivalCooldownRemainingSec}秒）`
+                : '3つの候補からお出かけ先を選びます（移動時間20秒）'
+            }
           >
-            <Compass className="w-4 h-4 text-[#3C5C7A]" />
-            <span>お出かけ</span>
+            <Compass className={`w-4 h-4 ${!canTravel ? 'text-[#9E958C]' : 'text-[#3C5C7A]'}`} />
+            <span>
+              {isTransit
+                ? '移動中…'
+                : isArrivalCooldown
+                ? `滞在中 (${arrivalCooldownRemainingSec}s)`
+                : 'お出かけ'}
+            </span>
           </button>
         </div>
 

@@ -73,6 +73,11 @@ const MONOLOGUES: Record<ActivityType, string[]> = {
     '今日も一日ごきげんよう。',
     'ふふふ、いい感じ。',
   ],
+  cheering: [
+    'よしよし、大丈夫だよ。',
+    'いつもよくがんばってるね。',
+    'いつでもそばにいるからね。',
+  ],
 };
 
 /**
@@ -168,6 +173,155 @@ export function pickRandomTransport(): TransportMethod {
   if (roll < 0.85) return 'car';
   if (roll < 0.95) return 'jinbei_nyan';
   return 'train';
+}
+
+export interface BaseActivitySetup {
+  type: ActivityType;
+  title: string;
+  durationSec: number;
+  customMonologue?: string;
+  diaryText?: string;
+}
+
+/**
+ * Initiates a standard 5-minute (or activity-specific) activity at the location
+ * without immediately determining nyan encounter (which occurs 5 seconds into the activity).
+ */
+export function startNewActivity(
+  currentLoc: LocationId,
+  asobiList: KenchikoAsobi[] = []
+): BaseActivitySetup {
+  const roll = Math.random();
+  const locInfo = LOCATIONS[currentLoc] || LOCATIONS.living;
+
+  // 1. Custom asobi match
+  const matchedAsobi = getMatchingAsobiList(asobiList, currentLoc, null);
+  if (matchedAsobi.length > 0) {
+    const weightedPool: KenchikoAsobi[] = [];
+    matchedAsobi.forEach((a) => {
+      const weight = a.frequency === 'high' ? 4 : a.frequency === 'normal' ? 2 : 1;
+      for (let i = 0; i < weight; i++) {
+        weightedPool.push(a);
+      }
+    });
+    const chosenAsobi = weightedPool[Math.floor(Math.random() * weightedPool.length)];
+    return {
+      type: 'custom_action',
+      title: chosenAsobi.title,
+      durationSec: 300, // 5 min
+      customMonologue: chosenAsobi.content,
+      diaryText: `${locInfo.name}で「${chosenAsobi.title}」。${chosenAsobi.content}`,
+    };
+  }
+
+  // 2. Snacking (30% chance)
+  if (roll < 0.3) {
+    const isLongSnack = Math.random() < 0.5;
+    const durationSec = isLongSnack ? 1800 : 300; // 30min or 5min
+    return {
+      type: 'snacking',
+      title: `${locInfo.name}でおやつタイム`,
+      durationSec,
+      diaryText: `${locInfo.name}でおやつタイム。のんびり過ごした。`,
+    };
+  }
+
+  // 3. Nap (25% chance)
+  if (roll < 0.55) {
+    const isLongNap = Math.random() < 0.6;
+    const durationSec = isLongNap ? 3600 : 900; // 60min or 15min
+    return {
+      type: 'nap',
+      title: `${locInfo.name}ですやすやお昼寝中…`,
+      durationSec,
+      diaryText: `${locInfo.name}で心地よい風に吹かれてぐっすり眠った。`,
+    };
+  }
+
+  // 4. Strolling (20% chance)
+  if (roll < 0.75) {
+    return {
+      type: 'strolling',
+      title: `${locInfo.name}をのんびり探索中`,
+      durationSec: 300, // 5 min
+      diaryText: `${locInfo.name}をふらふらお散歩した。`,
+    };
+  }
+
+  // 5. Default spacing out
+  return {
+    type: 'spacing_out',
+    title: `${locInfo.name}でのんびりボーッとしている`,
+    durationSec: 300, // 5 min
+    diaryText: `${locInfo.name}でのんびり風の音を聞きながら過ごした。`,
+  };
+}
+
+/**
+ * Rolls encounter lottery 5 seconds into an ongoing activity.
+ */
+export function rollEncounterForActivity(
+  currentLoc: LocationId,
+  allNyans: NyanCharacter[],
+  baseActivity: { type: ActivityType; title: string },
+  asobiList: KenchikoAsobi[] = []
+): {
+  companionNyan: NyanCharacter | null;
+  newDiscoveredNyan: NyanCharacter | null;
+  updatedTitle?: string;
+  diaryText?: string;
+  customMonologue?: string;
+} {
+  const locInfo = LOCATIONS[currentLoc] || LOCATIONS.living;
+  let companionNyan: NyanCharacter | null = null;
+  let isNewDiscovery: NyanCharacter | null = null;
+
+  // Decide if a Nyan visits
+  if (locInfo.possibleNyanIds && locInfo.possibleNyanIds.length > 0 && Math.random() < 0.75) {
+    const randomNyanId = locInfo.possibleNyanIds[Math.floor(Math.random() * locInfo.possibleNyanIds.length)];
+    const found = allNyans.find((n) => n.no === randomNyanId);
+    if (found) {
+      companionNyan = found;
+      if (!found.discovered) {
+        isNewDiscovery = found;
+      }
+    }
+  } else if (Math.random() < 0.4) {
+    const randomNyan = allNyans[Math.floor(Math.random() * allNyans.length)];
+    if (randomNyan) {
+      companionNyan = randomNyan;
+      if (!randomNyan.discovered) {
+        isNewDiscovery = randomNyan;
+      }
+    }
+  }
+
+  if (companionNyan) {
+    let updatedTitle = `${companionNyan.name}とおしゃべり中`;
+    let diaryText = `${locInfo.name}で「${companionNyan.name}」と遭遇！${companionNyan.episode || 'のんびり一緒に過ごした。'}`;
+
+    if (baseActivity.type === 'snacking') {
+      updatedTitle = `${companionNyan.name}とおやつ休憩`;
+      diaryText = `${locInfo.name}で${companionNyan.name}とおやつを分け合って休憩した。平和な時間。`;
+    } else if (baseActivity.type === 'nap') {
+      updatedTitle = `${companionNyan.name}とお昼寝`;
+      diaryText = `${locInfo.name}で${companionNyan.name}が隣で丸くなってきたので、いっしょにお昼寝した。`;
+    } else if (baseActivity.type === 'custom_action') {
+      updatedTitle = `${baseActivity.title} (${companionNyan.name}と一緒)`;
+    }
+
+    return {
+      companionNyan,
+      newDiscoveredNyan: isNewDiscovery,
+      updatedTitle,
+      diaryText,
+    };
+  }
+
+  return {
+    companionNyan: null,
+    newDiscoveredNyan: null,
+  };
 }
 
 export function generateNextActivity(
@@ -306,8 +460,8 @@ export function startTransit(
   const locInfo = LOCATIONS[targetLoc] || LOCATIONS.living;
   const transport = TRANSPORT_METHODS.find((t) => t.id === transportMethod) || TRANSPORT_METHODS[0];
 
-  // Standardized transit duration: 30 seconds
-  const durationSec = 30;
+  // Standardized transit duration: 20 seconds
+  const durationSec = 20;
 
   return {
     title: `${transport.name}で「${locInfo.name}」へ向かって移動中…`,

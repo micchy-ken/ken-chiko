@@ -12,6 +12,8 @@ import { DEFAULT_INITIAL_STATE } from './services/storage';
 import {
   getRandomMonologue,
   generateNextActivity,
+  startNewActivity,
+  rollEncounterForActivity,
   startTransit,
   pickRandomLocation,
   pickRandomTransport,
@@ -55,6 +57,8 @@ import { DiaryView } from './components/DiaryView';
 import { DataSyncModal, AdminTab } from './components/DataSyncModal';
 import { UserSettingsModal } from './components/UserSettingsModal';
 import { TutorialModal } from './components/TutorialModal';
+import { OuenModal } from './components/OuenModal';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
@@ -154,12 +158,15 @@ export default function App() {
   const remainingTimeSecRef = useRef<number>(300);
   const isCompletingActivityRef = useRef<boolean>(false);
   const handleActivityCompletionRef = useRef<() => void>(() => {});
+  const handleEncounterLotteryRef = useRef<() => void>(() => {});
+  const isRollingEncounterRef = useRef<boolean>(false);
   const lastCompletionTimestampRef = useRef<number>(0);
 
   // Modal States
   const [selectedZukanNyan, setSelectedZukanNyan] = useState<NyanCharacter | null>(null);
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
   const [showTravelModal, setShowTravelModal] = useState<boolean>(false);
+  const [showOuenModal, setShowOuenModal] = useState<boolean>(false);
   const [showSyncModal, setShowSyncModal] = useState<boolean>(false);
   const [isStandaloneAdmin, setIsStandaloneAdmin] = useState<boolean>(false);
   const [showUserSettingsModal, setShowUserSettingsModal] = useState<boolean>(false);
@@ -422,6 +429,16 @@ export default function App() {
         setTimeout(() => {
           if (isMounted) handleActivityCompletionRef.current();
         }, 150);
+      } else if (
+        activeData.kenchiko.currentActivity !== 'transit' &&
+        activeData.kenchiko.currentActivity !== 'cheering' &&
+        !activeData.kenchiko.encounterChecked &&
+        elapsedRealSec >= 5
+      ) {
+        // If 5+ seconds have elapsed during this activity and encounter lottery has not run, execute it now!
+        setTimeout(() => {
+          if (isMounted) handleEncounterLotteryRef.current();
+        }, 150);
       }
     };
 
@@ -513,6 +530,152 @@ export default function App() {
       }));
   }, [saveData.characters, saveData.diary, saveData.kenchiko.currentCompanionNyanId]);
 
+  // 5-Second In-Activity Encounter Lottery Handler (Fires once exactly 5s into an activity)
+  const handleEncounterLottery = useCallback(() => {
+    if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+    if (isRollingEncounterRef.current) return;
+
+    isRollingEncounterRef.current = true;
+
+    try {
+      setSaveData((prev) => {
+        const curK = prev.kenchiko;
+        // Only run encounter lottery if not in transit or cheering, and not yet checked for this activity
+        if (curK.currentActivity === 'transit' || curK.currentActivity === 'cheering' || curK.encounterChecked) {
+          return prev;
+        }
+
+        const updatedCharacters = [...prev.characters];
+        const updatedDiary = [...prev.diary];
+        const updatedStats = { ...prev.stats };
+        let isNewlyDiscoveredNyan = false;
+
+        const encounterRes = rollEncounterForActivity(
+          curK.currentLocation,
+          updatedCharacters,
+          { type: curK.currentActivity, title: curK.currentActivityTitle },
+          prev.asobiList
+        );
+
+        let nextCompanionId: number | null = null;
+        let nextTitle = curK.currentActivityTitle;
+
+        if (encounterRes.companionNyan) {
+          const comp = encounterRes.companionNyan;
+          nextCompanionId = comp.no;
+          if (encounterRes.updatedTitle) {
+            nextTitle = encounterRes.updatedTitle;
+          }
+
+          if (curK.currentActivity === 'snacking') updatedStats.totalSnacksEaten += 1;
+          if (curK.currentActivity === 'nap') updatedStats.totalNapMinutes += Math.round(curK.activityDurationSec / 60);
+
+          const compIdx = updatedCharacters.findIndex((c) => c.no === comp.no);
+          if (compIdx >= 0) {
+            updatedCharacters[compIdx] = {
+              ...updatedCharacters[compIdx],
+              lastMetAt: Date.now(),
+              playCount: (updatedCharacters[compIdx].playCount || 0) + (encounterRes.newDiscoveredNyan ? 0 : 1),
+            };
+          }
+
+          if (encounterRes.newDiscoveredNyan) {
+            isNewlyDiscoveredNyan = true;
+            const charIndex = updatedCharacters.findIndex((c) => c.no === encounterRes.newDiscoveredNyan!.no);
+            if (charIndex >= 0) {
+              updatedCharacters[charIndex] = {
+                ...updatedCharacters[charIndex],
+                discovered: true,
+                discoveryDate: new Date().toLocaleString('ja-JP'),
+                lastMetAt: Date.now(),
+                playCount: 1,
+                friendshipLevel: 1,
+              };
+              updatedStats.totalEncounters += 1;
+              setNewEncounterToast(updatedCharacters[charIndex]);
+              confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
+            }
+          }
+
+          if (encounterRes.diaryText) {
+            const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+            updatedDiary.unshift({
+              id: `diary_${Date.now()}`,
+              timestamp: Date.now(),
+              dateFormatted: new Date().toLocaleDateString('ja-JP', {
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              locationName: locInfo.name,
+              activityTitle: nextTitle,
+              nyanId: nextCompanionId,
+              nyanName: comp.name,
+              itemUsed: null,
+              mood: curK.mood,
+              text: encounterRes.diaryText,
+            });
+          }
+        } else {
+          // No companion encountered -> Kenchiko continues solo
+          if (curK.currentActivity === 'snacking') updatedStats.totalSnacksEaten += 1;
+          if (curK.currentActivity === 'nap') updatedStats.totalNapMinutes += Math.round(curK.activityDurationSec / 60);
+
+          const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+          updatedDiary.unshift({
+            id: `diary_${Date.now()}`,
+            timestamp: Date.now(),
+            dateFormatted: new Date().toLocaleDateString('ja-JP', {
+              month: 'numeric',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            locationName: locInfo.name,
+            activityTitle: curK.currentActivityTitle,
+            nyanId: null,
+            nyanName: null,
+            itemUsed: null,
+            mood: curK.mood,
+            text: `${locInfo.name}で${curK.currentActivityTitle}。のんびり過ごした。`,
+          });
+        }
+
+        const nextData: GameSaveData = {
+          ...prev,
+          characters: updatedCharacters,
+          diary: deduplicateDiary(updatedDiary).slice(0, 50),
+          stats: updatedStats,
+          lastSaved: Date.now(),
+          kenchiko: {
+            ...curK,
+            currentCompanionNyanId: nextCompanionId,
+            encounterChecked: true,
+            currentActivityTitle: nextTitle,
+            monologue: curK.monologue,
+          },
+        };
+
+        saveLocalBackup(nextData);
+        if (isNewlyDiscoveredNyan) {
+          syncSaveDataToFirebase(nextData, true).catch((err) => {
+            console.warn('Discovered nyan cloud sync note:', err);
+          });
+        }
+        return nextData;
+      });
+    } finally {
+      setTimeout(() => {
+        isRollingEncounterRef.current = false;
+      }, 500);
+    }
+  }, [isStandaloneAdmin, showSyncModal]);
+
+  useEffect(() => {
+    handleEncounterLotteryRef.current = handleEncounterLottery;
+  }, [handleEncounterLottery]);
+
   // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = useCallback(() => {
     // CRITICAL: Never advance game simulation or write to DB if initial sync is running or modal is open!
@@ -529,35 +692,21 @@ export default function App() {
     try {
       setSaveData((prev) => {
         const curK = prev.kenchiko;
-        let nextLocation = curK.currentLocation;
-        let nextTargetLocation: LocationId | null = null;
-        let nextTransport: TransportMethod | null = null;
-        let nextCompanionId = curK.currentCompanionNyanId;
-
-        const updatedCharacters = [...prev.characters];
-        const updatedDiary = [...prev.diary];
         const updatedStats = { ...prev.stats };
-
         let nextData: GameSaveData;
-        let isNewlyDiscoveredNyan = false;
 
-        // Case A: Just arrived from transit -> Wait 5 seconds before running encounter lottery
+        // Case A: Just arrived from transit -> Immediately begin full 5-minute activity at target location!
+        // (Encounter lottery will fire after 5 seconds have elapsed in this activity)
         if (curK.currentActivity === 'transit' && curK.targetLocation) {
-          nextLocation = curK.targetLocation;
-          nextTargetLocation = null;
-          nextTransport = null;
+          const nextLocation = curK.targetLocation;
           updatedStats.totalTrips += 1;
-
-          // Clear any active encounter toast when arriving
           setNewEncounterToast(null);
 
-          const locInfo = LOCATIONS[nextLocation] || LOCATIONS.living;
-          const ARRIVAL_WAIT_SEC = 5;
-          setRemainingTimeSec(ARRIVAL_WAIT_SEC);
+          const newAct = startNewActivity(nextLocation, prev.asobiList);
+          setRemainingTimeSec(newAct.durationSec);
 
           nextData = {
             ...prev,
-            characters: updatedCharacters,
             stats: updatedStats,
             lastSaved: Date.now(),
             kenchiko: {
@@ -565,19 +714,26 @@ export default function App() {
               currentLocation: nextLocation,
               targetLocation: null,
               transportMethod: null,
-              currentActivity: 'arrived',
-              currentActivityTitle: `${locInfo.name}に到着！`,
+              currentActivity: newAct.type,
+              currentActivityTitle: newAct.title,
               activityStartedAt: Date.now(),
-              activityDurationSec: ARRIVAL_WAIT_SEC,
+              lastArrivedAt: Date.now(),
+              activityDurationSec: newAct.durationSec,
               currentCompanionNyanId: null,
-              monologue: `${locInfo.name}に到着したにゃ！辺りを見回しているにゃ…`,
+              encounterChecked: false,
+              monologue:
+                newAct.customMonologue ||
+                getRandomMonologue(
+                  newAct.type,
+                  nextLocation,
+                  null,
+                  prev.asobiList
+                ),
             },
           };
         } else {
-          // Case B: Finished activity or 5-second arrival wait at current place
-          const isAfterArrival = curK.currentActivity === 'arrived';
-          // When Kenchiko just arrived, Kenchiko should NOT immediately travel again!
-          const shouldMove = !isAfterArrival && Math.random() < 0.45;
+          // Case B: Finished activity at current location -> 45% travel to new place, 55% start another activity here
+          const shouldMove = Math.random() < 0.45;
 
           if (shouldMove) {
             setNewEncounterToast(null); // Clear toast when departing
@@ -599,6 +755,7 @@ export default function App() {
                 activityStartedAt: Date.now(),
                 activityDurationSec: transitInfo.durationSec,
                 currentCompanionNyanId: null,
+                encounterChecked: false,
                 monologue: getRandomMonologue(
                   'transit',
                   curK.currentLocation,
@@ -608,121 +765,51 @@ export default function App() {
               },
             };
           } else {
-            // Case C: Perform encounter lottery & next activity at current location!
-            const actResult = generateNextActivity(curK.currentLocation, updatedCharacters, prev.asobiList);
-            nextCompanionId = actResult.companionNyanId;
+            // Case C: Start next 5-minute activity at current location (encounter checked 5s in)
+            setNewEncounterToast(null);
+            const newAct = startNewActivity(curK.currentLocation, prev.asobiList);
+            setRemainingTimeSec(newAct.durationSec);
 
-            if (actResult.type === 'snacking') updatedStats.totalSnacksEaten += 1;
-            if (actResult.type === 'nap') updatedStats.totalNapMinutes += Math.round(actResult.durationSec / 60);
-
-            if (nextCompanionId) {
-              const compIdx = updatedCharacters.findIndex((c) => c.no === nextCompanionId);
-              if (compIdx >= 0) {
-                updatedCharacters[compIdx] = {
-                  ...updatedCharacters[compIdx],
-                  lastMetAt: Date.now(),
-                  playCount: (updatedCharacters[compIdx].playCount || 0) + (actResult.newDiscoveredNyan ? 0 : 1),
-                };
-              }
-            }
-
-            if (actResult.newDiscoveredNyan) {
-              isNewlyDiscoveredNyan = true;
-              const charIndex = updatedCharacters.findIndex(
-                (c) => c.no === actResult.newDiscoveredNyan!.no
-              );
-              if (charIndex >= 0) {
-                updatedCharacters[charIndex] = {
-                  ...updatedCharacters[charIndex],
-                  discovered: true,
-                  discoveryDate: new Date().toLocaleString('ja-JP'),
-                  lastMetAt: Date.now(),
-                  playCount: 1,
-                  friendshipLevel: 1,
-                };
-                updatedStats.totalEncounters += 1;
-                setNewEncounterToast(updatedCharacters[charIndex]);
-                confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
-              }
-            }
-
-            if (actResult.diaryText) {
-              const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
-              updatedDiary.unshift({
-                id: `diary_${Date.now()}`,
-                timestamp: Date.now(),
-                dateFormatted: new Date().toLocaleDateString('ja-JP', {
-                  month: 'numeric',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }),
-                locationName: locInfo.name,
-                activityTitle: actResult.title,
-                nyanId: nextCompanionId,
-                nyanName: actResult.companionNyanId
-                  ? updatedCharacters.find((c) => c.no === actResult.companionNyanId)?.name || null
-                  : null,
-              itemUsed: null,
-              mood: curK.mood,
-              text: actResult.diaryText,
-            });
+            nextData = {
+              ...prev,
+              stats: updatedStats,
+              lastSaved: Date.now(),
+              kenchiko: {
+                ...curK,
+                currentActivity: newAct.type,
+                currentActivityTitle: newAct.title,
+                activityStartedAt: Date.now(),
+                activityDurationSec: newAct.durationSec,
+                currentCompanionNyanId: null,
+                encounterChecked: false,
+                monologue:
+                  newAct.customMonologue ||
+                  getRandomMonologue(
+                    newAct.type,
+                    curK.currentLocation,
+                    null,
+                    prev.asobiList
+                  ),
+              },
+            };
           }
-
-          setRemainingTimeSec(actResult.durationSec);
-
-          const compChar = nextCompanionId
-            ? updatedCharacters.find((c) => c.no === nextCompanionId)
-            : null;
-
-          nextData = {
-            ...prev,
-            characters: updatedCharacters,
-            diary: deduplicateDiary(updatedDiary).slice(0, 50),
-            stats: updatedStats,
-            lastSaved: Date.now(),
-            kenchiko: {
-              ...curK,
-              currentActivity: actResult.type,
-              currentActivityTitle: actResult.title,
-              activityStartedAt: Date.now(),
-              activityDurationSec: actResult.durationSec,
-              currentCompanionNyanId: nextCompanionId,
-              monologue:
-                actResult.customMonologue ||
-                getRandomMonologue(
-                  actResult.type,
-                  curK.currentLocation,
-                  null,
-                  prev.asobiList,
-                  compChar?.name
-                ),
-            },
-          };
         }
-      }
 
-      saveLocalBackup(nextData);
-      // When a new nyan is discovered, trigger an immediate & reliable cloud save to Firestore!
-      if (isNewlyDiscoveredNyan) {
-        syncSaveDataToFirebase(nextData, true).catch((err) => {
-          console.warn('Discovered nyan cloud sync note:', err);
-        });
-      }
-      return nextData;
-    });
-  } finally {
-    setTimeout(() => {
-      isCompletingActivityRef.current = false;
-    }, 800);
-  }
+        saveLocalBackup(nextData);
+        return nextData;
+      });
+    } finally {
+      setTimeout(() => {
+        isCompletingActivityRef.current = false;
+      }, 800);
+    }
   }, []);
 
   useEffect(() => {
     handleActivityCompletionRef.current = handleActivityCompletion;
   }, [handleActivityCompletion]);
 
-  // Primary Simulation Tick Loop (UI countdown display only; no per-second state mutation)
+  // Primary Simulation Tick Loop (UI countdown display & 5-second encounter trigger)
   useEffect(() => {
     // Completely freeze simulation loop until initial sync is 100% complete, or if admin / sync modal / tutorial is open
     if (!isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
@@ -739,6 +826,21 @@ export default function App() {
         return nextTime;
       });
 
+      // 5-Second In-Activity Encounter Trigger Check:
+      // When 5 seconds have elapsed in a non-transit and non-cheering activity and encounter lottery hasn't run yet, trigger it!
+      const curK = saveDataRef.current.kenchiko;
+      if (
+        curK.currentActivity !== 'transit' &&
+        curK.currentActivity !== 'cheering' &&
+        !curK.encounterChecked &&
+        isInitialSyncCompletedRef.current
+      ) {
+        const elapsedSec = Math.floor((Date.now() - curK.activityStartedAt) / 1000);
+        if (elapsedSec >= 5) {
+          handleEncounterLotteryRef.current();
+        }
+      }
+
       if (isCompleted) {
         handleActivityCompletion();
       }
@@ -753,6 +855,17 @@ export default function App() {
         const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
         const remaining = Math.max(0, durationSec - elapsedSec);
         setRemainingTimeSec(remaining);
+
+        // Check if 5-second encounter should fire upon return
+        if (
+          saveData.kenchiko.currentActivity !== 'transit' &&
+          saveData.kenchiko.currentActivity !== 'cheering' &&
+          !saveData.kenchiko.encounterChecked &&
+          elapsedSec >= 5
+        ) {
+          handleEncounterLotteryRef.current();
+        }
+
         if (remaining <= 0) {
           handleActivityCompletion();
         }
@@ -767,7 +880,91 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isInitialSyncCompleted, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion]);
+  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isInitialSyncCompleted, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion, handleEncounterLottery]);
+
+  // User Actions: Cheer Me Up (応援して - 3 minutes = 180 seconds, no cats during cheer)
+  const handleSelectOuenCategory = (categoryId: string) => {
+    setShowOuenModal(false);
+
+    const categories = saveData.ouenCategories && saveData.ouenCategories.length > 0
+      ? saveData.ouenCategories
+      : INITIAL_OUEN_CATEGORIES;
+    const catObj = categories.find((c) => c.id === categoryId);
+    const catLabel = catObj ? catObj.label : 'つかれた';
+
+    const list = saveData.ouenList && saveData.ouenList.length > 0
+      ? saveData.ouenList
+      : INITIAL_OUEN_LIST;
+
+    const matched = list.filter((item) => item.categoryId === categoryId);
+    const chosenItem = matched.length > 0
+      ? matched[Math.floor(Math.random() * matched.length)]
+      : (list[0] || { message: 'よしよし' });
+
+    const cheerMessage = chosenItem.message || 'よしよし';
+    const cheerDurationSec = 180; // 3 minutes = 180 seconds
+
+    setRemainingTimeSec(cheerDurationSec);
+    setNewEncounterToast(null);
+
+    setSaveData((prev) => {
+      const curK = prev.kenchiko;
+      const updatedStats = { ...prev.stats };
+      updatedStats.totalPetCount = (updatedStats.totalPetCount || 0) + 1;
+
+      const locInfo = LOCATIONS[curK.currentLocation] || LOCATIONS.living;
+      const updatedDiary = [
+        {
+          id: `diary_${Date.now()}`,
+          timestamp: Date.now(),
+          dateFormatted: new Date().toLocaleDateString('ja-JP', {
+            month: 'numeric',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          locationName: locInfo.name,
+          activityTitle: `けんちこに応援してもらった（${catLabel}）`,
+          nyanId: null,
+          nyanName: null,
+          itemUsed: null,
+          mood: 'happy',
+          text: `${locInfo.name}でけんちこに応援してもらった。「${cheerMessage}」と寄り添ってくれて心がぽかぽか温かくなった。`,
+        },
+        ...prev.diary,
+      ];
+
+      const nextData: GameSaveData = {
+        ...prev,
+        diary: updatedDiary.slice(0, 50),
+        stats: updatedStats,
+        lastSaved: Date.now(),
+        kenchiko: {
+          ...curK,
+          currentActivity: 'cheering',
+          currentActivityTitle: 'けんちこが応援中',
+          activityStartedAt: Date.now(),
+          activityDurationSec: cheerDurationSec,
+          currentCompanionNyanId: null, // No cat during cheer
+          encounterChecked: true, // Mark encounter checked so no cat spawns
+          monologue: cheerMessage,
+          happiness: Math.min(100, curK.happiness + 20),
+        },
+      };
+
+      saveLocalBackup(nextData);
+      return nextData;
+    });
+
+    try {
+      confetti({
+        particleCount: 35,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#D4736A', '#FFB3BA', '#FFE4E1', '#E7CBA9', '#E06D53'],
+      });
+    } catch {}
+  };
 
   // User Actions: Petting (local update only, zero Firestore writes)
   const handlePetKenchiko = () => {
@@ -807,15 +1004,30 @@ export default function App() {
     });
   };
 
-  // User Actions: Start Random Travel (random destination & transport, 30s)
+  // User Actions: Start Random Travel (random destination & transport, 20s)
   const handleStartRandomTravel = () => {
+    if (saveData.kenchiko.currentActivity === 'transit') return;
+    if (
+      saveData.kenchiko.lastArrivedAt &&
+      Date.now() - saveData.kenchiko.lastArrivedAt < 120 * 1000
+    ) {
+      return;
+    }
     const destination = pickRandomLocation(saveData.kenchiko.currentLocation);
     const transport = pickRandomTransport();
     handleStartTravel(destination, transport);
   };
 
-  // User Actions: Start Travel to specific destination
+  // User Actions: Start Travel to specific destination (20s)
   const handleStartTravel = (destination: LocationId, transport: TransportMethod) => {
+    if (saveData.kenchiko.currentActivity === 'transit') return;
+    if (
+      saveData.kenchiko.lastArrivedAt &&
+      Date.now() - saveData.kenchiko.lastArrivedAt < 120 * 1000
+    ) {
+      return;
+    }
+
     setNewEncounterToast(null);
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
     setRemainingTimeSec(transitInfo.durationSec);
@@ -833,6 +1045,7 @@ export default function App() {
           activityStartedAt: Date.now(),
           activityDurationSec: transitInfo.durationSec,
           currentCompanionNyanId: null,
+          encounterChecked: false,
           monologue: getRandomMonologue(
             'transit',
             prev.kenchiko.currentLocation,
@@ -1364,6 +1577,7 @@ export default function App() {
               remainingTimeSec={remainingTimeSec}
               timeSpeed={timeSpeed}
               onPet={handlePetKenchiko}
+              onOpenOuenModal={() => setShowOuenModal(true)}
               onOpenGiftModal={() => setShowGiftModal(true)}
               onStartRandomTravel={handleStartRandomTravel}
               onOpenTravelModal={() => setShowTravelModal(true)}
@@ -1526,6 +1740,19 @@ export default function App() {
           onClose={() => setShowTravelModal(false)}
           onStartTravel={handleStartTravel}
           onStartRandomTravel={handleStartRandomTravel}
+        />
+      )}
+
+      {showOuenModal && (
+        <OuenModal
+          categories={
+            saveData.ouenCategories && saveData.ouenCategories.length > 0
+              ? saveData.ouenCategories
+              : INITIAL_OUEN_CATEGORIES
+          }
+          kenchiko={saveData.kenchiko}
+          onClose={() => setShowOuenModal(false)}
+          onSelectCategory={handleSelectOuenCategory}
         />
       )}
 

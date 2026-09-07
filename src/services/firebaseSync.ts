@@ -11,10 +11,11 @@ import {
   getDocs,
   deleteDoc,
 } from 'firebase/firestore';
-import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState } from '../types';
+import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState, OuenCategory, OuenItem } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser, DEFAULT_GLOBAL_DOC_ID } from './userService';
 import { loadLocalKenchikoImage, saveLocalKenchikoImage } from './imageCompression';
 
@@ -75,6 +76,8 @@ export interface UserProgressDoc {
   inventory: GiftItem[];
   diary: DiaryEntry[];
   asobiList?: KenchikoAsobi[];
+  ouenCategories?: OuenCategory[];
+  ouenList?: OuenItem[];
   kihonNyanCustomImageUrl?: string;
   googleDriveFolderUrl?: string;
   stats: {
@@ -181,6 +184,8 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
     inventory: data.inventory || [],
     diary: cappedDiary,
     asobiList: data.asobiList || [],
+    ouenCategories: data.ouenCategories || INITIAL_OUEN_CATEGORIES,
+    ouenList: data.ouenList || INITIAL_OUEN_LIST,
     kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl || '',
     googleDriveFolderUrl: data.googleDriveFolderUrl || '',
     stats: data.stats || {
@@ -281,6 +286,8 @@ export function reconstructGameSaveData(
     inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
     diary: deduplicateDiary(remoteDoc.diary || DEFAULT_INITIAL_STATE.diary),
     asobiList: remoteDoc.asobiList || DEFAULT_INITIAL_STATE.asobiList,
+    ouenCategories: remoteDoc.ouenCategories || DEFAULT_INITIAL_STATE.ouenCategories || INITIAL_OUEN_CATEGORIES,
+    ouenList: remoteDoc.ouenList || DEFAULT_INITIAL_STATE.ouenList || INITIAL_OUEN_LIST,
     kihonNyanCustomImageUrl: remoteDoc.kihonNyanCustomImageUrl,
     googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,
     stats: remoteDoc.stats || DEFAULT_INITIAL_STATE.stats,
@@ -1018,6 +1025,20 @@ export async function fetchInitialFirebaseState(
       userRaw?.googleDriveFolderUrl ||
       '';
 
+    const globalOuenCategories: OuenCategory[] =
+      globalRaw?.ouenCategories && globalRaw.ouenCategories.length > 0
+        ? globalRaw.ouenCategories
+        : (localBackup?.ouenCategories && localBackup.ouenCategories.length > 0
+            ? localBackup.ouenCategories
+            : INITIAL_OUEN_CATEGORIES);
+
+    const globalOuenList: OuenItem[] =
+      globalRaw?.ouenList && globalRaw.ouenList.length > 0
+        ? globalRaw.ouenList
+        : (localBackup?.ouenList && localBackup.ouenList.length > 0
+            ? localBackup.ouenList
+            : INITIAL_OUEN_LIST);
+
     // --- STEP 4: Assemble User-specific Progress Data ---
     let userBaseData: GameSaveData;
     if (userRaw && userRaw.kenchiko) {
@@ -1037,6 +1058,8 @@ export async function fetchInitialFirebaseState(
       ...userBaseData,
       // 共通DBから読むデータ: あそびリスト & けんちこ（外見）
       asobiList: globalAsobiList,
+      ouenCategories: globalOuenCategories,
+      ouenList: globalOuenList,
       kenchiko: {
         ...userBaseData.kenchiko,
         customImageUrl: globalKenchikoAvatar,
@@ -1222,8 +1245,8 @@ export async function executeFirestoreWrite(
     const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
 
     // 1. Write the compact progress document EXCLUSIVELY to the active user's personal document
-    // NOTE: asobiList and master configs are global master collections and are NEVER written here!
-    const { asobiList: _ignoredAsobi, ...userProgressOnly } = compactProgressDoc as any;
+    // NOTE: asobiList, ouenList and master configs are global master collections and are NEVER written here!
+    const { asobiList: _ignoredAsobi, ouenList: _ignoredOuen, ouenCategories: _ignoredOuenCat, ...userProgressOnly } = compactProgressDoc as any;
     const payload = removeUndefinedDeep({
       ...userProgressOnly,
       lastSaved: Date.now(),
@@ -1424,6 +1447,57 @@ export async function saveGlobalAsobiList(
     return { success: true, count: cleanList.length };
   } catch (err: any) {
     console.error('Failed to save global asobiList:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Saves ouenList & ouenCategories EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
+ */
+export async function saveGlobalOuenList(
+  ouenList: OuenItem[],
+  ouenCategories: OuenCategory[] = INITIAL_OUEN_CATEGORIES,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    // 1. Immediately update local storage backup so changes are never lost locally
+    const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
+    const updatedLocal: GameSaveData = {
+      ...currentLocal,
+      ouenList: ouenList,
+      ouenCategories: ouenCategories,
+      lastSaved: Date.now(),
+    };
+    saveLocalBackup(updatedLocal);
+
+    // 2. Initialize Firestore if needed
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) {
+        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+      }
+    }
+    if (!firestoreDb) {
+      return { success: false, error: 'Firestoreが初期化されていません' };
+    }
+
+    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+    const globalPayload = removeUndefinedDeep({
+      ouenList,
+      ouenCategories,
+      lastSaved: Date.now(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await setDoc(globalDocRef, globalPayload, { merge: true });
+    sessionDbWriteCount++;
+    incrementDailyWriteCount();
+    notifyConnectionStatusChange(true);
+
+    return { success: true, count: ouenList.length };
+  } catch (err: any) {
+    console.error('Failed to save global ouenList:', err);
     return { success: false, error: err?.message || String(err) };
   }
 }

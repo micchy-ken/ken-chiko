@@ -29,6 +29,14 @@
           "type": "array",
           "description": "User custom asobi actions and monologues"
         },
+        "ouenCategories": {
+          "type": "array",
+          "description": "Custom ouen cheer mood categories"
+        },
+        "ouenList": {
+          "type": "array",
+          "description": "Custom ouen cheer messages"
+        },
         "kihonNyanCustomImageUrl": {
           "type": "string",
           "description": "Custom image URL for Kihon Nyan"

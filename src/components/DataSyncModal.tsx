@@ -100,8 +100,9 @@ import {
 } from '../services/imageCompression';
 import { getAssetUrl, handleImageError, ASSET_PATHS } from '../utils/assetPath';
 import { AdminUserManagement } from './AdminUserManagement';
+import { AdminOuenEditor } from './AdminOuenEditor';
 
-export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'users' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'ouen' | 'users' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -177,7 +178,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'ouen', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -1229,6 +1230,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Smile className="w-4 h-4 text-[#C8744E]" />
             <span>全イベント・あそび編集 ({asobiList.length}件)</span>
+          </button>
+
+          {/* TAB: Ouen Messages Editor (おうえん設定) */}
+          <button
+            onClick={() => setActiveTab('ouen')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'ouen'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#D4736A] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-[#D4736A]" />
+            <span>おうえん設定 ({(saveData.ouenList?.length || 1)}件)</span>
           </button>
 
           {/* TAB: User Management (ユーザー管理画面) */}
@@ -2473,6 +2487,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 }}
               />
             </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB: OUEN MESSAGES & CATEGORIES (おうえん設定) */}
+          {/* ========================================================= */}
+          {activeTab === 'ouen' && (
+            <AdminOuenEditor
+              saveData={saveData}
+              onUpdateSaveData={onUpdateSaveData}
+              openConfirm={openConfirm}
+            />
           )}
 
           {/* ========================================================= */}
