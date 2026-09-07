@@ -1479,41 +1479,48 @@ export default function App() {
       <div className="bg-[#ECE7DC] border-b-1.5 border-[#3E3833] sticky top-0 z-30 shadow-[0_2px_6px_rgba(46,40,36,0.06)]">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-2 py-2.5">
           {/* Main Tab Navigation */}
-          <div className="flex gap-1.5 sm:gap-2.5 overflow-x-auto">
+          <div className="flex gap-1.5 sm:gap-2.5 overflow-x-auto shrink-0">
             <button
               onClick={() => setActiveTab('stage')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 text-xs font-black transition ${
                 activeTab === 'stage'
                   ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
               }`}
             >
-              <Eye className="w-4 h-4" />
-              <span className="font-handwriting text-sm">けんちこ観察</span>
+              <Eye className="w-4 h-4 shrink-0" />
+              <span className="font-handwriting text-xs sm:text-sm hidden sm:inline whitespace-nowrap">けんちこ観察</span>
+              <span className="font-handwriting text-xs sm:text-sm inline sm:hidden whitespace-nowrap">観察</span>
             </button>
 
             <button
               onClick={() => setActiveTab('zukan')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 text-xs font-black transition ${
                 activeTab === 'zukan'
                   ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
               }`}
             >
-              <BookOpen className="w-4 h-4" />
-              <span className="font-handwriting text-sm">◯◯にゃん図鑑 ({discoveredCount}/{totalCharacters})</span>
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span className="font-handwriting text-xs sm:text-sm hidden sm:inline whitespace-nowrap">
+                ◯◯にゃん図鑑 ({discoveredCount}/{totalCharacters})
+              </span>
+              <span className="font-handwriting text-xs sm:text-sm inline sm:hidden whitespace-nowrap">図鑑</span>
             </button>
 
             <button
               onClick={() => setActiveTab('diary')}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black transition ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 text-xs font-black transition ${
                 activeTab === 'diary'
                   ? 'bg-[#3E3833] text-[#FAF8F4] sketch-border shadow-sm'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824] sketch-card-subtle'
               }`}
             >
-              <BookMarked className="w-4 h-4" />
-              <span className="font-handwriting text-sm">おもいで絵日記 ({saveData.diary.length})</span>
+              <BookMarked className="w-4 h-4 shrink-0" />
+              <span className="font-handwriting text-xs sm:text-sm hidden sm:inline whitespace-nowrap">
+                おもいで絵日記 ({saveData.diary.length})
+              </span>
+              <span className="font-handwriting text-xs sm:text-sm inline sm:hidden whitespace-nowrap">絵日記</span>
             </button>
           </div>
 
