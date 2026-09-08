@@ -37,7 +37,7 @@ export interface UserRewardState {
   history: GaraponHistoryEntry[];
 }
 
-export const GARAPON_COST = 300;
+export const GARAPON_COST = 200;
 export const POINTS_NEW_DISCOVERY = 50;
 export const POINTS_STORY_COMPLETE = 20;
 export const POINTS_DAILY_PET = 10;

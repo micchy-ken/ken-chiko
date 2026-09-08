@@ -133,7 +133,7 @@ export interface GaraponResult {
 
 /**
  * Performs a Garapon spin:
- * Costs 300pt.
+ * Costs 200pt.
  * Probability:
  * - 15% かるちぇらたん引換券 (gold)
  * - 10% にゃんこ関連本引換券 (silver)
@@ -159,7 +159,7 @@ export function spinGarapon(
     };
   }
 
-  // Deduct 300 points
+  // Deduct 200 points
   let nextPoints = current.points - GARAPON_COST;
   let nextLifetime = current.lifetimePoints;
   const tickets = [...(current.tickets || [])];

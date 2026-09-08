@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, Gift, Ticket, ArrowRight, Check, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { GARAPON_COST } from '../types/rewards';
 
 interface InitialBonusModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export const InitialBonusModal: React.FC<InitialBonusModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const spinsCount = Math.floor(bonusAmount / 300);
+  const spinsCount = Math.floor(bonusAmount / GARAPON_COST);
 
   return (
     <div

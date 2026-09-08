@@ -681,7 +681,7 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
               <div className="bg-[#FFFDF9] border-2 border-[#2E2824] rounded-2xl p-4 shadow-[2px_2px_0px_#2E2824] space-y-2.5">
                 <h3 className="font-handwriting font-black text-sm sm:text-base text-[#2E2824] flex items-center gap-1.5">
                   <HelpCircle className="w-4 h-4 text-[#8C5A3E]" />
-                  <span>ガラポン福引の当選確率（1回 300pt）</span>
+                  <span>ガラポン福引の当選確率（1回 {GARAPON_COST}pt）</span>
                 </h3>
 
                 <div className="space-y-2 text-xs font-handwriting">
