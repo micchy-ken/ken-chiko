@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -33,6 +33,66 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
   const [showAllDays, setShowAllDays] = useState<boolean>(false);
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const conversationSectionRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Smoothly scrolls to the top of the conversation section.
+   * Compatible with desktop modals and mobile touch browsers (iOS Safari / Android Chrome).
+   */
+  const scrollToConversationTop = () => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        // 1. Direct inner modal container scroll
+        if (scrollContainerRef.current && conversationSectionRef.current) {
+          const container = scrollContainerRef.current;
+          const target = conversationSectionRef.current;
+          const containerRect = container.getBoundingClientRect();
+          const targetRect = target.getBoundingClientRect();
+          const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+
+          container.scrollTo({
+            top: Math.max(0, relativeTop - 8),
+            behavior: 'smooth',
+          });
+        }
+
+        // 2. scrollIntoView fallback for mobile viewport / parent wrapper
+        if (conversationSectionRef.current) {
+          try {
+            conversationSectionRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start',
+              inline: 'nearest',
+            });
+          } catch {
+            conversationSectionRef.current.scrollIntoView(true);
+          }
+        }
+      }, 40);
+    });
+  };
+
+  const handleSelectDay = (idx: number) => {
+    if (idx === selectedDayIndex) return;
+    setSelectedDayIndex(idx);
+    scrollToConversationTop();
+  };
+
+  const handlePrevDay = () => {
+    if (selectedDayIndex > 0) {
+      setSelectedDayIndex((prev) => prev - 1);
+      scrollToConversationTop();
+    }
+  };
+
+  const handleNextDay = () => {
+    if (selectedDayIndex < days.length - 1) {
+      setSelectedDayIndex((prev) => prev + 1);
+      scrollToConversationTop();
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -112,7 +172,10 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
           </div>
 
           {/* Body Content */}
-          <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4 font-sans scroll-smooth"
+          >
             {/* Loading State */}
             {isLoading && (
               <div className="py-16 text-center space-y-3">
@@ -198,7 +261,7 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
                 </div>
 
                 {/* Dialogue Conversation Section */}
-                <div className="space-y-3">
+                <div ref={conversationSectionRef} id="story-conversation-section" className="space-y-3 scroll-mt-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 border-b-2 border-[#2E2824]/20 pb-2">
                     <div className="flex items-center gap-2">
                       <MessageCircle className="w-5 h-5 text-[#8C5A3E]" />
@@ -212,7 +275,10 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
 
                     {days.length > 1 && (
                       <button
-                        onClick={() => setShowAllDays(!showAllDays)}
+                        onClick={() => {
+                          setShowAllDays(!showAllDays);
+                          scrollToConversationTop();
+                        }}
                         className={`text-xs px-2.5 py-1 rounded-lg border border-[#2E2824] font-handwriting transition-all shadow-[1px_1px_0px_#2E2824] ${
                           showAllDays
                             ? 'bg-[#8C5A3E] text-white font-bold'
@@ -230,7 +296,7 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
                       {days.map((day, idx) => (
                         <button
                           key={idx}
-                          onClick={() => setSelectedDayIndex(idx)}
+                          onClick={() => handleSelectDay(idx)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-bold font-handwriting whitespace-nowrap border-2 border-[#2E2824] transition-all shrink-0 ${
                             selectedDayIndex === idx
                               ? 'bg-[#8C5A3E] text-white shadow-[2px_2px_0px_#2E2824] translate-y-[-1px]'
@@ -318,7 +384,7 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
                   {!showAllDays && days.length > 1 && (
                     <div className="flex items-center justify-between gap-2 pt-2">
                       <button
-                        onClick={() => setSelectedDayIndex((prev) => Math.max(0, prev - 1))}
+                        onClick={handlePrevDay}
                         disabled={selectedDayIndex === 0}
                         className="px-3 py-1.5 rounded-xl border-2 border-[#2E2824] bg-[#FFFDF9] hover:bg-[#F2EDE4] disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-handwriting flex items-center gap-1 shadow-[2px_2px_0px_#2E2824] active:translate-y-0.5 transition-all"
                       >
@@ -331,7 +397,7 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
                       </span>
 
                       <button
-                        onClick={() => setSelectedDayIndex((prev) => Math.min(days.length - 1, prev + 1))}
+                        onClick={handleNextDay}
                         disabled={selectedDayIndex === days.length - 1}
                         className="px-3 py-1.5 rounded-xl border-2 border-[#2E2824] bg-[#FFFDF9] hover:bg-[#F2EDE4] disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold font-handwriting flex items-center gap-1 shadow-[2px_2px_0px_#2E2824] active:translate-y-0.5 transition-all"
                       >

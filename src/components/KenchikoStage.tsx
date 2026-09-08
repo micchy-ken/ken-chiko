@@ -190,11 +190,11 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
         </div>
 
         {/* Kenchiko Monologue Speech Bubble (Hand-drawn talk box) */}
-        <div className="relative z-10 w-full max-w-lg mb-2">
+        <div className="relative z-20 w-full max-w-lg mb-2">
           <button
             onClick={onManualMonologue}
             title="タップでけんちこのつぶやきを聞く"
-            className="w-full group bg-[#FFFDF9] sketch-card-subtle px-4 py-3 text-left transition hover:-translate-y-0.5 active:translate-y-0 flex items-start gap-3"
+            className="w-full group bg-[#FFFDF9] sketch-card-subtle px-4 py-3 text-left transition hover:-translate-y-0.5 active:translate-y-0 flex items-start gap-3 relative z-20 shadow-xs"
           >
             <div className="shrink-0 mt-0.5">
               <KenchikoAvatar size={36} imageUrl={kenchiko.customImageUrl} />
@@ -219,7 +219,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
         {/* Scenic Location Postcard / Sketch Pin on Left Wall */}
         {kenchiko.currentActivity !== 'transit' && (
           <div
-            className="absolute top-14 left-2.5 sm:left-5 z-10 select-none group pointer-events-auto cursor-default animate-fadeIn"
+            className="absolute top-20 sm:top-14 left-1.5 sm:left-5 z-0 sm:z-10 select-none group pointer-events-auto cursor-default animate-fadeIn"
             title={`現在地: ${locInfo.name} (${locInfo.reading}) - ${locInfo.description}`}
           >
             {/* Cute Washi Tape Strip */}
