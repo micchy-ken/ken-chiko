@@ -1705,16 +1705,20 @@ export default function App() {
             {/* Garapon Lottery & Points Quick Button */}
             <button
               onClick={() => setShowGaraponModal(true)}
-              className="relative flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 text-xs font-black transition bg-[#B45309] hover:bg-[#92400E] text-white sketch-border shadow-sm active:translate-y-0.5 shrink-0"
+              className={`relative flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 text-xs font-black transition sketch-card-subtle shadow-xs active:translate-y-0.5 shrink-0 ${
+                showGaraponModal
+                  ? 'bg-[#3E3833] text-[#FAF8F4]'
+                  : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-white hover:text-[#2E2824]'
+              }`}
               title={`ガラポン福引所 (${currentPoints}pt)`}
               aria-label="ガラポン福引所"
             >
-              <Gift className="w-4 h-4 shrink-0" />
+              <Gift className={`w-4 h-4 shrink-0 ${showGaraponModal ? 'text-[#FDE68A]' : 'text-[#8C5A3E]'}`} />
               <span className="font-handwriting text-xs sm:text-sm hidden sm:inline whitespace-nowrap">
                 福引 ({currentPoints}pt)
               </span>
               {unusedTicketCount > 0 && (
-                <span className="bg-[#EF4444] text-white font-mono text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-full border border-white font-bold animate-pulse absolute -top-1.5 -right-1.5 sm:static sm:top-auto sm:right-auto">
+                <span className="bg-[#EF4444] text-white font-mono text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-full border border-white font-bold animate-pulse absolute -top-1.5 -right-1.5 sm:static sm:top-auto sm:right-auto shadow-xs">
                   <span className="sm:hidden">{unusedTicketCount}</span>
                   <span className="hidden sm:inline">🎟️{unusedTicketCount}</span>
                 </span>
