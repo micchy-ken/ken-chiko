@@ -58,6 +58,16 @@ import { DataSyncModal, AdminTab } from './components/DataSyncModal';
 import { UserSettingsModal } from './components/UserSettingsModal';
 import { TutorialModal } from './components/TutorialModal';
 import { OuenModal } from './components/OuenModal';
+import { GaraponModal } from './components/GaraponModal';
+import { InitialBonusModal } from './components/InitialBonusModal';
+import { UserRewardState } from './types/rewards';
+import {
+  claimDailyPetPoints,
+  claimStoryCompletionPoints,
+  addDiscoveryPoints,
+  grantInitialDiscoveryBonus,
+  createInitialRewardState,
+} from './services/rewardService';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
@@ -184,6 +194,24 @@ export default function App() {
   const tutorialOpenTimestampRef = useRef<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+
+  // Rewards & Garapon States
+  const [showGaraponModal, setShowGaraponModal] = useState<boolean>(false);
+  const [showInitialBonusModal, setShowInitialBonusModal] = useState<boolean>(false);
+  const [initialBonusInfo, setInitialBonusInfo] = useState<{
+    discoveredCount: number;
+    bonusAmount: number;
+  } | null>(null);
+  const [rewardToastMessage, setRewardToastMessage] = useState<string | null>(null);
+
+  // Auto-dismiss reward toast message after 4 seconds
+  useEffect(() => {
+    if (!rewardToastMessage) return;
+    const timer = setTimeout(() => {
+      setRewardToastMessage(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [rewardToastMessage]);
 
   // Guard flag: Ensure the encounter/activity lottery never begins until initial sync has fully settled
   const [isInitialSyncCompleted, setIsInitialSyncCompleted] = useState<boolean>(false);
@@ -513,6 +541,103 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
 
+  // Check and trigger Initial Discovery Bonus when sync is complete
+  useEffect(() => {
+    if (!isInitialSyncCompleted) return;
+    const rewards = saveData.rewards;
+    if (!rewards?.hasClaimedInitialDiscoveryBonus) {
+      const discoveredCount = (saveData.characters || []).filter((c) => c.discovered).length;
+      if (discoveredCount > 0) {
+        const bonus = discoveredCount * 50;
+        setInitialBonusInfo({ discoveredCount, bonusAmount: bonus });
+        setShowInitialBonusModal(true);
+      } else {
+        // Mark as claimed if starting with 0
+        setSaveData((prev) => {
+          const nextData: GameSaveData = {
+            ...prev,
+            rewards: {
+              ...(prev.rewards || createInitialRewardState()),
+              hasClaimedInitialDiscoveryBonus: true,
+              initialBonusAmount: 0,
+            },
+          };
+          saveLocalBackup(nextData);
+          return nextData;
+        });
+      }
+    }
+  }, [isInitialSyncCompleted, saveData.rewards?.hasClaimedInitialDiscoveryBonus, saveData.characters]);
+
+  // Handle Initial Bonus Claim
+  const handleClaimInitialBonus = (openGarapon: boolean) => {
+    if (!initialBonusInfo) return;
+    const { discoveredCount, bonusAmount } = initialBonusInfo;
+
+    setSaveData((prev) => {
+      const res = grantInitialDiscoveryBonus(prev.rewards, discoveredCount);
+      const nextData: GameSaveData = {
+        ...prev,
+        rewards: res.updatedState,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData);
+      return nextData;
+    });
+
+    setShowInitialBonusModal(false);
+    setRewardToastMessage(`🎉 初回ボーナス +${bonusAmount}pt を受け取りました！`);
+    if (openGarapon) {
+      setShowGaraponModal(true);
+    }
+    try {
+      confetti({ particleCount: 50, spread: 90, origin: { y: 0.5 } });
+    } catch {}
+  };
+
+  // Handle Story Reading 20pt Bonus
+  const handleStoryReadCompleted = (nyanNo: number) => {
+    setSaveData((prev) => {
+      const res = claimStoryCompletionPoints(prev.rewards, nyanNo);
+      if (!res.wasAwarded) return prev;
+
+      const nextData: GameSaveData = {
+        ...prev,
+        rewards: res.updatedState,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData);
+
+      setRewardToastMessage(`📖 物語読了ボーナス +20pt 獲得！(所持: ${res.updatedState.points}pt)`);
+      try {
+        confetti({ particleCount: 30, spread: 70, origin: { y: 0.6 } });
+      } catch {}
+
+      return nextData;
+    });
+  };
+
+  // Handle Rewards & Characters update from Garapon
+  const handleUpdateRewardsFromGarapon = (
+    updatedRewards: UserRewardState,
+    updatedCharacters?: NyanCharacter[],
+    toastMsg?: string
+  ) => {
+    setSaveData((prev) => {
+      const nextData: GameSaveData = {
+        ...prev,
+        characters: updatedCharacters || prev.characters,
+        rewards: updatedRewards,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData);
+      return nextData;
+    });
+    if (toastMsg) {
+      setRewardToastMessage(toastMsg);
+    }
+  };
+
   // Current Companion Nyan
   const companionNyan = useMemo(() => {
     if (!saveData.kenchiko.currentCompanionNyanId) return null;
@@ -622,6 +747,7 @@ export default function App() {
             };
           }
 
+          let updatedRewards = prev.rewards;
           if (encounterRes.newDiscoveredNyan) {
             isNewlyDiscoveredNyan = true;
             const charIndex = updatedCharacters.findIndex((c) => c.no === encounterRes.newDiscoveredNyan!.no);
@@ -635,6 +761,11 @@ export default function App() {
                 friendshipLevel: 1,
               };
               updatedStats.totalEncounters += 1;
+
+              // Award +50pt Discovery Bonus
+              updatedRewards = addDiscoveryPoints(updatedRewards);
+              setRewardToastMessage(`✨ 新にゃんこ「${updatedCharacters[charIndex].name}」発見！(+50pt 獲得)`);
+
               setNewEncounterToast(updatedCharacters[charIndex]);
               try {
                 confetti({ particleCount: 35, spread: 80, origin: { y: 0.5 } });
@@ -668,6 +799,7 @@ export default function App() {
             characters: updatedCharacters,
             diary: deduplicateDiary(updatedDiary).slice(0, 50),
             stats: updatedStats,
+            rewards: updatedRewards || prev.rewards,
             lastSaved: Date.now(),
             kenchiko: {
               ...curK,
@@ -1110,9 +1242,12 @@ export default function App() {
     handleActivityCompletion();
   };
 
-  // User Actions: Petting (local update only, zero Firestore writes)
+  // User Actions: Petting (awards daily 10pt bonus if not yet claimed today)
   const handlePetKenchiko = () => {
     setSaveData((prev) => {
+      const petRes = claimDailyPetPoints(prev.rewards);
+      const nextRewards = petRes.updatedState;
+
       const nextData: GameSaveData = {
         ...prev,
         lastSaved: Date.now(),
@@ -1120,8 +1255,24 @@ export default function App() {
           ...prev.kenchiko,
           happiness: Math.min(100, prev.kenchiko.happiness + 10),
         },
+        rewards: nextRewards,
       };
-      saveLocalBackup(nextData);
+
+      if (petRes.wasAwarded) {
+        saveOnUserAction(nextData);
+        setRewardToastMessage(`💕 けんちこを撫でたよ！（デイリーボーナス +10pt 獲得！）`);
+        try {
+          confetti({
+            particleCount: 20,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: ['#D4736A', '#FFB3BA', '#FFE4E1'],
+          });
+        } catch {}
+      } else {
+        saveLocalBackup(nextData);
+      }
+
       return nextData;
     });
   };
@@ -1495,6 +1646,8 @@ export default function App() {
 
   const discoveredCount = saveData.characters.filter((c) => c.discovered).length;
   const totalCharacters = saveData.characters.length;
+  const currentPoints = saveData.rewards?.points || 0;
+  const unusedTicketCount = (saveData.rewards?.tickets || []).filter((t) => !t.isUsed).length;
 
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
@@ -1547,6 +1700,25 @@ export default function App() {
                 おもいで絵日記 ({saveData.diary.length})
               </span>
               <span className="font-handwriting text-xs sm:text-sm inline sm:hidden whitespace-nowrap">絵日記</span>
+            </button>
+
+            {/* Garapon Lottery & Points Quick Button */}
+            <button
+              onClick={() => setShowGaraponModal(true)}
+              className="relative flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 text-xs font-black transition bg-[#B45309] hover:bg-[#92400E] text-white sketch-border shadow-sm active:translate-y-0.5 shrink-0"
+              title={`ガラポン福引所 (${currentPoints}pt)`}
+              aria-label="ガラポン福引所"
+            >
+              <Gift className="w-4 h-4 shrink-0" />
+              <span className="font-handwriting text-xs sm:text-sm hidden sm:inline whitespace-nowrap">
+                福引 ({currentPoints}pt)
+              </span>
+              {unusedTicketCount > 0 && (
+                <span className="bg-[#EF4444] text-white font-mono text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-full border border-white font-bold animate-pulse absolute -top-1.5 -right-1.5 sm:static sm:top-auto sm:right-auto">
+                  <span className="sm:hidden">{unusedTicketCount}</span>
+                  <span className="hidden sm:inline">🎟️{unusedTicketCount}</span>
+                </span>
+              )}
             </button>
           </div>
 
@@ -1884,6 +2056,8 @@ export default function App() {
         <ZukanDetailModal
           nyan={selectedZukanNyan}
           onClose={() => setSelectedZukanNyan(null)}
+          onStoryReadCompleted={handleStoryReadCompleted}
+          readStoryIds={saveData.rewards?.readStoryIds || []}
         />
       )}
 
@@ -1967,6 +2141,46 @@ export default function App() {
             });
           }}
         />
+      )}
+
+      {/* Garapon Lottery Modal */}
+      {showGaraponModal && (
+        <GaraponModal
+          isOpen={showGaraponModal}
+          onClose={() => setShowGaraponModal(false)}
+          rewardState={saveData.rewards || createInitialRewardState()}
+          characters={saveData.characters}
+          onUpdateRewards={handleUpdateRewardsFromGarapon}
+          onOpenStory={(nyan) => {
+            setShowGaraponModal(false);
+            setSelectedZukanNyan(nyan);
+          }}
+        />
+      )}
+
+      {/* Initial Discovery Bonus Claim Modal */}
+      {showInitialBonusModal && initialBonusInfo && (
+        <InitialBonusModal
+          isOpen={showInitialBonusModal}
+          discoveredCount={initialBonusInfo.discoveredCount}
+          bonusAmount={initialBonusInfo.bonusAmount}
+          onClaimAndOpenGarapon={() => handleClaimInitialBonus(true)}
+          onClaimAndClose={() => handleClaimInitialBonus(false)}
+        />
+      )}
+
+      {/* Reward & Points Banner Toast */}
+      {rewardToastMessage && (
+        <div className="fixed top-16 sm:top-18 left-1/2 -translate-x-1/2 z-50 max-w-md bg-[#8C5A3E] text-white px-4 py-2.5 rounded-2xl border-2 border-[#2E2824] shadow-[4px_4px_0px_#2E2824] font-handwriting text-xs sm:text-sm font-bold flex items-center gap-2.5 animate-bounce">
+          <span className="text-base">✨</span>
+          <span className="flex-1">{rewardToastMessage}</span>
+          <button
+            onClick={() => setRewardToastMessage(null)}
+            className="w-5 h-5 rounded-full bg-[#784A30] hover:bg-[#623C26] text-white flex items-center justify-center text-xs font-bold transition ml-1"
+          >
+            ✕
+          </button>
+        </div>
       )}
     </div>
   );

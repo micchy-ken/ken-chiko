@@ -86,6 +86,7 @@ export interface UserProgressDoc {
     totalNapMinutes: number;
     totalTrips: number;
   };
+  rewards?: import('../types/rewards').UserRewardState;
   lastSaved: number;
   updatedAt?: string;
 }
@@ -196,6 +197,7 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
       totalNapMinutes: 0,
       totalTrips: 0,
     },
+    rewards: data.rewards ? removeUndefinedDeep(data.rewards) : undefined,
     lastSaved: data.lastSaved || Date.now(),
   };
 
@@ -314,6 +316,7 @@ export function reconstructGameSaveData(
     kihonNyanCustomImageUrl: remoteDoc.kihonNyanCustomImageUrl,
     googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,
     stats: remoteDoc.stats || DEFAULT_INITIAL_STATE.stats,
+    rewards: remoteDoc.rewards || DEFAULT_INITIAL_STATE.rewards,
     lastSaved: remoteDoc.lastSaved || Date.now(),
     githubRepo: remoteDoc.githubRepo || 'ken-chiko',
     autoSyncGithub: remoteDoc.autoSyncGithub ?? true,
@@ -1230,7 +1233,9 @@ export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
 
   const assetsStr = `${doc.kenchiko?.customImageUrl || ''}|${doc.kihonNyanCustomImageUrl || ''}|${doc.googleDriveFolderUrl || ''}|${doc.kenchiko?.equippedItem || ''}|${doc.kenchiko?.currentLocation || ''}`;
 
-  return `${nyanStr}#${invStr}#${diaryStr}#${statsStr}#${assetsStr}`;
+  const rewardsStr = `${doc.rewards?.points || 0}:${(doc.rewards?.tickets || []).length}:${(doc.rewards?.tickets || []).filter((t) => t.isUsed).length}`;
+
+  return `${nyanStr}#${invStr}#${diaryStr}#${statsStr}#${assetsStr}#${rewardsStr}`;
 }
 
 export async function executeFirestoreWrite(

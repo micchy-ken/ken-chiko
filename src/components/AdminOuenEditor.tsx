@@ -93,7 +93,7 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
 
   const handleSaveItem = () => {
     if (!formMessage.trim()) {
-      alert('応援メッセージを入力してください');
+      setSaveStatus({ type: 'error', message: '応援メッセージを入力してください' });
       return;
     }
 
@@ -169,7 +169,7 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
 
   const handleDeleteCategory = (cat: OuenCategory) => {
     if (currentCategories.length <= 1) {
-      alert('カテゴリーは最低1つ必要です');
+      setSaveStatus({ type: 'error', message: 'カテゴリーは最低1つ必要です' });
       return;
     }
     openConfirm(

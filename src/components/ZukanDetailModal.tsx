@@ -14,16 +14,22 @@ interface ZukanDetailModalProps {
   nyan: NyanCharacter | null;
   onClose: () => void;
   onGiftToNyan?: (nyan: NyanCharacter) => void;
+  onStoryReadCompleted?: (nyanNo: number) => void;
+  readStoryIds?: number[];
 }
 
 export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   nyan,
   onClose,
   onGiftToNyan,
+  onStoryReadCompleted,
+  readStoryIds = [],
 }) => {
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
 
   if (!nyan) return null;
+
+  const isStoryRead = readStoryIds.includes(nyan.no);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">
@@ -129,6 +135,15 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
             >
               <BookOpen className="w-5 h-5" />
               <span className="text-sm sm:text-base">📜 このにゃんこの物語（会話劇）を読む</span>
+              {isStoryRead ? (
+                <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30">
+                  読了済
+                </span>
+              ) : (
+                <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30 animate-pulse">
+                  +20pt
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -140,6 +155,8 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
           nyan={nyan}
           isOpen={isStoryModalOpen}
           onClose={() => setIsStoryModalOpen(false)}
+          onStoryReadCompleted={onStoryReadCompleted}
+          isStoryAlreadyRead={isStoryRead}
         />
       )}
     </div>

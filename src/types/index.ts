@@ -198,7 +198,10 @@ export interface GameSaveData {
     totalNapMinutes: number;
     totalTrips: number;
   };
+  rewards?: import('./rewards').UserRewardState; // ポイント・引換券・福引状態
   lastSaved: number;
   githubRepo: string;
   autoSyncGithub: boolean;
 }
+
+export * from './rewards';

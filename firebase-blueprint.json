@@ -49,6 +49,10 @@
           "type": "object",
           "description": "Aggregate gameplay statistics"
         },
+        "rewards": {
+          "type": "object",
+          "description": "User points, reward tickets, initial bonus flag, and daily claim states"
+        },
         "lastSaved": {
           "type": "number",
           "description": "Timestamp of last save"

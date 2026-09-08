@@ -21,12 +21,16 @@ interface NyankoStoryModalProps {
   nyan: NyanCharacter;
   isOpen: boolean;
   onClose: () => void;
+  onStoryReadCompleted?: (nyanNo: number) => void;
+  isStoryAlreadyRead?: boolean;
 }
 
 export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
   nyan,
   isOpen,
   onClose,
+  onStoryReadCompleted,
+  isStoryAlreadyRead = false,
 }) => {
   const [story, setStory] = useState<NyankoStory | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -123,6 +127,17 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
       isMounted = false;
     };
   }, [isOpen, nyan.no]);
+
+  // Check if final story day reached to grant completion points
+  useEffect(() => {
+    if (!isOpen || !story) return;
+    const daysCount = story.week_info?.days?.length || 0;
+    if (daysCount > 0 && (selectedDayIndex === daysCount - 1 || showAllDays)) {
+      if (onStoryReadCompleted) {
+        onStoryReadCompleted(nyan.no);
+      }
+    }
+  }, [isOpen, story, selectedDayIndex, showAllDays, onStoryReadCompleted, nyan.no]);
 
   if (!isOpen) return null;
 
@@ -428,9 +443,16 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
 
           {/* Modal Footer */}
           <div className="p-3 bg-[#F2EDE4] border-t-2 border-[#2E2824] flex items-center justify-between shrink-0">
-            <div className="text-[11px] text-[#7A726A] font-handwriting flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#8C5A3E]" />
-              <span>Firebase Cloudからオンデマンド取得済み</span>
+            <div className="text-[11px] text-[#7A726A] font-handwriting flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-[#8C5A3E]" />
+                <span>物語記録</span>
+              </span>
+              {isStoryAlreadyRead && (
+                <span className="bg-[#FEF3C7] text-[#B45309] font-bold px-2 py-0.5 rounded-full border border-[#D97706]/40 text-[10px]">
+                  ✨ 最終話読了ボーナス (+20pt) 獲得済み
+                </span>
+              )}
             </div>
 
             <button
