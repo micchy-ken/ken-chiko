@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
@@ -6,7 +6,9 @@ import {
   Heart,
   Calendar,
   Layers,
+  BookOpen,
 } from 'lucide-react';
+import { NyankoStoryModal } from './NyankoStoryModal';
 
 interface ZukanDetailModalProps {
   nyan: NyanCharacter | null;
@@ -19,6 +21,8 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   onClose,
   onGiftToNyan,
 }) => {
+  const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
+
   if (!nyan) return null;
 
   return (
@@ -116,8 +120,28 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
               {nyan.episode || 'けんちこがセカイのどこかで出会った、ゆるくて愛らしい仲間。'}
             </p>
           </div>
+
+          {/* Read Story / Conversation Button */}
+          <div className="pt-1">
+            <button
+              onClick={() => setIsStoryModalOpen(true)}
+              className="w-full py-3 px-4 rounded-xl border-2 border-[#2E2824] bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold font-handwriting flex items-center justify-center gap-2.5 shadow-[3px_3px_0px_#2E2824] transition-all"
+            >
+              <BookOpen className="w-5 h-5" />
+              <span className="text-sm sm:text-base">📜 このにゃんこの物語（会話劇）を読む</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Story Reader Modal */}
+      {isStoryModalOpen && (
+        <NyankoStoryModal
+          nyan={nyan}
+          isOpen={isStoryModalOpen}
+          onClose={() => setIsStoryModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

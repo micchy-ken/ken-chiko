@@ -38,6 +38,8 @@ export const ASSET_PATHS = {
   BASE_NYANKO: getAssetUrl('images/base-nyanko.jpg'),
   HOMURA_NYAN_SQUARE: getAssetUrl('images/homura-nyan-square.jpg'),
   HOMURA_NYAN_TRANSPARENT: getAssetUrl('images/homura-nyan-transparent.png'),
+  JINBEI_NYAN_TRANSPARENT: getAssetUrl('images/jinbei-nyan-transparent.png'),
+  JINBEI_NYAN: getAssetUrl('images/jinbei-nyan.png'),
 };
 
 /**

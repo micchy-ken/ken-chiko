@@ -235,6 +235,7 @@ export default function App() {
     try {
       const tutorialSeen = localStorage.getItem('kenchiko_tutorial_seen');
       const ouenSeen = localStorage.getItem('kenchiko_ouen_tutorial_seen');
+      const storySeen = localStorage.getItem('kenchiko_story_tutorial_seen');
       const isDevOrAdmin = typeof window !== 'undefined' && (
         window.location.search.includes('admin') ||
         window.location.search.includes('dev') ||
@@ -243,9 +244,14 @@ export default function App() {
       );
       if (!isDevOrAdmin) {
         if (!tutorialSeen) {
-          // Brand new user: Show full tutorial starting from step 0 (steps 1 to 4)
+          // Brand new user: Show full tutorial starting from step 0 (steps 1 to 5)
           setTutorialInitialStep(0);
           setIsNewFeatureTutorialOnly(false);
+          setShowTutorialModal(true);
+        } else if (!storySeen) {
+          // Existing user who hasn't seen the story reading announcement: Show Step 5 directly
+          setTutorialInitialStep(4);
+          setIsNewFeatureTutorialOnly(true);
           setShowTutorialModal(true);
         } else if (!ouenSeen) {
           // Existing user who hasn't seen the cheer feature announcement: Show Step 4 directly
@@ -476,6 +482,13 @@ export default function App() {
         setIsInitialSyncCompleted(true);
         setIsLoadingFirebase(false);
         endInitialConnectionPhase();
+
+        const curK = saveDataRef.current.kenchiko;
+        const transitCap = curK.currentActivity === 'transit' ? 20 : (curK.activityDurationSec || 300);
+        const elapsedRealSec = Math.floor((Date.now() - (curK.activityStartedAt || Date.now())) / 1000);
+        const initialRemaining = Math.max(0, transitCap - elapsedRealSec);
+        remainingTimeSecRef.current = initialRemaining;
+        setRemainingTimeSec(initialRemaining);
       }
     }, 5000);
 
@@ -703,20 +716,90 @@ export default function App() {
     lastCompletionTimestampRef.current = now;
 
     try {
-      setSaveData((prev) => {
-        const curK = prev.kenchiko;
-        const updatedStats = { ...prev.stats };
-        let nextData: GameSaveData;
+      const prev = saveDataRef.current;
+      const curK = prev.kenchiko;
+      const updatedStats = { ...prev.stats };
+      let nextData: GameSaveData;
+      let nextRemainingSec = 300;
 
-        // Case A: Just arrived from transit -> Immediately begin full 5-minute activity at target location!
-        if (curK.currentActivity === 'transit' && curK.targetLocation) {
-          const nextLocation = curK.targetLocation;
-          updatedStats.totalTrips += 1;
+      // Case A: Just arrived from transit -> Immediately begin full 5-minute activity at target location!
+      if (curK.currentActivity === 'transit' && curK.targetLocation) {
+        const nextLocation = curK.targetLocation;
+        updatedStats.totalTrips += 1;
+        setNewEncounterToast(null);
+        nextEncounterCheckTimeRef.current = 0; // Reset timer for new location
+
+        const newAct = startNewActivity(nextLocation, prev.asobiList);
+        nextRemainingSec = newAct.durationSec;
+
+        nextData = {
+          ...prev,
+          stats: updatedStats,
+          lastSaved: Date.now(),
+          kenchiko: {
+            ...curK,
+            currentLocation: nextLocation,
+            targetLocation: null,
+            transportMethod: null,
+            currentActivity: newAct.type,
+            currentActivityTitle: newAct.title,
+            activityStartedAt: Date.now(),
+            lastArrivedAt: Date.now(),
+            activityDurationSec: newAct.durationSec,
+            currentCompanionNyanId: null,
+            encounterChecked: false,
+            monologue:
+              newAct.customMonologue ||
+              getRandomMonologue(
+                newAct.type,
+                nextLocation,
+                null,
+                prev.asobiList
+              ),
+          },
+        };
+      } else {
+        // Case B: Finished activity at current location -> 45% travel to new place, 55% start another activity here
+        const shouldMove = Math.random() < 0.45;
+
+        if (shouldMove) {
+          setNewEncounterToast(null); // Clear toast when departing
+          nextEncounterCheckTimeRef.current = 0;
+          const dest = pickRandomLocation(curK.currentLocation);
+          const transport = pickRandomTransport();
+          const transitInfo = startTransit(curK.currentLocation, dest, transport);
+
+          nextRemainingSec = 20; // STRICTLY 20s for transit!
+
+          nextData = {
+            ...prev,
+            lastSaved: Date.now(),
+            kenchiko: {
+              ...curK,
+              targetLocation: dest,
+              transportMethod: transport,
+              currentActivity: 'transit',
+              currentActivityTitle: transitInfo.title,
+              activityStartedAt: Date.now(),
+              activityDurationSec: 20, // STRICTLY 20s!
+              currentCompanionNyanId: null,
+              encounterChecked: false,
+              monologue: getRandomMonologue(
+                'transit',
+                curK.currentLocation,
+                transport,
+                prev.asobiList
+              ),
+            },
+          };
+        } else {
+          // Case C: Start next activity at current location
           setNewEncounterToast(null);
-          nextEncounterCheckTimeRef.current = 0; // Reset timer for new location
+          const newAct = startNewActivity(curK.currentLocation, prev.asobiList);
+          nextRemainingSec = newAct.durationSec;
 
-          const newAct = startNewActivity(nextLocation, prev.asobiList);
-          setRemainingTimeSec(newAct.durationSec);
+          // If a cat already appeared during this location stay, keep encounterChecked true so no more appear
+          const alreadyEncountered = curK.encounterChecked || curK.currentCompanionNyanId !== null;
 
           nextData = {
             ...prev,
@@ -724,96 +807,28 @@ export default function App() {
             lastSaved: Date.now(),
             kenchiko: {
               ...curK,
-              currentLocation: nextLocation,
-              targetLocation: null,
-              transportMethod: null,
               currentActivity: newAct.type,
               currentActivityTitle: newAct.title,
               activityStartedAt: Date.now(),
-              lastArrivedAt: Date.now(),
               activityDurationSec: newAct.durationSec,
-              currentCompanionNyanId: null,
-              encounterChecked: false,
+              encounterChecked: alreadyEncountered,
               monologue:
                 newAct.customMonologue ||
                 getRandomMonologue(
                   newAct.type,
-                  nextLocation,
+                  curK.currentLocation,
                   null,
                   prev.asobiList
                 ),
             },
           };
-        } else {
-          // Case B: Finished activity at current location -> 45% travel to new place, 55% start another activity here
-          const shouldMove = Math.random() < 0.45;
-
-          if (shouldMove) {
-            setNewEncounterToast(null); // Clear toast when departing
-            nextEncounterCheckTimeRef.current = 0;
-            const dest = pickRandomLocation(curK.currentLocation);
-            const transport = pickRandomTransport();
-            const transitInfo = startTransit(curK.currentLocation, dest, transport);
-
-            setRemainingTimeSec(transitInfo.durationSec);
-
-            nextData = {
-              ...prev,
-              lastSaved: Date.now(),
-              kenchiko: {
-                ...curK,
-                targetLocation: dest,
-                transportMethod: transport,
-                currentActivity: 'transit',
-                currentActivityTitle: transitInfo.title,
-                activityStartedAt: Date.now(),
-                activityDurationSec: transitInfo.durationSec,
-                currentCompanionNyanId: null,
-                encounterChecked: false,
-                monologue: getRandomMonologue(
-                  'transit',
-                  curK.currentLocation,
-                  transport,
-                  prev.asobiList
-                ),
-              },
-            };
-          } else {
-            // Case C: Start next activity at current location
-            setNewEncounterToast(null);
-            const newAct = startNewActivity(curK.currentLocation, prev.asobiList);
-            setRemainingTimeSec(newAct.durationSec);
-
-            // If a cat already appeared during this location stay, keep encounterChecked true so no more appear
-            const alreadyEncountered = curK.encounterChecked || curK.currentCompanionNyanId !== null;
-
-            nextData = {
-              ...prev,
-              stats: updatedStats,
-              lastSaved: Date.now(),
-              kenchiko: {
-                ...curK,
-                currentActivity: newAct.type,
-                currentActivityTitle: newAct.title,
-                activityStartedAt: Date.now(),
-                activityDurationSec: newAct.durationSec,
-                encounterChecked: alreadyEncountered,
-                monologue:
-                  newAct.customMonologue ||
-                  getRandomMonologue(
-                    newAct.type,
-                    curK.currentLocation,
-                    null,
-                    prev.asobiList
-                  ),
-              },
-            };
-          }
         }
+      }
 
-        saveLocalBackup(nextData);
-        return nextData;
-      });
+      setRemainingTimeSec(nextRemainingSec);
+      remainingTimeSecRef.current = nextRemainingSec;
+      setSaveData(nextData);
+      saveLocalBackup(nextData);
     } finally {
       setTimeout(() => {
         isCompletingActivityRef.current = false;
@@ -833,9 +848,20 @@ export default function App() {
     const interval = setInterval(() => {
       let isCompleted = false;
 
+      const curK = saveDataRef.current.kenchiko;
+      const now = Date.now();
+      const isTransit = curK.currentActivity === 'transit';
+      const elapsedSinceStart = now - (curK.activityStartedAt || now);
+
       setRemainingTimeSec((prev) => {
-        const nextTime = prev - timeSpeed;
-        if (nextTime <= 0) {
+        let currentSec = prev;
+        // Strict transit clamp: If in transit, remaining time CAN NEVER be > 20s!
+        if (isTransit && currentSec > 20) {
+          const transitRemaining = Math.max(0, 20 - Math.floor(elapsedSinceStart / 1000));
+          currentSec = Math.min(20, transitRemaining);
+        }
+        const nextTime = currentSec - timeSpeed;
+        if (nextTime <= 0 || (isTransit && elapsedSinceStart >= 20000)) {
           isCompleted = true;
           return 0;
         }
@@ -844,12 +870,8 @@ export default function App() {
 
       // Encounter Check: After 5 seconds elapsed, then every 15-60s with 30% chance.
       // Once a cat appears, no more cats appear in this location.
-      const curK = saveDataRef.current.kenchiko;
-      const now = Date.now();
-      const elapsedSinceStart = now - (curK.activityStartedAt || now);
-
       if (
-        curK.currentActivity !== 'transit' &&
+        !isTransit &&
         curK.currentActivity !== 'cheering' &&
         !curK.encounterChecked &&
         curK.currentCompanionNyanId === null &&
@@ -873,16 +895,17 @@ export default function App() {
     const handleVisibilityOrFocus = () => {
       if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
       if (document.visibilityState === 'visible') {
-        const startedAt = saveData.kenchiko.activityStartedAt || Date.now();
-        const durationSec = saveData.kenchiko.currentActivity === 'transit'
+        const curK = saveDataRef.current.kenchiko;
+        const startedAt = curK.activityStartedAt || Date.now();
+        const durationSec = curK.currentActivity === 'transit'
           ? 20
-          : (saveData.kenchiko.activityDurationSec || 300);
+          : (curK.activityDurationSec || 300);
         const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
         const remaining = Math.max(0, durationSec - elapsedSec);
         setRemainingTimeSec(remaining);
+        remainingTimeSecRef.current = remaining;
 
         // Check if encounter check should fire upon return
-        const curK = saveDataRef.current.kenchiko;
         const now = Date.now();
         if (
           curK.currentActivity !== 'transit' &&
@@ -1152,7 +1175,9 @@ export default function App() {
     setNewEncounterToast(null);
     nextEncounterCheckTimeRef.current = 0;
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
-    setRemainingTimeSec(transitInfo.durationSec);
+    const transitDuration = 20; // Strictly 20s for transit
+    setRemainingTimeSec(transitDuration);
+    remainingTimeSecRef.current = transitDuration;
 
     setSaveData((prev) => {
       const nextData: GameSaveData = {
@@ -1165,7 +1190,7 @@ export default function App() {
           currentActivity: 'transit',
           currentActivityTitle: transitInfo.title,
           activityStartedAt: Date.now(),
-          activityDurationSec: transitInfo.durationSec,
+          activityDurationSec: transitDuration,
           currentCompanionNyanId: null,
           encounterChecked: false,
           monologue: getRandomMonologue(
@@ -1351,6 +1376,7 @@ export default function App() {
     try {
       localStorage.removeItem('kenchiko_tutorial_seen');
       localStorage.removeItem('kenchiko_ouen_tutorial_seen');
+      localStorage.removeItem('kenchiko_story_tutorial_seen');
     } catch (_e) {}
     setTutorialInitialStep(0);
     setIsNewFeatureTutorialOnly(false);
@@ -1455,9 +1481,9 @@ export default function App() {
             setSaveData((prev) => {
               const next = updater(prev);
               if (isImmediate) {
-                syncSaveDataToFirebase(next, true).catch(() => {});
+                syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
               } else {
-                saveOnUserAction(next).catch(() => {});
+                saveOnUserAction(next, undefined, true).catch(() => {});
               }
               return next;
             });
@@ -1841,9 +1867,9 @@ export default function App() {
                 setSaveData((prev) => {
                   const next = updater(prev);
                   if (isImmediate) {
-                    syncSaveDataToFirebase(next, true).catch(() => {});
+                    syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
                   } else {
-                    saveOnUserAction(next).catch(() => {});
+                    saveOnUserAction(next, undefined, true).catch(() => {});
                   }
                   return next;
                 });
@@ -1933,9 +1959,9 @@ export default function App() {
             setSaveData((prev) => {
               const next = updater(prev);
               if (isImmediate) {
-                syncSaveDataToFirebase(next, true).catch(() => {});
+                syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
               } else {
-                saveOnUserAction(next).catch(() => {});
+                saveOnUserAction(next, undefined, true).catch(() => {});
               }
               return next;
             });

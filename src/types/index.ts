@@ -30,6 +30,41 @@ export interface NyanTransparencyOptions {
   trimPadding: boolean; // auto-crop outer padding
 }
 
+export interface NyankoStoryMessage {
+  time: string;
+  sender: string;
+  body: string;
+  content?: string;
+}
+
+export interface NyankoStoryDay {
+  date_header: string;
+  messages: NyankoStoryMessage[];
+}
+
+export interface NyankoStoryWeekInfo {
+  week_title: string;
+  week_start: string;
+  week_end: string;
+  days: NyankoStoryDay[];
+}
+
+export interface NyankoStory {
+  id: number;
+  name: string;
+  kana?: string;
+  motif?: string;
+  debut_date?: string;
+  voice?: string;
+  translation?: string;
+  episode_summary?: string;
+  prompt_ja?: string;
+  prompt_en?: string;
+  doc_link?: string;
+  week_info?: NyankoStoryWeekInfo;
+  updatedAt?: string;
+}
+
 export interface NyanCharacter {
   no: number;
   name: string;

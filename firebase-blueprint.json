@@ -59,12 +59,76 @@
         }
       },
       "required": ["version", "kenchiko", "lastSaved"]
+    },
+    "NyankoStory": {
+      "title": "NyankoStory",
+      "description": "Weekly story, lore, and dialogue for an individual nyan character",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Character No / ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Character name"
+        },
+        "kana": {
+          "type": "string",
+          "description": "Character reading kana"
+        },
+        "motif": {
+          "type": "string",
+          "description": "Motif description"
+        },
+        "debut_date": {
+          "type": "string",
+          "description": "Debut date"
+        },
+        "voice": {
+          "type": "string",
+          "description": "Cat cry / sound"
+        },
+        "translation": {
+          "type": "string",
+          "description": "Cat translation"
+        },
+        "episode_summary": {
+          "type": "string",
+          "description": "Summary of this character's story episode"
+        },
+        "prompt_ja": {
+          "type": "string",
+          "description": "Image prompt in Japanese"
+        },
+        "prompt_en": {
+          "type": "string",
+          "description": "Image prompt in English"
+        },
+        "doc_link": {
+          "type": "string",
+          "description": "Google Doc reference link"
+        },
+        "week_info": {
+          "type": "object",
+          "description": "Weekly dialogue messages and dates"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "name"]
     }
   },
   "firestore": {
     "/kenchiko_world/{docId}": {
       "schema": "UserProgress",
       "description": "User game state and progress document in the kenchiko_world collection"
+    },
+    "/nyanko_stories/{storyId}": {
+      "schema": "NyankoStory",
+      "description": "Story and dialogue archives for each nyan character keyed by character ID"
     }
   }
 }

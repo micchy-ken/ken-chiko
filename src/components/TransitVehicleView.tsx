@@ -31,11 +31,13 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
     (c) => c.no === 205 || c.name.includes('じんべえ') || c.name.includes('じんべい')
   );
 
-  // Candidate image paths for Jinbei-nyan
-  // Checks customImageUrl first, then standard local asset names in /images/
-  const jinbeiCandidateUrl = jinbeiChar?.customImageUrl
-    ? getAssetUrl(jinbeiChar.customImageUrl)
-    : getAssetUrl('images/jinbei-nyan.png');
+  // Jinbei-nyan vehicle mount: always prioritize transparent cut-out illustration
+  const isCustomUserUpload =
+    jinbeiChar?.customImageUrl?.startsWith('data:') ||
+    jinbeiChar?.customImageUrl?.startsWith('blob:');
+  const jinbeiCandidateUrl = isCustomUserUpload
+    ? getAssetUrl(jinbeiChar!.customImageUrl)
+    : getAssetUrl('images/jinbei-nyan-transparent.png');
 
   // Fallback authentic Jinbei-nyan SVG illustration if external file is absent
   const renderFallbackJinbeiSvg = () => (
@@ -129,36 +131,36 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
         </div>
 
         {/* Floating Jinbei-nyan Mount + Kenchiko on Back */}
-        <div className="relative z-10 flex flex-col items-center animate-bounce" style={{ animationDuration: '2.5s' }}>
-          {/* Kenchiko sitting on top */}
-          <div className="relative z-20 translate-y-6 translate-x-1 transition-transform">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center">
+        <div className="relative z-10 flex flex-col items-center animate-bounce" style={{ animationDuration: '3s' }}>
+          {/* Kenchiko sitting comfortably on Jinbei-nyan's back */}
+          <div className="relative z-20 -mb-10 sm:-mb-12 -translate-x-2 transition-transform">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center">
               {activeKenchikoImg ? (
                 <img
                   src={activeKenchikoImg}
                   alt="けんちこ"
                   onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
-                  className="max-w-full max-h-full object-contain filter drop-shadow-[0_4px_10px_rgba(46,40,36,0.2)]"
+                  className="max-w-full max-h-full object-contain filter drop-shadow-[0_4px_8px_rgba(46,40,36,0.22)]"
                 />
               ) : (
-                <div className="text-4xl">🐱</div>
+                <div className="text-3xl">🐱</div>
               )}
             </div>
           </div>
 
-          {/* Jinbei-nyan Illustration / Graphic */}
-          <div className="relative z-10 filter drop-shadow-[0_8px_16px_rgba(46,40,36,0.18)]">
+          {/* Jinbei-nyan Cutout Illustration */}
+          <div className="relative z-10 filter drop-shadow-[0_10px_20px_rgba(46,40,36,0.18)]">
             {!jinbeiImgError ? (
               <img
                 src={jinbeiCandidateUrl}
                 alt="じんべえにゃん"
                 onError={() => setJinbeiImgError(true)}
-                className="w-48 h-36 object-contain filter drop-shadow-[0_6px_12px_rgba(46,40,36,0.15)]"
+                className="w-56 h-40 sm:w-64 sm:h-44 object-contain filter drop-shadow-[0_6px_14px_rgba(46,40,36,0.16)]"
                 referrerPolicy="no-referrer"
               />
             ) : jinbeiChar ? (
-              <div className="w-48 h-36 flex items-center justify-center">
-                <NyanIllustration nyan={jinbeiChar} size={145} transparent={true} />
+              <div className="w-56 h-40 flex items-center justify-center">
+                <NyanIllustration nyan={jinbeiChar} size={160} transparent={true} />
               </div>
             ) : (
               renderFallbackJinbeiSvg()
@@ -166,7 +168,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
           </div>
 
           {/* Floating Cloud Platform underneath */}
-          <div className="flex items-center gap-2 -mt-3 opacity-80">
+          <div className="flex items-center gap-2 -mt-4 opacity-80">
             <span className="text-xl animate-pulse">☁️</span>
             <span className="text-2xl">☁️</span>
             <span className="text-xl animate-pulse">☁️</span>

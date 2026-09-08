@@ -29,6 +29,9 @@ import {
   FirebaseConnectionStatus,
   isCloudAutoSyncEnabled,
   setCloudAutoSyncEnabled,
+  isDailyLimitDisabled,
+  setDailyLimitDisabled,
+  resetDailyWriteCount,
   MAX_DAILY_WRITES,
   fetchInitialFirebaseState,
 } from '../services/firebaseSync';
@@ -2771,23 +2774,63 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {activeTab === 'firebase' && (
             <div className="space-y-4 animate-fadeIn">
               {/* Traffic Safeguard & Write Budget Box */}
-              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF]">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF] space-y-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <h4 className="text-xs font-black text-[#4A4036] flex items-center gap-1.5">
-                      🛡️ クラウド通信量セーフガード（意図しない書き込み防止）
+                      🛡️ クラウド通信量セーフガード（管理画面: 150回上限解除中）
                     </h4>
                     <p className="text-[11px] text-[#7D756D] mt-0.5">
-                      1日の書き込み上限（最大{MAX_DAILY_WRITES}回）と最低120秒のスロットル・重要差分検知で、放置時や無操作時に意図しない通信が発生しないよう物理的に保護されています。
+                      一般プレイ時は意図しない過剰通信を防ぐため1日{MAX_DAILY_WRITES}回の上限で保護されていますが、<strong className="text-[#2F6B48]">管理画面（当パネル）からのデータ保存・同期・編集は150回の上限が解除（無制限）</strong>されています。
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold font-mono px-3 py-1 bg-white border border-[#D9CEBF] rounded-xl text-[#3D5447] shadow-sm">
-                      本日書き込み: {connectionStatus.dailyWriteCount || 0} / {MAX_DAILY_WRITES} 回
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold font-mono px-3 py-1.5 bg-white border border-[#D9CEBF] rounded-xl text-[#3D5447] shadow-sm flex items-center gap-1.5">
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      本日書き込み: {connectionStatus.dailyWriteCount || 0} 回
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
+                        管理画面: 制限なし
+                      </span>
                     </span>
                   </div>
                 </div>
 
+                {/* Unlimited Mode Toggle */}
+                <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#E8DFD3]">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#4A4036] block">
+                        150回書き込み上限の解除（無制限モード）
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        管理画面は常時制限なし
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-[#8C8275]">
+                      {connectionStatus.isDailyLimitDisabled
+                        ? '無制限モードON: 管理画面・通常プレイ問わず、1日150回の上限チェックを完全解除中'
+                        : '現在: 管理画面からの操作は常時制限なし（ONにすると一般プレイ時の自動保存も含めて完全無制限になります）'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextVal = !connectionStatus.isDailyLimitDisabled;
+                      setDailyLimitDisabled(nextVal);
+                    }}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      connectionStatus.isDailyLimitDisabled ? 'bg-[#487560]' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        connectionStatus.isDailyLimitDisabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Cloud Auto-Sync Toggle */}
                 <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#E8DFD3]">
                   <div>
                     <span className="text-xs font-bold text-[#4A4036] block">
@@ -2814,6 +2857,22 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                         connectionStatus.isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
+                  </button>
+                </div>
+
+                {/* Daily counter reset */}
+                <div className="flex items-center justify-between bg-[#F4EFE6] px-3 py-2 rounded-xl text-xs">
+                  <span className="text-[11px] text-[#6B5E51]">
+                    本日のFirestore書き込み累計: <strong className="font-mono text-[#2E2824]">{connectionStatus.dailyWriteCount || 0}</strong> 回（管理画面からは上限なしで実行可能）
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetDailyWriteCount();
+                    }}
+                    className="text-[11px] font-bold text-[#5A4E42] hover:text-[#2E2824] px-2.5 py-1 bg-white hover:bg-[#FAF8F5] border border-[#DDD4C5] rounded-lg transition shadow-xs"
+                  >
+                    本日のカウントを0にリセット
                   </button>
                 </div>
               </div>

@@ -276,14 +276,35 @@ export function reconstructGameSaveData(
   const mergedCharacters = Array.from(charMap.values()).sort((a, b) => a.no - b.no);
   const localKenchikoImg = loadLocalKenchikoImage();
   const remoteKenchiko = remoteDoc.kenchiko || DEFAULT_INITIAL_STATE.kenchiko;
+  const isTransit = remoteKenchiko.currentActivity === 'transit';
+  const transitElapsedMs = isTransit && remoteKenchiko.activityStartedAt
+    ? Date.now() - remoteKenchiko.activityStartedAt
+    : 0;
+
+  // If remote data says Kenchiko is in transit but > 20s have already passed, auto-complete transit to arrival location
+  let cleanedKenchiko = {
+    ...DEFAULT_INITIAL_STATE.kenchiko,
+    ...remoteKenchiko,
+    activityDurationSec: isTransit ? 20 : (remoteKenchiko.activityDurationSec || 300),
+    customImageUrl: remoteKenchiko.customImageUrl || localKenchikoImg || '',
+  };
+
+  if (isTransit && transitElapsedMs > 20000) {
+    cleanedKenchiko = {
+      ...cleanedKenchiko,
+      currentLocation: remoteKenchiko.targetLocation || remoteKenchiko.currentLocation || 'living',
+      targetLocation: null,
+      transportMethod: null,
+      currentActivity: 'spacing_out',
+      currentActivityTitle: 'のんびり過ごしている',
+      activityStartedAt: Date.now(),
+      activityDurationSec: 300,
+    };
+  }
 
   return {
     version: remoteDoc.version || 2,
-    kenchiko: {
-      ...DEFAULT_INITIAL_STATE.kenchiko,
-      ...remoteKenchiko,
-      customImageUrl: remoteKenchiko.customImageUrl || localKenchikoImg || '',
-    },
+    kenchiko: cleanedKenchiko,
     characters: mergedCharacters,
     inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
     diary: deduplicateDiary(remoteDoc.diary || DEFAULT_INITIAL_STATE.diary),
@@ -527,6 +548,42 @@ const AUTO_SYNC_ENABLED_KEY = 'kenchiko_cloud_auto_sync_enabled_v2';
 
 // Safe daily budget: 150 writes per day (far below the 20,000 free daily writes)
 export const MAX_DAILY_WRITES = 150;
+const DAILY_LIMIT_DISABLED_KEY = 'kenchiko_daily_limit_disabled_v2';
+
+export function isDailyLimitDisabled(): boolean {
+  try {
+    return localStorage.getItem(DAILY_LIMIT_DISABLED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setDailyLimitDisabled(disabled: boolean): void {
+  try {
+    localStorage.setItem(DAILY_LIMIT_DISABLED_KEY, String(disabled));
+  } catch {}
+  notifyConnectionStatusChange(isCurrentlyConnected);
+}
+
+export function isAdminSessionActive(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const sessionAuth = sessionStorage.getItem('kenchiko_admin_authenticated') === 'true';
+    const params = new URLSearchParams(window.location.search);
+    const isStandalone = params.has('admin') || params.has('dev') || params.has('key') || params.has('pass');
+    return sessionAuth || isStandalone || isDailyLimitDisabled();
+  } catch {
+    return false;
+  }
+}
+
+export function resetDailyWriteCount(): void {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    localStorage.setItem(DAILY_WRITES_KEY, JSON.stringify({ date: today, count: 0 }));
+  } catch {}
+  notifyConnectionStatusChange(isCurrentlyConnected);
+}
 
 export interface DailyWriteStats {
   date: string; // YYYY-MM-DD
@@ -625,6 +682,8 @@ export interface FirebaseConnectionStatus {
   isAutoSyncEnabled: boolean;
   dailyWriteCount: number;
   maxDailyWrites: number;
+  isDailyLimitDisabled: boolean;
+  isAdminUncapped: boolean;
 }
 
 let isCurrentlyConnected: boolean = false;
@@ -639,6 +698,8 @@ export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
   const isQuota = isQuotaCurrentlyExhausted && Date.now() < quotaExhaustedUntil;
   const dailyStats = getDailyWriteStats();
   const autoSync = isCloudAutoSyncEnabled();
+  const limitDisabled = isDailyLimitDisabled();
+  const adminActive = isAdminSessionActive();
 
   // During initial boot phase (first ~2.5s), do not alarm the user with an offline warning
   const effectiveOffline = isInitialPhase ? false : (isOffline || !isCurrentlyConnected || isQuota);
@@ -651,6 +712,8 @@ export function getFirebaseConnectionStatus(): FirebaseConnectionStatus {
     isAutoSyncEnabled: autoSync,
     dailyWriteCount: dailyStats.count,
     maxDailyWrites: MAX_DAILY_WRITES,
+    isDailyLimitDisabled: limitDisabled,
+    isAdminUncapped: adminActive || limitDisabled,
   };
 }
 
@@ -1173,25 +1236,28 @@ export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
 export async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
-  forceManual: boolean = false
+  forceManual: boolean = false,
+  bypassDailyLimit: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   // Always protect data in local storage immediately (0 latency, 0 quota)
   saveLocalBackup(data);
 
-  // 1. Check quota exhaustion (skip if manual save)
-  if (!forceManual && getIsQuotaExhausted()) {
+  const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
+
+  // 1. Check quota exhaustion (skip if manual save or admin)
+  if (!forceManual && !isAdmin && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };
   }
 
-  // 2. Check user auto-sync toggle (if false, only manual save allowed)
-  if (!forceManual && !isCloudAutoSyncEnabled()) {
+  // 2. Check user auto-sync toggle (if false, only manual save or admin allowed)
+  if (!forceManual && !isAdmin && !isCloudAutoSyncEnabled()) {
     console.log('[CloudSync] 🛑 クラウド自動書き込みOFF: ローカル保存のみ実施（Firestore通信: 0回）');
     return { success: true, error: 'クラウド自動書き込みはOFF（ローカル保存中）です' };
   }
 
-  // 3. Strict daily write budget (Skip if manual save)
+  // 3. Strict daily write budget (Skip if manual save, admin session, or daily limit disabled)
   const dailyStats = getDailyWriteStats();
-  if (!forceManual && dailyStats.count >= MAX_DAILY_WRITES) {
+  if (!forceManual && !isAdmin && dailyStats.count >= MAX_DAILY_WRITES) {
     console.warn(`[CloudSync] ⚠️ 本日の安全書き込み上限(${MAX_DAILY_WRITES}回)に達したためローカル保存に切り替え`);
     return {
       success: true,
@@ -1203,15 +1269,15 @@ export async function executeFirestoreWrite(
   const compactProgressDoc = extractUserProgress(data);
   const currentMeaningfulHash = getMeaningfulUserProgressHash(compactProgressDoc);
 
-  // Skip write completely if meaningful game progress has not changed (even on forced exit calls)
-  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
+  // Skip write completely if meaningful game progress has not changed (unless forced manual or admin)
+  if (!forceManual && !isAdmin && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
     console.log('[CloudSync] ⏭️ クラウド書き込みスキップ: 有意な進行度（新発見・アイテム等）の変化なし（Firestore通信: 0回）');
     return { success: true };
   }
 
   const now = Date.now();
-  // 4. Enforce strict rate-limit throttle: Minimum 120s between routine non-manual writes
-  if (!forceManual && now - lastSuccessfulWriteTime < MIN_AUTO_SYNC_INTERVAL_MS) {
+  // 4. Enforce strict rate-limit throttle: Minimum 120s between routine non-manual writes (skip for admin / manual)
+  if (!forceManual && !isAdmin && now - lastSuccessfulWriteTime < MIN_AUTO_SYNC_INTERVAL_MS) {
     const waitSec = Math.round((MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime)) / 1000);
     console.log(`[CloudSync] ⏳ スロットル待機中: 最低120秒間隔のため待機 (${waitSec}秒後に保留分を書き込み)`);
     if (!pendingWriteTimeout) {
@@ -1219,7 +1285,7 @@ export async function executeFirestoreWrite(
       pendingWriteTimeout = setTimeout(() => {
         pendingWriteTimeout = null;
         if (latestPendingData) {
-          executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
+          executeFirestoreWrite(latestPendingData, config, false, isAdmin).catch(() => {});
         }
       }, MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime));
     }
@@ -1259,7 +1325,8 @@ export async function executeFirestoreWrite(
     incrementDailyWriteCount();
     lastWrittenContentString = currentMeaningfulHash;
 
-    console.log(`[CloudSync] 💾 Firestore書き込み完了 [1回]: ドキュメント=kenchiko_world/${userDocId} (本日累計: ${getDailyWriteStats().count}/${MAX_DAILY_WRITES})`);
+    const limitInfo = isAdmin ? ' [管理画面: 150回制限解除済み・無制限]' : `/${MAX_DAILY_WRITES}`;
+    console.log(`[CloudSync] 💾 Firestore書き込み完了 [1回]: ドキュメント=kenchiko_world/${userDocId} (本日累計: ${getDailyWriteStats().count}${limitInfo})`);
 
     lastSuccessfulWriteTime = Date.now();
     notifyConnectionStatusChange(true);
@@ -1282,7 +1349,7 @@ export async function executeFirestoreWrite(
     if (queuedImmediateData) {
       const nextData = queuedImmediateData;
       queuedImmediateData = null;
-      executeFirestoreWrite(nextData, config, true).catch(() => {});
+      executeFirestoreWrite(nextData, config, true, true).catch(() => {});
     }
   }
 }
@@ -1290,12 +1357,15 @@ export async function executeFirestoreWrite(
 export async function syncSaveDataToFirebase(
   data: GameSaveData,
   isImmediate = false,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
+  bypassDailyLimit: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   saveLocalBackup(data);
   latestPendingData = data;
 
-  if (isImmediate) {
+  const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
+
+  if (isImmediate || isAdmin) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -1304,15 +1374,15 @@ export async function syncSaveDataToFirebase(
       queuedImmediateData = data;
       return { success: true };
     }
-    return executeFirestoreWrite(data, config, true);
+    return executeFirestoreWrite(data, config, true, true);
   }
 
-  if (getIsQuotaExhausted()) {
+  if (!isAdmin && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
-  // If user disabled auto-sync and it's not a direct manual trigger
-  if (!isCloudAutoSyncEnabled()) {
+  // If user disabled auto-sync and it's not a direct manual trigger or admin
+  if (!isAdmin && !isCloudAutoSyncEnabled()) {
     return { success: true };
   }
 
@@ -1326,7 +1396,7 @@ export async function syncSaveDataToFirebase(
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
+      executeFirestoreWrite(latestPendingData, config, false, isAdmin).catch(() => {});
     }
   }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
@@ -1336,11 +1406,23 @@ export async function syncSaveDataToFirebase(
 // User-action-only and Exit-only save APIs
 export async function saveOnUserAction(
   data: GameSaveData,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
+  bypassDailyLimit: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   // Always update local storage first (instant, 0 latency, 0 data loss, 0 quota)
   saveLocalBackup(data);
   latestPendingData = data;
+
+  const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
+
+  // If user in admin mode or limit bypassed, save immediately with 0 throttle and 0 150-write restriction
+  if (isAdmin) {
+    if (pendingWriteTimeout) {
+      clearTimeout(pendingWriteTimeout);
+      pendingWriteTimeout = null;
+    }
+    return executeFirestoreWrite(data, config, true, true);
+  }
 
   // If user disabled cloud auto-sync, keep 100% local
   if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) {
@@ -1363,7 +1445,7 @@ export async function saveOnUserAction(
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
     }
-    return executeFirestoreWrite(data, config, false);
+    return executeFirestoreWrite(data, config, false, false);
   }
 
   if (pendingWriteTimeout) {
@@ -1373,7 +1455,7 @@ export async function saveOnUserAction(
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config, false).catch(() => {});
+      executeFirestoreWrite(latestPendingData, config, false, false).catch(() => {});
     }
   }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
@@ -1389,16 +1471,17 @@ export async function saveOnAppExit(
   // Always synchronously protect in local storage (0 latency, 0 network quota)
   saveLocalBackup(dataToSave);
 
-  if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) return;
+  const isAdmin = isAdminSessionActive() || isDailyLimitDisabled();
+  if (!isAdmin && (!isCloudAutoSyncEnabled() || getIsQuotaExhausted())) return;
 
   // Only perform a cloud write if genuine milestone progress changed!
   const compact = extractUserProgress(dataToSave);
   const hash = getMeaningfulUserProgressHash(compact);
-  if (lastWrittenContentString && hash === lastWrittenContentString) {
+  if (!isAdmin && lastWrittenContentString && hash === lastWrittenContentString) {
     return; // Completely skip cloud write!
   }
 
-  executeFirestoreWrite(dataToSave, config, false).catch(() => {});
+  executeFirestoreWrite(dataToSave, config, isAdmin, isAdmin).catch(() => {});
 }
 
 /**

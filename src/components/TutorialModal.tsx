@@ -119,10 +119,31 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
       ],
       hint: 'がんばりたい時や疲れた時に、いつでもけんちこに応援してもらおう！',
     },
+    {
+      stepNumber: 5,
+      badge: 'しんきのう・ものがたり',
+      title: 'にゃん図鑑で物語を読む',
+      icon: BookOpen,
+      iconColor: 'text-[#5C5494]',
+      bgColor: 'bg-[#F2F0FA]',
+      borderColor: 'border-[#5C5494]',
+      mainText: 'にゃん図鑑に「物語を読む」機能が追加されました！',
+      subText: '出会ったにゃんこたちの日常やけんちことの心温まるメッセージ物語（全263話）をいつでも楽しめます。前後の物語への移動やチャット形式のストーリーが読めます。',
+      tags: [
+        { label: '「物語を読む」ボタン', icon: BookOpen },
+        { label: '全263話のメッセージ物語', icon: Sparkles },
+        { label: 'チャット形式＆前後移動', icon: CheckCircle2 },
+      ],
+      hint: '図鑑で気になったにゃんこを選んで「物語を読む」をタップしてみてね！',
+    },
   ];
 
   const current = steps[currentStep] || steps[0];
-  const isNewFeatureMode = !showAllStepsMode && isNewFeatureOnly && currentStep === 3;
+  const isNewFeatureMode = !showAllStepsMode && isNewFeatureOnly && (currentStep === 3 || currentStep === 4);
+  const newFeatureSubtitle =
+    currentStep === 4
+      ? 'にゃん図鑑に「物語を読む」機能が追加されました'
+      : 'けんちこに応援してもらえる機能が追加されました';
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
@@ -142,6 +163,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
     try {
       localStorage.setItem('kenchiko_tutorial_seen', 'true');
       localStorage.setItem('kenchiko_ouen_tutorial_seen', 'true');
+      localStorage.setItem('kenchiko_story_tutorial_seen', 'true');
     } catch (_e) {
       // ignore localstorage errors
     }
@@ -184,7 +206,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
               </h2>
               <p className="font-handwriting text-xs text-[#71685F]">
                 {isNewFeatureMode
-                  ? 'けんちこに応援してもらえる機能が追加されました'
+                  ? newFeatureSubtitle
                   : `あそびかたガイド (${currentStep + 1} / ${steps.length})`}
               </p>
             </div>
@@ -207,7 +229,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
               <span
                 className={`text-xs font-black font-handwriting px-3 py-1 rounded-full border flex items-center gap-1 ${current.bgColor} ${current.borderColor} ${current.iconColor}`}
               >
-                {current.stepNumber === 4 && <Sparkles className="w-3 h-3" />}
+                {current.stepNumber >= 4 && <Sparkles className="w-3 h-3" />}
                 <span>
                   {isNewFeatureMode
                     ? '新機能：' + current.badge
@@ -285,9 +307,9 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
                 <button
                   type="button"
                   onClick={handleShowAllGuide}
-                  className="text-[11px] font-handwriting text-[#71685F] hover:text-[#2E2824] underline underline-offset-2 transition"
+                  className="text-[11px] font-handwriting text-[#71685F] hover:text-[#2E2824] underline underline-offset-2 transition cursor-pointer"
                 >
-                  📖 他のあそびかた（全4ステップ）を最初から見る
+                  📖 他のあそびかた（全5ステップ）を最初から見る
                 </button>
               </div>
             )}
@@ -352,14 +374,25 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({
             </>
           ) : (
             <div className="w-full flex items-center justify-end gap-2">
-              <button
-                id="tutorial-ouen-got-it-btn"
-                onClick={handleComplete}
-                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-lg bg-[#D45366] hover:bg-[#B84052] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98"
-              >
-                <Heart className="w-4 h-4 fill-white" />
-                <span>わかった！けんちこに応援してもらう</span>
-              </button>
+              {currentStep === 4 ? (
+                <button
+                  id="tutorial-story-got-it-btn"
+                  onClick={handleComplete}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-lg bg-[#5C5494] hover:bg-[#4B447A] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98 cursor-pointer"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>わかった！にゃんこの物語を読んでみる</span>
+                </button>
+              ) : (
+                <button
+                  id="tutorial-ouen-got-it-btn"
+                  onClick={handleComplete}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-lg bg-[#D45366] hover:bg-[#B84052] text-white font-handwriting text-xs sm:text-sm font-black shadow-md transition active:scale-98 cursor-pointer"
+                >
+                  <Heart className="w-4 h-4 fill-white" />
+                  <span>わかった！けんちこに応援してもらう</span>
+                </button>
+              )}
             </div>
           )}
         </div>

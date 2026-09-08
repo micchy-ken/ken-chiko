@@ -86,7 +86,12 @@ export function parseCsvToNyans(csvText: string): NyanCharacter[] {
       // Start completely fresh with 0 discovered nyans
       const isInitialDiscovered = false;
 
-      const customImageUrl = no === 88 ? getAssetUrl('images/homura-nyan-square.jpg') : (rawImageUrl ? getAssetUrl(rawImageUrl) : undefined);
+      const customImageUrl =
+        no === 88
+          ? getAssetUrl('images/homura-nyan-square.jpg')
+          : no === 205
+          ? (rawImageUrl && !rawImageUrl.includes('jinbei-nyan.jpg') ? getAssetUrl(rawImageUrl) : getAssetUrl('images/jinbei-nyan-transparent.png'))
+          : (rawImageUrl ? getAssetUrl(rawImageUrl) : undefined);
 
       result.push({
         no,

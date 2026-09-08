@@ -82,11 +82,17 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
     return `${mins}分${secs < 10 ? '0' : ''}${secs}秒`;
   };
 
-  const totalDuration = Math.max(1, kenchiko.activityDurationSec);
-  const progressPercent = Math.min(100, Math.max(0, ((totalDuration - remainingTimeSec) / totalDuration) * 100));
+  const isTransit = kenchiko.currentActivity === 'transit';
+  const effectiveTotalDuration = isTransit ? 20 : Math.max(1, kenchiko.activityDurationSec);
+  const effectiveRemainingTimeSec = isTransit
+    ? Math.min(20, Math.max(0, remainingTimeSec))
+    : Math.max(0, remainingTimeSec);
+  const progressPercent = Math.min(
+    100,
+    Math.max(0, ((effectiveTotalDuration - effectiveRemainingTimeSec) / effectiveTotalDuration) * 100)
+  );
 
   // Movement & Arrival Cooldown State Check (2 minutes = 120 seconds lock)
-  const isTransit = kenchiko.currentActivity === 'transit';
   const isCheering = kenchiko.currentActivity === 'cheering';
   const now = Date.now();
   const elapsedSinceArrivalSec = kenchiko.lastArrivedAt
@@ -377,7 +383,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               {isTransit ? (
                 <span className="text-[10px] bg-[#E8EEF5] text-[#2A4D69] px-2 py-0.5 rounded-full font-bold border border-[#BDD6EE] flex items-center gap-1">
-                  <Footprints className="w-3 h-3" /> 移動中 ({remainingTimeSec}s)
+                  <Footprints className="w-3 h-3" /> 移動中 ({effectiveRemainingTimeSec}s)
                 </span>
               ) : isCheering ? (
                 <span className="text-[10px] bg-[#FFF2F0] text-[#D4736A] px-2 py-0.5 rounded-full font-bold border border-[#FAD6D2] flex items-center gap-1 animate-pulse">
