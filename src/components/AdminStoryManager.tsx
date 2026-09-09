@@ -23,6 +23,9 @@ import {
   FolderInput,
   Layers,
   ChevronDown,
+  Save,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { getFirestoreDbInstance } from '../services/firebaseSync';
@@ -39,6 +42,7 @@ import {
   fetchUnmappedStoriesArchive,
   fetchUnmappedStoryFull,
   assignUnmappedStoryToNyan,
+  saveStoriesMetaDoc,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
 
@@ -176,6 +180,10 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
   const [assignDeleteFromArchive, setAssignDeleteFromArchive] = useState<boolean>(true);
   const [isAssigningArchive, setIsAssigningArchive] = useState<boolean>(false);
 
+  // Unsaved assigned count / pending metadata sync state (to conserve Firestore write quotas)
+  const [pendingMetaCount, setPendingMetaCount] = useState<number>(0);
+  const [isSavingPendingMeta, setIsSavingPendingMeta] = useState<boolean>(false);
+
   const handleOpenUnmappedArchive = async () => {
     setIsLoadingUnmapped(true);
     try {
@@ -217,34 +225,72 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
     setIsAssigningArchive(true);
     try {
+      // Pass syncMetaToFirestore: false so we don't consume writes on nyanko_stories_meta every single time!
       const res = await assignUnmappedStoryToNyan(
         assigningArchiveStory.oldId,
         targetChar,
         {
           renameToMasterName: assignRenameToMaster,
           deleteFromArchive: assignDeleteFromArchive,
+          syncMetaToFirestore: false,
         }
       );
 
-      if (res.success) {
+      if (res.success && res.updatedMeta) {
+        // Immediately update React state with new metadata index in memory
+        setMeta(res.updatedMeta);
+        setPendingMetaCount((prev) => prev + 1);
+
+        // Update characters' hasStory flag in parent state without reloading
+        if (onUpdateCharacters) {
+          const registeredIds = new Set(Object.keys(res.updatedMeta.stories).map((k) => parseInt(k, 10)));
+          const updatedChars = characters.map((c) => ({
+            ...c,
+            hasStory: registeredIds.has(c.no),
+          }));
+          onUpdateCharacters(updatedChars);
+        }
+
         setStatusMessage({
           type: 'success',
-          text: `🎉 旧#${assigningArchiveStory.oldId}「${assigningArchiveStory.name}」を No.${targetChar.no}「${targetChar.name}」に正式割り当て登録しました！`,
+          text: `🎉 旧#${assigningArchiveStory.oldId}「${assigningArchiveStory.name}」を No.${targetChar.no}「${targetChar.name}」に正式登録しました！（書き込み枠節約中: 作業終了後に「目録をクラウド保存」を押してください）`,
         });
+
         if (assignDeleteFromArchive) {
           setUnmappedList((prev) =>
             prev ? prev.filter((x) => x.oldId !== assigningArchiveStory.oldId) : null
           );
         }
         setAssigningArchiveStory(null);
-        await loadMeta(true);
       } else {
-        alert(`割り当てエラー: ${res.error}`);
+        alert(`割り当てエラー: ${res.error || '不明なエラー'}`);
       }
     } catch (err: any) {
       alert(`割り当て失敗: ${err?.message || '不明なエラー'}`);
     } finally {
       setIsAssigningArchive(false);
+    }
+  };
+
+  // Explicitly saves accumulated metadata index to Firestore (1 write operation)
+  const handleSavePendingMeta = async () => {
+    if (!meta) return;
+    setIsSavingPendingMeta(true);
+    try {
+      const res = await saveStoriesMetaDoc(meta);
+      if (res.success) {
+        setPendingMetaCount(0);
+        setStatusMessage({
+          type: 'success',
+          text: `☁️ クラウド目録（nyanko_stories_meta）を最新化しました！全ユーザーに即時反映されます。`,
+        });
+      } else {
+        alert(`目録保存エラー: ${res.error}`);
+      }
+    } catch (err: any) {
+      alert(`目録保存失敗: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsSavingPendingMeta(false);
     }
   };
 
@@ -651,12 +697,28 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
           <button
             onClick={handleOpenUnmappedArchive}
             disabled={isLoadingUnmapped}
-            className="flex items-center gap-1 px-3 py-2 bg-[#F3ECE0] hover:bg-[#E8DFCة] border border-[#D5C7B4] text-[#6B543D] font-bold text-xs rounded-xl shadow-2xs transition disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-1 px-3 py-2 bg-[#F3ECE0] hover:bg-[#E8DFCA] border border-[#D5C7B4] text-[#6B543D] font-bold text-xs rounded-xl shadow-2xs transition disabled:opacity-50 cursor-pointer"
             title="現在の図鑑に未紐付けの旧物語データ（アーカイブ）を確認します"
           >
             <Archive className={`w-3.5 h-3.5 text-[#8C5A3E] ${isLoadingUnmapped ? 'animate-spin' : ''}`} />
             <span>未紐付け保管庫</span>
           </button>
+
+          {pendingMetaCount > 0 && (
+            <button
+              onClick={handleSavePendingMeta}
+              disabled={isSavingPendingMeta}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2E7D32] hover:bg-[#1B5E20] text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer animate-pulse"
+              title="作業した割り当て目録をFirestoreに一括確定保存します（1回の書き込みで完了）"
+            >
+              <Save className={`w-3.5 h-3.5 ${isSavingPendingMeta ? 'animate-spin' : ''}`} />
+              <span>
+                {isSavingPendingMeta
+                  ? '目録保存中...'
+                  : `☁️ 目録をクラウド保存 (${pendingMetaCount}件保留中)`}
+              </span>
+            </button>
+          )}
 
           {syncedNyansList && syncedNyansList.length > 0 && (
             <button
@@ -1521,16 +1583,39 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-3.5 bg-[#ECE7DC] border-t border-[#DDD7C8] flex justify-between items-center">
-              <span className="text-xs text-[#6B6259] font-medium">
-                全 <strong className="text-[#3E3833]">{unmappedList.length}</strong> 件が安全に保管されています
-              </span>
-              <button
-                onClick={() => setShowUnmappedModal(false)}
-                className="px-5 py-2 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-              >
-                閉じる
-              </button>
+            <div className="p-3.5 bg-[#ECE7DC] border-t border-[#DDD7C8] flex flex-col sm:flex-row justify-between items-center gap-2">
+              <div className="flex items-center gap-2 text-xs text-[#6B6259]">
+                <span>
+                  残り保管: <strong className="text-[#3E3833]">{unmappedList.length}</strong> 件
+                </span>
+                {pendingMetaCount > 0 && (
+                  <span className="bg-[#E8F5E9] text-[#2E7D32] border border-[#C8E6C9] px-2 py-0.5 rounded-md font-bold flex items-center gap-1 text-[11px]">
+                    <Zap className="w-3 h-3 text-[#2E7D32]" />
+                    {pendingMetaCount}件割付済 (省エネ保留中)
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {pendingMetaCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleSavePendingMeta}
+                    disabled={isSavingPendingMeta}
+                    className="px-3.5 py-1.5 bg-[#2E7D32] hover:bg-[#1B5E20] text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="これまでの割付結果を目録にまとめて1回でクラウド保存します"
+                  >
+                    <Save className={`w-3.5 h-3.5 ${isSavingPendingMeta ? 'animate-spin' : ''}`} />
+                    <span>{isSavingPendingMeta ? '保存中...' : '目録をクラウド保存'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowUnmappedModal(false)}
+                  className="px-5 py-1.5 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  閉じる
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1694,6 +1779,12 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                     正式登録完了後に保管庫から削除する（推奨）
                   </span>
                 </label>
+                <div className="text-[11px] text-[#2E7D32] bg-[#E8F5E9] p-2 rounded-lg border border-[#C8E6C9] flex items-center gap-1.5 font-medium">
+                  <Zap className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    💡 <strong>書き込み枠節約モード</strong>：目録の同期は手元で即座に行われ、クラウド全体の目録更新は作業の最後にまとめて1回のみ実行されます。
+                  </span>
+                </div>
               </div>
             </div>
 

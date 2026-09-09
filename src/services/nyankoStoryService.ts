@@ -656,8 +656,33 @@ export async function fetchUnmappedStoryFull(oldId: string): Promise<NyankoStory
 }
 
 /**
+ * Saves current metadata to Firestore once (1 write operation).
+ */
+export async function saveStoriesMetaDoc(meta: NyankoStoriesMeta): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) return { success: false, error: 'Firebaseデータベースに接続できません' };
+
+    const metaPayload = {
+      ...meta,
+      updatedAt: Date.now(),
+      version: (meta.version || 1) + 1,
+    };
+
+    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+    await setDoc(metaRef, metaPayload);
+    setLocalStoriesMeta(metaPayload);
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to save stories meta doc:', err);
+    return { success: false, error: err?.message || '目録の保存に失敗しました' };
+  }
+}
+
+/**
  * Assigns an archived unmapped story directly to a target master nyan,
  * saves it into nyanko_stories, removes it from archive, and updates metadata.
+ * Set syncMetaToFirestore: false during batch or continuous single edits to save writes!
  */
 export async function assignUnmappedStoryToNyan(
   oldId: string,
@@ -665,8 +690,9 @@ export async function assignUnmappedStoryToNyan(
   options: {
     renameToMasterName?: boolean;
     deleteFromArchive?: boolean;
-  } = { renameToMasterName: true, deleteFromArchive: true }
-): Promise<{ success: boolean; error?: string }> {
+    syncMetaToFirestore?: boolean;
+  } = { renameToMasterName: true, deleteFromArchive: true, syncMetaToFirestore: false }
+): Promise<{ success: boolean; error?: string; updatedMeta?: NyankoStoriesMeta }> {
   try {
     const db = getFirestoreDbInstance();
     if (!db) {
@@ -694,20 +720,20 @@ export async function assignUnmappedStoryToNyan(
     delete updatedPayload.archivedAt;
     delete updatedPayload.reason;
 
-    // Save to nyanko_stories
+    // Save to nyanko_stories (1 Write)
     const targetDocRef = doc(db, 'nyanko_stories', String(targetNyan.no));
     await setDoc(targetDocRef, updatedPayload);
 
-    // Optionally delete from nyanko_stories_unmapped
+    // Optionally delete from nyanko_stories_unmapped (1 Write)
     if (options.deleteFromArchive !== false) {
       await deleteDoc(unmappedRef);
     }
 
-    // Save to local cache
+    // Save to local cache immediately
     saveToLocalCache(targetNyan.no, updatedPayload);
 
-    // Update metadata index
-    const currentMeta = (await fetchStoriesMeta(true)) || {
+    // Update metadata index in memory & local storage
+    const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
       storyCount: 0,
@@ -730,14 +756,19 @@ export async function assignUnmappedStoryToNyan(
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    await setDoc(metaRef, currentMeta);
     setLocalStoriesMeta(currentMeta);
 
-    return { success: true };
+    // Only write to Firestore meta doc if explicitly requested (default is false to conserve quota)
+    if (options.syncMetaToFirestore) {
+      const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+      await setDoc(metaRef, currentMeta);
+    }
+
+    return { success: true, updatedMeta: currentMeta };
   } catch (err: any) {
     console.error('Failed to assign unmapped story:', err);
     return { success: false, error: err?.message || '割り付け登録に失敗しました' };
   }
 }
+
 
