@@ -403,7 +403,6 @@ export default function App() {
       // Checks Firestore master-meta with 1 lightweight read. Users no longer make CORS/proxy scraping calls.
       try {
         const masterCheckPromise = async () => {
-          // 1. Primary path: Firestore Central Master
           const masterRes = await checkForMasterUpdateAndSync(activeData.characters);
           if (masterRes.updated) {
             const nextData: GameSaveData = {
@@ -417,44 +416,13 @@ export default function App() {
             if (masterRes.addedCount > 0) {
               setRewardToastMessage(`🎉 新しいにゃんこが ${masterRes.addedCount} 体追加されました！`);
             }
-            return;
-          }
-
-          // 2. Safe Fallback for legacy/uninitialized state:
-          // Only if Firestore master is completely uninitialized (version === 0),
-          // allow standard check once per 24 hours so service is never interrupted.
-          if (masterRes.version === 0) {
-            const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
-            const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
-            const now = Date.now();
-            const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-            if (now - lastCheckTime >= TWENTY_FOUR_HOURS) {
-              localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
-              const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
-              if (docUrl && docUrl.trim().length > 0) {
-                try {
-                  const docRes = await syncNyansFromGoogleDoc(docUrl, activeData.characters);
-                  if (docRes.success && (docRes.addedCount > 0 || docRes.updatedCount > 0)) {
-                    const mergedNyans = mergeMasterWithCurrentProgress(activeData.characters, docRes.updatedNyans);
-                    const nextData: GameSaveData = {
-                      ...activeData,
-                      characters: mergedNyans,
-                      lastSaved: Date.now(),
-                    };
-                    activeData = nextData;
-                    setSaveData(nextData);
-                    saveLocalBackup(nextData);
-                  }
-                } catch {}
-              }
-            }
           }
         };
 
-        // Strict 2.5s timeout so startup is always fast and responsive
+        // Fast non-blocking timeout so startup is always instantaneous
         await Promise.race([
           masterCheckPromise(),
-          new Promise((resolve) => setTimeout(resolve, 2500)),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
         ]);
       } catch (err) {
         console.warn('Master check during startup note:', err);
@@ -1273,6 +1241,31 @@ export default function App() {
     });
   };
 
+  // Manual check for master character updates from Firestore (Headless CMS pattern)
+  const handleManualCheckMasterUpdate = async () => {
+    try {
+      const res = await checkForMasterUpdateAndSync(saveData.characters, { force: true });
+      if (res.updated) {
+        setSaveData((prev) => {
+          const nextData: GameSaveData = {
+            ...prev,
+            characters: res.nyans,
+            lastSaved: Date.now(),
+          };
+          saveLocalBackup(nextData);
+          return nextData;
+        });
+        if (res.addedCount > 0) {
+          setRewardToastMessage(`🎉 新しいにゃんこが ${res.addedCount} 体追加されました！`);
+        }
+        return { updated: true, addedCount: res.addedCount, currentCount: res.nyans.length };
+      }
+      return { updated: false, addedCount: 0, currentCount: saveData.characters.length };
+    } catch {
+      return { updated: false, addedCount: 0, currentCount: saveData.characters.length };
+    }
+  };
+
   // User Actions: Manual Monologue update (strictly local, zero cloud writes)
   const handleManualMonologue = () => {
     setSaveData((prev) => {
@@ -2012,6 +2005,7 @@ export default function App() {
           <ZukanView
             characters={saveData.characters}
             onSelectCharacter={(nyan) => setSelectedZukanNyan(nyan)}
+            onCheckMasterUpdate={handleManualCheckMasterUpdate}
           />
         )}
 

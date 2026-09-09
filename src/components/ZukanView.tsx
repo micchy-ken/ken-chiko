@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
-import { Search, BookOpen, HelpCircle } from 'lucide-react';
+import { Search, BookOpen, HelpCircle, RefreshCw } from 'lucide-react';
 
 interface ZukanViewProps {
   characters: NyanCharacter[];
   onSelectCharacter: (nyan: NyanCharacter) => void;
+  onCheckMasterUpdate?: () => Promise<{ updated: boolean; addedCount: number; currentCount: number }>;
 }
 
 function parseDateSafe(val?: string | number): number {
@@ -25,10 +26,34 @@ function parseDateSafe(val?: string | number): number {
 export const ZukanView: React.FC<ZukanViewProps> = ({
   characters,
   onSelectCharacter,
+  onCheckMasterUpdate,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'discovered' | 'undiscovered'>('all');
   const [sortType, setSortType] = useState<'no' | 'recent' | 'playCount'>('no');
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkMessage, setCheckMessage] = useState<string | null>(null);
+
+  const handleCheckUpdate = async () => {
+    if (!onCheckMasterUpdate || isChecking) return;
+    setIsChecking(true);
+    setCheckMessage(null);
+    try {
+      const res = await onCheckMasterUpdate();
+      if (res.updated) {
+        setCheckMessage(`🎉 新しいにゃんこが${res.addedCount}体追加されました！`);
+      } else {
+        setCheckMessage(`図鑑は最新です（全${res.currentCount}体）`);
+      }
+    } catch {
+      setCheckMessage('確認に失敗しました');
+    } finally {
+      setIsChecking(false);
+      setTimeout(() => {
+        setCheckMessage(null);
+      }, 4000);
+    }
+  };
 
   const discoveredCount = characters.filter((c) => c.discovered).length;
   const totalCount = characters.length;
@@ -88,22 +113,51 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
           </div>
         </div>
 
-        {/* Discovery Progress Meter */}
-        <div className="bg-[#FAF8F4] px-4 py-2 sketch-tag flex items-center gap-3">
-          <div className="text-right">
-            <div className="text-[11px] text-[#7A726A] font-bold font-handwriting">発見率</div>
-            <div className="font-mono font-bold text-[#D97543] text-base">
-              {discoveredCount} / {totalCount} ({discoveryPercent}%)
+        {/* Discovery Progress Meter & Master Sync Check */}
+        <div className="flex items-center gap-2">
+          <div className="bg-[#FAF8F4] px-4 py-2 sketch-tag flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[11px] text-[#7A726A] font-bold font-handwriting">発見率</div>
+              <div className="font-mono font-bold text-[#D97543] text-base">
+                {discoveredCount} / {totalCount} ({discoveryPercent}%)
+              </div>
+            </div>
+            <div className="w-16 bg-[#EAE6DC] rounded-full h-2.5 overflow-hidden border border-[#3E3833]">
+              <div
+                className="bg-[#487560] h-full rounded-full transition-all duration-500"
+                style={{ width: `${discoveryPercent}%` }}
+              />
             </div>
           </div>
-          <div className="w-16 bg-[#EAE6DC] rounded-full h-2.5 overflow-hidden border border-[#3E3833]">
-            <div
-              className="bg-[#487560] h-full rounded-full transition-all duration-500"
-              style={{ width: `${discoveryPercent}%` }}
-            />
-          </div>
+
+          {onCheckMasterUpdate && (
+            <button
+              onClick={handleCheckUpdate}
+              disabled={isChecking}
+              title="新しいにゃんこの追加を確認する"
+              className="p-2.5 bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] rounded-xl sketch-border transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-4 h-4 text-[#487560] ${isChecking ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline text-xs font-bold font-handwriting">
+                {isChecking ? '確認中...' : '最新にゃんこ確認'}
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Check Status Feedback Banner */}
+      {checkMessage && (
+        <div className="px-4 py-2 bg-[#EAF0EC] border-b border-[#C6D8CD] text-xs font-bold text-[#2E5E43] flex items-center justify-between animate-fadeIn">
+          <span>{checkMessage}</span>
+          <button
+            onClick={() => setCheckMessage(null)}
+            className="text-[11px] text-[#487560] hover:underline ml-2"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="p-4 bg-[#F4F1EA] border-b-1.5 border-[#3E3833] flex flex-wrap items-center justify-between gap-3">

@@ -322,13 +322,18 @@ export async function checkForMasterUpdateAndSync(
 
     const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, masterData.nyans);
     const addedCount = Math.max(0, masterData.nyans.length - currentNyans.length);
+    const hasContentChanges =
+      addedCount > 0 ||
+      meta.version > cachedVersion ||
+      JSON.stringify(currentNyans.map((n) => [n.no, n.customImageUrl, n.name])) !==
+        JSON.stringify(mergedNyans.map((n) => [n.no, n.customImageUrl, n.name]));
 
     // Save to local cache
     setCachedMasterVersion(meta.version);
     setCachedMasterNyans(masterData.nyans);
 
     return {
-      updated: true,
+      updated: hasContentChanges,
       version: meta.version,
       nyans: mergedNyans,
       addedCount,
