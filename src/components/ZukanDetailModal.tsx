@@ -9,6 +9,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { NyankoStoryModal } from './NyankoStoryModal';
+import { getLocalStoriesMeta } from '../services/nyankoStoryService';
 
 interface ZukanDetailModalProps {
   nyan: NyanCharacter | null;
@@ -30,6 +31,8 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   if (!nyan) return null;
 
   const isStoryRead = readStoryIds.includes(nyan.no);
+  const storiesMeta = getLocalStoriesMeta();
+  const hasStory = nyan.hasStory || !!(storiesMeta?.stories && storiesMeta.stories[String(nyan.no)]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">
@@ -129,22 +132,29 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
 
           {/* Read Story / Conversation Button */}
           <div className="pt-1">
-            <button
-              onClick={() => setIsStoryModalOpen(true)}
-              className="w-full py-3 px-4 rounded-xl border-2 border-[#2E2824] bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold font-handwriting flex items-center justify-center gap-2.5 shadow-[3px_3px_0px_#2E2824] transition-all"
-            >
-              <BookOpen className="w-5 h-5" />
-              <span className="text-sm sm:text-base">📜 このにゃんこの物語（会話劇）を読む</span>
-              {isStoryRead ? (
-                <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30">
-                  読了済
-                </span>
-              ) : (
-                <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30 animate-pulse">
-                  +20pt
-                </span>
-              )}
-            </button>
+            {hasStory ? (
+              <button
+                onClick={() => setIsStoryModalOpen(true)}
+                className="w-full py-3 px-4 rounded-xl border-2 border-[#2E2824] bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold font-handwriting flex items-center justify-center gap-2.5 shadow-[3px_3px_0px_#2E2824] transition-all"
+              >
+                <BookOpen className="w-5 h-5" />
+                <span className="text-sm sm:text-base">📜 このにゃんこの物語（会話劇）を読む</span>
+                {isStoryRead ? (
+                  <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30">
+                    読了済
+                  </span>
+                ) : (
+                  <span className="bg-[#FEF3C7] text-[#B45309] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D97706]/30 animate-pulse">
+                    +20pt
+                  </span>
+                )}
+              </button>
+            ) : (
+              <div className="w-full py-2.5 px-4 rounded-xl border border-dashed border-[#C4BCAB] bg-[#EAE6DC]/50 text-[#7A726A] text-xs font-bold font-handwriting flex items-center justify-center gap-2">
+                <BookOpen className="w-4 h-4 opacity-50" />
+                <span>物語（会話劇）は準備中です</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

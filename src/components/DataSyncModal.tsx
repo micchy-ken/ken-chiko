@@ -109,8 +109,9 @@ import {
 import { getAssetUrl, handleImageError, ASSET_PATHS } from '../utils/assetPath';
 import { AdminUserManagement } from './AdminUserManagement';
 import { AdminOuenEditor } from './AdminOuenEditor';
+import { AdminStoryManager } from './AdminStoryManager';
 
-export type AdminTab = 'zukan' | 'avatar' | 'kihon_nyan' | 'asobi' | 'ouen' | 'users' | 'database' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -186,7 +187,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'ouen', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -1305,17 +1306,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>ユーザー管理・データ分析</span>
           </button>
 
-          {/* TAB 4: Database CRUD */}
+          {/* TAB 4: Story Management */}
           <button
-            onClick={() => setActiveTab('database')}
+            onClick={() => setActiveTab('story')}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
-              activeTab === 'database'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
+              activeTab === 'story'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#487560] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
             }`}
           >
-            <Database className="w-4 h-4 text-[#728C7E]" />
-            <span>Firebaseデータ編集</span>
+            <BookOpen className="w-4 h-4 text-[#487560]" />
+            <span>📜 物語（会話劇）管理</span>
           </button>
 
           {/* TAB 5: Google Doc Sync */}
@@ -2548,171 +2549,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           )}
 
           {/* ========================================================= */}
-          {/* TAB 2: FIREBASE DATABASE CRUD (キャラクター・アイテム直接編集) */}
+          {/* TAB 4: NYANKO STORIES MANAGEMENT (会話劇・物語マスター管理) */}
           {/* ========================================================= */}
-          {activeTab === 'database' && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD] flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-black text-[#3D5447] flex items-center gap-1.5">
-                    <Database className="w-4 h-4 text-[#5C7E6B]" />
-                    Firebase Firestore クラウドデータ操作コンソール
-                  </h4>
-                  <p className="text-xs text-[#5C7E6B] mt-0.5">
-                    Firestore上の保存データを直接変更・追加・削除できます。変更は即時クラウドへ書き込まれます。
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleManualSyncFirebase()}
-                  disabled={isSyncing}
-                  className="flex items-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-sm transition shrink-0"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? '同期中...' : 'クラウド最新化'}</span>
-                </button>
-              </div>
-
-              {dbNotice && (
-                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
-                  {dbNotice}
-                </div>
-              )}
-
-              {/* Sub tabs */}
-              <div className="flex gap-2 border-b border-[#DDD7C8] pb-2">
-                <button
-                  onClick={() => setDbSubTab('characters')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    dbSubTab === 'characters'
-                      ? 'bg-[#4A443F] text-white shadow-sm'
-                      : 'bg-[#EFECE4] text-[#6B6259] hover:text-[#3A342F]'
-                  }`}
-                >
-                  キャラクター図鑑 ({characters.length}体)
-                </button>
-                <button
-                  onClick={() => setDbSubTab('inventory')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    dbSubTab === 'inventory'
-                      ? 'bg-[#4A443F] text-white shadow-sm'
-                      : 'bg-[#EFECE4] text-[#6B6259] hover:text-[#3A342F]'
-                  }`}
-                >
-                  所持アイテム ({saveData.inventory.length}種)
-                </button>
-              </div>
-
-              {/* Sub Tab: Characters CRUD */}
-              {dbSubTab === 'characters' && (
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="キャラクター名やNoで検索..."
-                      value={searchCharQuery}
-                      onChange={(e) => setSearchCharQuery(e.target.value)}
-                      className="flex-1 px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                    {characters
-                      .filter(
-                        (c) =>
-                          c.name.includes(searchCharQuery) ||
-                          c.reading.includes(searchCharQuery) ||
-                          String(c.no).includes(searchCharQuery)
-                      )
-                      .map((char) => (
-                        <div
-                          key={char.no}
-                          className="p-2.5 bg-white rounded-xl border border-[#DDD7C8] flex items-center justify-between gap-3 text-xs"
-                        >
-                          <div className="flex items-center gap-2.5 overflow-hidden">
-                            <span className="font-mono text-[11px] font-bold text-[#7D756D] shrink-0">
-                              No.{char.no}
-                            </span>
-                            <span className="font-bold text-[#3A342F] truncate">{char.name}</span>
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                                char.discovered
-                                  ? 'bg-[#EAF0EC] text-[#5C7E6B]'
-                                  : 'bg-[#EFECE4] text-[#8C837A]'
-                              }`}
-                            >
-                              {char.discovered ? '発見済み' : '未発見'}
-                            </span>
-                            <span className="text-[10px] text-[#7D756D] hidden sm:inline truncate">
-                              仲良し度: Lv.{char.friendshipLevel} (遭遇: {char.playCount}回)
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() => handleToggleNyanDiscovery(char.no)}
-                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
-                                char.discovered
-                                  ? 'bg-[#EFECE4] hover:bg-[#DDD7C8] text-[#6B6259]'
-                                  : 'bg-[#728C7E] hover:bg-[#5E786A] text-white'
-                              }`}
-                            >
-                              {char.discovered ? '未発見に戻す' : '発見済みにする'}
-                            </button>
-                            <button
-                              onClick={() => handleDeleteNyan(char.no, char.name)}
-                              className="p-1.5 bg-[#FAF0ED] hover:bg-[#F5D8CE] text-[#D05A3F] rounded-lg transition"
-                              title="キャラクターを削除"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Sub Tab: Inventory CRUD */}
-              {dbSubTab === 'inventory' && (
-                <div className="space-y-2">
-                  {saveData.inventory.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-3 bg-white rounded-xl border border-[#DDD7C8] flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-[#3A342F]">{item.name}</span>
-                          <span className="text-[10px] bg-[#EFECE4] text-[#6B6259] px-2 py-0.5 rounded-full font-bold">
-                            {item.category}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#7D756D] mt-0.5">{item.description}</p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => handleUpdateItemCount(item.id, -1)}
-                          disabled={item.count <= 0}
-                          className="w-7 h-7 bg-[#EFECE4] hover:bg-[#E2DDD3] disabled:opacity-30 rounded-lg font-black text-sm flex items-center justify-center transition"
-                        >
-                          -
-                        </button>
-                        <span className="font-mono font-bold w-8 text-center text-sm">
-                          {item.count}
-                        </span>
-                        <button
-                          onClick={() => handleUpdateItemCount(item.id, 1)}
-                          className="w-7 h-7 bg-[#728C7E] hover:bg-[#5E786A] text-white rounded-lg font-black text-sm flex items-center justify-center transition"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+          {activeTab === 'story' && (
+            <AdminStoryManager
+              characters={characters}
+              onUpdateCharacters={(updatedChars) => {
+                onImportNyans(updatedChars, 0, 0);
+              }}
+            />
           )}
 
           {/* ========================================================= */}

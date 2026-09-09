@@ -314,7 +314,7 @@ export default function App() {
         if (active) setCurrentUserId(active);
       }
 
-      const validAdminTabs: AdminTab[] = ['zukan', 'avatar', 'kihon_nyan', 'asobi', 'users', 'database', 'googledoc', 'firebase', 'github', 'csv'];
+      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'asobi', 'users', 'googledoc', 'firebase', 'github', 'csv'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
@@ -399,38 +399,9 @@ export default function App() {
         console.warn('Firebase initial load note:', err);
       }
 
-      // Master Data Refresh Check via Central Firestore Master (Headless CMS pattern)
-      // Checks Firestore master-meta with 1 lightweight read. Users no longer make CORS/proxy scraping calls.
-      try {
-        const masterCheckPromise = async () => {
-          const masterRes = await checkForMasterUpdateAndSync(activeData.characters);
-          if (masterRes.updated) {
-            const nextData: GameSaveData = {
-              ...activeData,
-              characters: masterRes.nyans,
-              lastSaved: Date.now(),
-            };
-            activeData = nextData;
-            setSaveData(nextData);
-            saveLocalBackup(nextData);
-            if (masterRes.addedCount > 0) {
-              setRewardToastMessage(`🎉 新しいにゃんこが ${masterRes.addedCount} 体追加されました！`);
-            }
-          }
-        };
-
-        // Fast non-blocking timeout so startup is always instantaneous
-        await Promise.race([
-          masterCheckPromise(),
-          new Promise((resolve) => setTimeout(resolve, 2000)),
-        ]);
-      } catch (err) {
-        console.warn('Master check during startup note:', err);
-      }
-
       if (!isMounted) return;
 
-      // Synchronization is now 100% complete!
+      // Synchronization is now 100% complete! Display the game screen immediately!
       endInitialConnectionPhase();
       setIsLoadingFirebase(false);
       isInitialSyncCompletedRef.current = true;
@@ -463,6 +434,33 @@ export default function App() {
       } else {
         nextEncounterCheckTimeRef.current = 0;
       }
+
+      // Background Master Data Refresh Check (Headless CMS pattern)
+      // Completely non-blocking: Runs in the background AFTER the game is fully visible and interactive.
+      setTimeout(async () => {
+        if (!isMounted) return;
+        try {
+          const currentCharacters = saveDataRef.current.characters;
+          const masterRes = await checkForMasterUpdateAndSync(currentCharacters);
+          if (!isMounted) return;
+          if (masterRes.updated) {
+            setSaveData((prev) => {
+              const nextData: GameSaveData = {
+                ...prev,
+                characters: masterRes.nyans,
+                lastSaved: Date.now(),
+              };
+              saveLocalBackup(nextData);
+              return nextData;
+            });
+            if (masterRes.addedCount > 0) {
+              setRewardToastMessage(`🎉 新しいにゃんこが ${masterRes.addedCount} 体追加されました！`);
+            }
+          }
+        } catch (err) {
+          console.warn('Background master check note:', err);
+        }
+      }, 1200);
     };
 
     runInitialBootSync();

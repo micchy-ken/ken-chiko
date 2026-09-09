@@ -76,6 +76,7 @@ export interface NyanCharacter {
   promptEn: string;
   dialogue?: string; // ねこのセリフ（I列）
   dialogueMeaning?: string; // ねこのセリフの意味・翻訳（J列）
+  hasStory?: boolean; // 物語（会話劇）が登録されているかどうか
   discovered: boolean;
   discoveryDate?: string;
   lastMetAt?: number; // timestamp (ms) of the latest encounter

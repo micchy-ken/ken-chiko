@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import { Search, BookOpen, HelpCircle, RefreshCw } from 'lucide-react';
+import { getLocalStoriesMeta, fetchStoriesMeta, NyankoStoriesMeta } from '../services/nyankoStoryService';
 
 interface ZukanViewProps {
   characters: NyanCharacter[];
@@ -29,10 +30,28 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
   onCheckMasterUpdate,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'discovered' | 'undiscovered'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'discovered' | 'undiscovered' | 'has_story'>('all');
   const [sortType, setSortType] = useState<'no' | 'recent' | 'playCount'>('no');
   const [isChecking, setIsChecking] = useState(false);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
+  const [storiesMeta, setStoriesMeta] = useState<NyankoStoriesMeta | null>(() => getLocalStoriesMeta());
+
+  useEffect(() => {
+    fetchStoriesMeta().then((meta) => {
+      if (meta) setStoriesMeta(meta);
+    });
+  }, []);
+
+  const registeredStoryIds = useMemo(() => {
+    const set = new Set<number>();
+    if (storiesMeta?.stories) {
+      Object.keys(storiesMeta.stories).forEach((k) => {
+        const id = parseInt(k, 10);
+        if (!isNaN(id)) set.add(id);
+      });
+    }
+    return set;
+  }, [storiesMeta]);
 
   const handleCheckUpdate = async () => {
     if (!onCheckMasterUpdate || isChecking) return;
@@ -58,6 +77,7 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
   const discoveredCount = characters.filter((c) => c.discovered).length;
   const totalCount = characters.length;
   const discoveryPercent = Math.round((discoveredCount / totalCount) * 100);
+  const storyCount = characters.filter((c) => c.hasStory || registeredStoryIds.has(c.no)).length;
 
   const filteredCharacters = useMemo(() => {
     const list = characters.filter((char) => {
@@ -74,6 +94,7 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
 
       if (filterType === 'discovered') return char.discovered;
       if (filterType === 'undiscovered') return !char.discovered;
+      if (filterType === 'has_story') return char.hasStory || registeredStoryIds.has(char.no);
       return true;
     });
 
@@ -95,7 +116,7 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
     });
 
     return list;
-  }, [characters, searchQuery, filterType, sortType]);
+  }, [characters, searchQuery, filterType, sortType, registeredStoryIds]);
 
   return (
     <div className="sketch-card overflow-hidden flex flex-col bg-[#FAF8F4]">
@@ -206,6 +227,17 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
             >
               未発見 ({totalCount - discoveredCount})
             </button>
+            <button
+              onClick={() => setFilterType('has_story')}
+              className={`px-3 py-1.5 text-xs font-bold transition font-handwriting flex items-center gap-1 ${
+                filterType === 'has_story'
+                  ? 'bg-[#8C5A3E] text-[#FAF8F4] sketch-border shadow-sm'
+                  : 'bg-[#FAF8F4] text-[#5A524A] sketch-tag hover:bg-white'
+              }`}
+            >
+              <BookOpen className="w-3 h-3" />
+              <span>物語あり ({storyCount})</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-1 text-xs ml-auto">
@@ -253,9 +285,24 @@ export const ZukanView: React.FC<ZukanViewProps> = ({
                   {/* Number Badge */}
                   <div className="w-full flex items-center justify-between text-[10px] font-mono font-bold text-[#7A726A] mb-1">
                     <span>No.{String(nyan.no).padStart(3, '0')}</span>
-                    {isDiscovered && (
-                      <span className="text-[#D97543] font-bold">★{nyan.playCount}</span>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {(nyan.hasStory || registeredStoryIds.has(nyan.no)) && (
+                        <span
+                          className={`inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                            isDiscovered
+                              ? 'bg-[#8C5A3E] text-white shadow-xs'
+                              : 'bg-[#C4BCAB] text-[#5A524A]'
+                          }`}
+                          title="物語（会話劇）あり"
+                        >
+                          <BookOpen className="w-2.5 h-2.5" />
+                          <span>物語</span>
+                        </span>
+                      )}
+                      {isDiscovered && (
+                        <span className="text-[#D97543] font-bold">★{nyan.playCount}</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Character Illustration / Silhouette (Organic pencil rendering) */}
