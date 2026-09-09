@@ -41,6 +41,11 @@ import {
   saveGoogleDocUrl,
   syncNyansFromGoogleDoc,
 } from '../services/googleDocSync';
+import {
+  fetchMasterMeta,
+  publishMasterData,
+  KenchikoMasterMeta,
+} from '../services/masterDataService';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
 import { KihonNyanCat } from './KihonNyanCat';
@@ -218,6 +223,45 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [autoTransparent, setAutoTransparent] = useState(true);
   const [transparencyTolerance, setTransparencyTolerance] = useState(30);
   const [trimPadding, setTrimPadding] = useState(true);
+
+  // Official Master Publisher State (Firestore central distribution)
+  const [masterMeta, setMasterMeta] = useState<KenchikoMasterMeta | null>(null);
+  const [isLoadingMasterMeta, setIsLoadingMasterMeta] = useState<boolean>(false);
+  const [isPublishingMaster, setIsPublishingMaster] = useState<boolean>(false);
+  const [masterPublishStatus, setMasterPublishStatus] = useState<string | null>(null);
+
+  const loadCurrentMasterMeta = async () => {
+    setIsLoadingMasterMeta(true);
+    try {
+      const meta = await fetchMasterMeta();
+      setMasterMeta(meta);
+    } catch {
+    } finally {
+      setIsLoadingMasterMeta(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'googledoc' || activeTab === 'zukan') {
+      loadCurrentMasterMeta();
+    }
+  }, [activeTab]);
+
+  const handlePublishMaster = async (customNote?: string) => {
+    setIsPublishingMaster(true);
+    setMasterPublishStatus('🚀 Firestoreへ全ユーザー向け公式マスターを公開・配信中...');
+    const res = await publishMasterData(characters, customNote);
+    setIsPublishingMaster(false);
+    if (res.success) {
+      setMasterPublishStatus(
+        `🎉 公開完了！ バージョン v${res.version} (全 ${res.count} 体) をFirestoreに配信しました。全ユーザーの次回アクセス時に自動配信されます。`
+      );
+      loadCurrentMasterMeta();
+      confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
+    } else {
+      setMasterPublishStatus(`❌ 公開失敗: ${res.error}`);
+    }
+  };
 
   // Process and apply avatar image with transparency settings
   const processAndApplyAvatar = async (sourceImage: string | File, rawSourceForSave?: string) => {
@@ -2734,6 +2778,87 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     <span>{isSyncingGoogleDoc ? '取得・同期中...' : '今すぐ最新ドキュメントを取り込む'}</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Official Master Publisher Section (Headless CMS pattern) */}
+              <div className="bg-[#FAF8F5] p-4 rounded-2xl border-2 border-[#728C7E]/40 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-2 bg-[#728C7E] text-white rounded-xl">
+                      <Cloud className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <h4 className="text-xs font-black text-[#3A342F] flex items-center gap-1.5">
+                        全ユーザー向け公式マスター配信（Firestore Headless CMS）
+                      </h4>
+                      <p className="text-[10px] text-[#7D756D]">
+                        スプレッドシートやDriveから取り込んだ最新データをFirestoreへ一括公開し、全ユーザーへ高速配信します。
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={loadCurrentMasterMeta}
+                    disabled={isLoadingMasterMeta}
+                    className="self-start sm:self-auto text-[10px] font-bold text-[#728C7E] hover:underline flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isLoadingMasterMeta ? 'animate-spin' : ''}`} />
+                    公開状況を再読込
+                  </button>
+                </div>
+
+                {/* Status Box */}
+                <div className="bg-white p-3 rounded-xl border border-[#DDD7C8] grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <span className="block text-[10px] text-[#7D756D]">現在の配信バージョン</span>
+                    <strong className="text-[#3A342F] text-sm">
+                      {masterMeta ? `v${masterMeta.version}` : '未公開 (初期状態)'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-[#7D756D]">配信中のにゃんこ総数</span>
+                    <strong className="text-[#728C7E] text-sm">
+                      {masterMeta ? `${masterMeta.nyanCount} 体` : '-'}
+                    </strong>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <span className="block text-[10px] text-[#7D756D]">最終配信日時</span>
+                    <span className="text-[#5C554E] text-[11px]">
+                      {masterMeta?.updatedAt ? new Date(masterMeta.updatedAt).toLocaleString('ja-JP') : '-'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Publish Action Button */}
+                <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                  <div className="text-[11px] text-[#5C554E]">
+                    手元の編集済み図鑑: <strong className="text-[#3A342F]">{characters.length} 体</strong>
+                    {masterMeta && characters.length > masterMeta.nyanCount && (
+                      <span className="ml-2 text-emerald-700 font-bold">
+                        (+{characters.length - masterMeta.nyanCount} 体の未公開新にゃんこあり！)
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      openConfirm(
+                        '公式マスターの配信確認',
+                        `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                        () => handlePublishMaster(`スプレッドシート・画像連携更新 (${characters.length}体)`)
+                      );
+                    }}
+                    disabled={isPublishingMaster}
+                    className="flex items-center justify-center gap-2 bg-[#728C7E] hover:bg-[#5E786A] text-white font-black text-xs px-5 py-2.5 rounded-xl shadow transition disabled:opacity-50"
+                  >
+                    <Rocket className={`w-4 h-4 ${isPublishingMaster ? 'animate-bounce' : ''}`} />
+                    <span>{isPublishingMaster ? 'Firestoreへ配信中...' : '全ユーザーへ公式マスターを公開（配信）'}</span>
+                  </button>
+                </div>
+
+                {masterPublishStatus && (
+                  <div className="p-2.5 bg-[#EAF0EC] border border-[#C6D8CD] rounded-xl text-xs font-bold text-[#2E5E43] animate-fadeIn">
+                    {masterPublishStatus}
+                  </div>
+                )}
               </div>
 
               {/* Guide Card for Image Column & Base+Decoration Fallback */}

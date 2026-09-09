@@ -123,12 +123,64 @@
         }
       },
       "required": ["id", "name"]
+    },
+    "MasterMeta": {
+      "title": "MasterMeta",
+      "description": "Version metadata for the global nyan character master database",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "description": "Monotonically increasing master version"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp in ms of last publish"
+        },
+        "nyanCount": {
+          "type": "number",
+          "description": "Total count of active characters in the master"
+        },
+        "lastUpdatedNote": {
+          "type": "string",
+          "description": "Optional notes or changelog"
+        }
+      },
+      "required": ["version", "updatedAt", "nyanCount"]
+    },
+    "MasterNyans": {
+      "title": "MasterNyans",
+      "description": "Consolidated master character database document with resolved images and attributes",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "description": "Matching version number"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp in ms"
+        },
+        "nyans": {
+          "type": "array",
+          "description": "Array of complete master NyanCharacter definitions"
+        }
+      },
+      "required": ["version", "updatedAt", "nyans"]
     }
   },
   "firestore": {
     "/kenchiko_world/{docId}": {
       "schema": "UserProgress",
       "description": "User game state and progress document in the kenchiko_world collection"
+    },
+    "/kenchiko_world/ken-chiko-master-meta": {
+      "schema": "MasterMeta",
+      "description": "Master version metadata checked by clients on launch"
+    },
+    "/kenchiko_world/ken-chiko-master-nyans": {
+      "schema": "MasterNyans",
+      "description": "Consolidated character master database pushed by administrators"
     },
     "/nyanko_stories/{storyId}": {
       "schema": "NyankoStory",

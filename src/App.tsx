@@ -45,6 +45,7 @@ import {
   syncImagesFromGoogleDriveFolder,
   DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
 } from './services/googleDriveFolderSync';
+import { checkForMasterUpdateAndSync } from './services/masterDataService';
 
 import { KenchikoStage } from './components/KenchikoStage';
 import { KenchikoAvatar } from './components/KenchikoAvatar';
@@ -398,70 +399,65 @@ export default function App() {
         console.warn('Firebase initial load note:', err);
       }
 
-      // Master Data Refresh Check (at most once every 12 hours)
-      const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
-      const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
-      const now = Date.now();
-      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-
-      if (now - lastCheckTime >= TWELVE_HOURS) {
-        localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
-        try {
-          const masterCheckPromise = async () => {
-            let workingCharacters = activeData.characters;
-            // 1. Google Docs Master Read
-            const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
-            if (docUrl && docUrl.trim().length > 0) {
-              try {
-                const docRes = await syncNyansFromGoogleDoc(docUrl, workingCharacters);
-                if (docRes.success && (docRes.addedCount > 0 || docRes.updatedCount > 0)) {
-                  workingCharacters = mergeMasterWithCurrentProgress(workingCharacters, docRes.updatedNyans);
-                }
-              } catch {}
+      // Master Data Refresh Check via Central Firestore Master (Headless CMS pattern)
+      // Checks Firestore master-meta with 1 lightweight read. Users no longer make CORS/proxy scraping calls.
+      try {
+        const masterCheckPromise = async () => {
+          // 1. Primary path: Firestore Central Master
+          const masterRes = await checkForMasterUpdateAndSync(activeData.characters);
+          if (masterRes.updated) {
+            const nextData: GameSaveData = {
+              ...activeData,
+              characters: masterRes.nyans,
+              lastSaved: Date.now(),
+            };
+            activeData = nextData;
+            setSaveData(nextData);
+            saveLocalBackup(nextData);
+            if (masterRes.addedCount > 0) {
+              setRewardToastMessage(`🎉 新しいにゃんこが ${masterRes.addedCount} 体追加されました！`);
             }
+            return;
+          }
 
-            // 2. Google Drive Images Master Read
-            const driveFolderUrl =
-              activeData.googleDriveFolderUrl ||
-              getSavedGoogleDriveFolderUrl() ||
-              DEFAULT_GOOGLE_DRIVE_FOLDER_URL;
-            let newKihonImg = activeData.kihonNyanCustomImageUrl;
-            if (driveFolderUrl && driveFolderUrl.trim().length > 0) {
-              try {
-                const driveRes = await syncImagesFromGoogleDriveFolder(driveFolderUrl, workingCharacters);
-                if (driveRes.success) {
-                  if (driveRes.matchedCount > 0) {
-                    workingCharacters = mergeMasterWithCurrentProgress(workingCharacters, driveRes.updatedNyans);
+          // 2. Safe Fallback for legacy/uninitialized state:
+          // Only if Firestore master is completely uninitialized (version === 0),
+          // allow standard check once per 24 hours so service is never interrupted.
+          if (masterRes.version === 0) {
+            const lastCheckStr = localStorage.getItem(LAST_MASTER_CHECK_KEY);
+            const lastCheckTime = lastCheckStr ? parseInt(lastCheckStr, 10) || 0 : 0;
+            const now = Date.now();
+            const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+            if (now - lastCheckTime >= TWENTY_FOUR_HOURS) {
+              localStorage.setItem(LAST_MASTER_CHECK_KEY, String(now));
+              const docUrl = getSavedGoogleDocUrl() || DEFAULT_GOOGLE_DOC_URL;
+              if (docUrl && docUrl.trim().length > 0) {
+                try {
+                  const docRes = await syncNyansFromGoogleDoc(docUrl, activeData.characters);
+                  if (docRes.success && (docRes.addedCount > 0 || docRes.updatedCount > 0)) {
+                    const mergedNyans = mergeMasterWithCurrentProgress(activeData.characters, docRes.updatedNyans);
+                    const nextData: GameSaveData = {
+                      ...activeData,
+                      characters: mergedNyans,
+                      lastSaved: Date.now(),
+                    };
+                    activeData = nextData;
+                    setSaveData(nextData);
+                    saveLocalBackup(nextData);
                   }
-                  if (driveRes.kihonNyanImageUrl && driveRes.kihonNyanImageUrl !== activeData.kihonNyanCustomImageUrl) {
-                    newKihonImg = driveRes.kihonNyanImageUrl;
-                  }
-                }
-              } catch {}
+                } catch {}
+              }
             }
+          }
+        };
 
-            if (workingCharacters !== activeData.characters || newKihonImg !== activeData.kihonNyanCustomImageUrl) {
-              const nextData: GameSaveData = {
-                ...activeData,
-                characters: workingCharacters,
-                googleDriveFolderUrl: driveFolderUrl,
-                kihonNyanCustomImageUrl: newKihonImg || activeData.kihonNyanCustomImageUrl,
-                lastSaved: Date.now(),
-              };
-              activeData = nextData;
-              setSaveData(nextData);
-              saveLocalBackup(nextData);
-            }
-          };
-
-          // Limit master sync during boot to 3.5s so game never stalls
-          await Promise.race([
-            masterCheckPromise(),
-            new Promise((resolve) => setTimeout(resolve, 3500)),
-          ]);
-        } catch (err) {
-          console.warn('Master check during startup note:', err);
-        }
+        // Strict 2.5s timeout so startup is always fast and responsive
+        await Promise.race([
+          masterCheckPromise(),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
+        ]);
+      } catch (err) {
+        console.warn('Master check during startup note:', err);
       }
 
       if (!isMounted) return;

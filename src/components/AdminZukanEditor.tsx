@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { NyanCharacter, GameSaveData, NyanTransparencyOptions } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
@@ -28,6 +28,8 @@ import {
   Link,
   Sliders,
   Crop,
+  Cloud,
+  Rocket,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -42,6 +44,11 @@ import {
   DriveSyncResult,
 } from '../services/googleDriveFolderSync';
 import { normalizeImageUrl } from '../utils/csvParser';
+import {
+  fetchMasterMeta,
+  publishMasterData,
+  KenchikoMasterMeta,
+} from '../services/masterDataService';
 
 interface AdminZukanEditorProps {
   characters: NyanCharacter[];
@@ -75,6 +82,31 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const [driveDefaultAutoTrans, setDriveDefaultAutoTrans] = useState(true);
   const [driveDefaultTolerance, setDriveDefaultTolerance] = useState(30);
   const [driveDefaultTrim, setDriveDefaultTrim] = useState(true);
+
+  // Official Master Publisher State
+  const [masterMeta, setMasterMeta] = useState<KenchikoMasterMeta | null>(null);
+  const [isPublishingMaster, setIsPublishingMaster] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchMasterMeta().then(setMasterMeta).catch(() => {});
+  }, []);
+
+  const handlePublishMaster = async () => {
+    setIsPublishingMaster(true);
+    setPublishStatus('🚀 Firestoreへ公式マスターを公開・配信中...');
+    const res = await publishMasterData(characters, `図鑑・画像編集より公開 (${characters.length}体)`);
+    setIsPublishingMaster(false);
+    if (res.success) {
+      setPublishStatus(
+        `🎉 公開完了！ バージョン v${res.version} (全 ${res.count} 体) をFirestoreに配信しました。全ユーザーの次回アクセス時に自動配信されます。`
+      );
+      fetchMasterMeta().then(setMasterMeta).catch(() => {});
+      confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
+    } else {
+      setPublishStatus(`❌ 公開失敗: ${res.error}`);
+    }
+  };
 
   // Edit/Create Modal State
   const [editingNyan, setEditingNyan] = useState<NyanCharacter | null>(null);
@@ -539,6 +571,21 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             {showDrivePanel ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
           <button
+            onClick={() => {
+              openConfirm(
+                '公式マスターの配信確認',
+                `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                handlePublishMaster
+              );
+            }}
+            disabled={isPublishingMaster}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-[#728C7E] hover:bg-[#5E786A] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50"
+            title="現在の図鑑データを全ユーザーに即時配信します"
+          >
+            <Rocket className={`w-4 h-4 ${isPublishingMaster ? 'animate-bounce' : ''}`} />
+            <span>{isPublishingMaster ? '配信中...' : 'マスター公開'}</span>
+          </button>
+          <button
             onClick={handleOpenAdd}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95"
           >
@@ -547,6 +594,38 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Master Publish Status Banner */}
+      {publishStatus && (
+        <div className="p-3 bg-[#EAF0EC] border border-[#C6D8CD] rounded-2xl text-xs font-bold text-[#2E5E43] animate-fadeIn flex items-center justify-between">
+          <span>{publishStatus}</span>
+          <button
+            onClick={() => setPublishStatus(null)}
+            className="text-xs text-[#5C7E6B] hover:text-[#2E5E43] font-bold"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
+
+      {/* Cloud Master Info Mini Bar */}
+      {masterMeta && (
+        <div className="px-4 py-2 bg-white rounded-xl border border-[#DDD7C8] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#7D756D]">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-3.5 h-3.5 text-[#728C7E]" />
+            <span>
+              Firestore公開中マスター: <strong className="text-[#3A342F]">v{masterMeta.version}</strong> ({masterMeta.nyanCount}体)
+            </span>
+            <span className="text-[#A8A199]">|</span>
+            <span>最終更新: {new Date(masterMeta.updatedAt).toLocaleString('ja-JP')}</span>
+          </div>
+          {characters.length > masterMeta.nyanCount && (
+            <span className="text-emerald-700 font-bold text-[10px] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              未公開のにゃんこが {characters.length - masterMeta.nyanCount} 体あります
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Google Drive Folder Sync Expandable Panel */}
       {showDrivePanel && (
@@ -687,6 +766,32 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Quick Publish prompt after successful drive sync */}
+            {driveSyncResult && driveSyncResult.matchedCount > 0 && (
+              <div className="p-3 bg-[#EAF0EC] rounded-xl border border-[#C6D8CD] flex flex-col sm:flex-row items-center justify-between gap-2">
+                <div className="text-xs text-[#2E5E43]">
+                  <strong>✨ 画像同期が完了しました！</strong>
+                  <span className="block text-[11px] text-[#3D5447]">
+                    更新されたキャラクター画像を全ユーザーへ反映するには、公式マスターとして公開してください。
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    openConfirm(
+                      '画像反映マスターの配信確認',
+                      `Google Driveから同期された画像（${driveSyncResult.matchedCount}件）を含む最新図鑑データを、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                      handlePublishMaster
+                    );
+                  }}
+                  disabled={isPublishingMaster}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#728C7E] hover:bg-[#5E786A] text-white text-xs font-black rounded-xl shadow-sm transition shrink-0 disabled:opacity-50"
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  <span>{isPublishingMaster ? '配信中...' : 'この画像を全ユーザーへ公開（配信）'}</span>
+                </button>
               </div>
             )}
           </div>
