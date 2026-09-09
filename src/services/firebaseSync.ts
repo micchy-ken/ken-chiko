@@ -12,6 +12,8 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState, OuenCategory, OuenItem } from '../types';
+import { UserRewardState, RewardTicket, GaraponHistoryEntry } from '../types/rewards';
+import { createInitialRewardState } from './rewardService';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -219,6 +221,73 @@ export function deduplicateDiary(diary: DiaryEntry[]): DiaryEntry[] {
     deduped.push(entry);
   }
   return deduped;
+}
+
+/**
+ * Safely merges cloud rewards state with local backup rewards state,
+ * preventing point loss, ticket loss, or duplicate ticket IDs.
+ */
+export function mergeRewardStates(
+  cloudRewards?: UserRewardState,
+  localRewards?: UserRewardState
+): UserRewardState {
+  if (!cloudRewards && !localRewards) {
+    return createInitialRewardState();
+  }
+  if (!cloudRewards) return localRewards || createInitialRewardState();
+  if (!localRewards) return cloudRewards;
+
+  // Merge tickets avoiding duplicates by ID
+  const ticketMap = new Map<string, RewardTicket>();
+  for (const t of localRewards.tickets || []) {
+    ticketMap.set(t.id, t);
+  }
+  for (const t of cloudRewards.tickets || []) {
+    const existing = ticketMap.get(t.id);
+    if (existing) {
+      ticketMap.set(t.id, {
+        ...existing,
+        ...t,
+        isUsed: existing.isUsed || t.isUsed,
+        usedAt: existing.usedAt || t.usedAt,
+      });
+    } else {
+      ticketMap.set(t.id, t);
+    }
+  }
+
+  // Merge readStoryIds
+  const readStories = Array.from(
+    new Set([...(cloudRewards.readStoryIds || []), ...(localRewards.readStoryIds || [])])
+  );
+
+  // Merge history avoiding duplicates by ID
+  const historyMap = new Map<string, GaraponHistoryEntry>();
+  for (const h of localRewards.history || []) {
+    historyMap.set(h.id, h);
+  }
+  for (const h of cloudRewards.history || []) {
+    historyMap.set(h.id, h);
+  }
+  const mergedHistory = Array.from(historyMap.values())
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 50);
+
+  return {
+    points: Math.max(cloudRewards.points || 0, localRewards.points || 0),
+    lifetimePoints: Math.max(cloudRewards.lifetimePoints || 0, localRewards.lifetimePoints || 0),
+    hasClaimedInitialDiscoveryBonus: Boolean(
+      cloudRewards.hasClaimedInitialDiscoveryBonus || localRewards.hasClaimedInitialDiscoveryBonus
+    ),
+    initialBonusAmount: Math.max(
+      cloudRewards.initialBonusAmount || 0,
+      localRewards.initialBonusAmount || 0
+    ),
+    lastPettedDate: cloudRewards.lastPettedDate || localRewards.lastPettedDate,
+    readStoryIds: readStories,
+    tickets: Array.from(ticketMap.values()),
+    history: mergedHistory,
+  };
 }
 
 /**
@@ -1143,6 +1212,7 @@ export async function fetchInitialFirebaseState(
           ? userBaseData.inventory
           : (localBackup?.inventory || DEFAULT_INITIAL_STATE.inventory),
       stats: userBaseData.stats || localBackup?.stats || DEFAULT_INITIAL_STATE.stats,
+      rewards: mergeRewardStates(userBaseData.rewards, localBackup?.rewards),
       lastSaved: Date.now(),
     };
 

@@ -56,6 +56,26 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
   const [ticketFilter, setTicketFilter] = useState<'all' | 'active' | 'used'>('active');
 
   const resultRef = React.useRef<HTMLDivElement | null>(null);
+  const chuteTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const spinResultTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const scrollTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const audioCtxTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const activeAudioCtxRef = React.useRef<AudioContext | null>(null);
+
+  // Clean up all timers and AudioContext on unmount
+  React.useEffect(() => {
+    return () => {
+      if (chuteTimerRef.current) clearTimeout(chuteTimerRef.current);
+      if (spinResultTimerRef.current) clearTimeout(spinResultTimerRef.current);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      if (audioCtxTimerRef.current) clearTimeout(audioCtxTimerRef.current);
+      if (activeAudioCtxRef.current) {
+        try {
+          activeAudioCtxRef.current.close().catch(() => {});
+        } catch {}
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -72,7 +92,17 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
+
+      // Safely close previous context if any exists
+      if (activeAudioCtxRef.current) {
+        try {
+          activeAudioCtxRef.current.close().catch(() => {});
+        } catch {}
+        activeAudioCtxRef.current = null;
+      }
+
       const ctx = new AudioCtx();
+      activeAudioCtxRef.current = ctx;
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
@@ -105,6 +135,17 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
         osc.start(now);
         osc.stop(now + 0.4);
       }
+
+      // Automatically close and release AudioContext resources after sound ends
+      if (audioCtxTimerRef.current) clearTimeout(audioCtxTimerRef.current);
+      audioCtxTimerRef.current = setTimeout(() => {
+        try {
+          ctx.close().catch(() => {});
+          if (activeAudioCtxRef.current === ctx) {
+            activeAudioCtxRef.current = null;
+          }
+        } catch {}
+      }, 1200);
     } catch {}
   };
 
@@ -123,15 +164,18 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
     const nextRot = spinRotation + 360 * 3 + Math.floor(Math.random() * 90 + 45);
     setSpinRotation(nextRot);
 
+    if (chuteTimerRef.current) clearTimeout(chuteTimerRef.current);
+    if (spinResultTimerRef.current) clearTimeout(spinResultTimerRef.current);
+
     // Ball emerges from chute at 1100ms
-    setTimeout(() => {
+    chuteTimerRef.current = setTimeout(() => {
       if (outcome.success && outcome.result) {
         setChuteBallColor(outcome.result.ballColor);
       }
     }, 1100);
 
     // Stop wheel and show result in-place at 1600ms
-    setTimeout(() => {
+    spinResultTimerRef.current = setTimeout(() => {
       setIsSpinning(false);
 
       if (outcome.success && outcome.result) {
@@ -142,7 +186,8 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
         playChimeSound(outcome.result.ballColor !== 'white');
 
         // Scroll result into view smoothly
-        setTimeout(() => {
+        if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = setTimeout(() => {
           resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }, 100);
 
@@ -215,7 +260,14 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
       : tickets;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#2E2824]/60 backdrop-blur-xs">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSpinning) {
+          onClose();
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#2E2824]/60 backdrop-blur-xs"
+    >
       <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#FAF8F4] border-2 border-[#2E2824] rounded-3xl shadow-[4px_4px_0px_#2E2824] overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3.5 bg-[#EAE3D2] border-b-2 border-[#2E2824] flex items-center justify-between gap-3">
@@ -234,9 +286,17 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
           </div>
 
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-[#DDD5C3] text-[#2E2824] border border-[#2E2824] transition-all"
+            onClick={() => {
+              if (!isSpinning) onClose();
+            }}
+            disabled={isSpinning}
+            className={`p-1.5 rounded-full border border-[#2E2824] transition-all ${
+              isSpinning
+                ? 'opacity-40 cursor-not-allowed bg-transparent'
+                : 'hover:bg-[#DDD5C3] text-[#2E2824] cursor-pointer'
+            }`}
             aria-label="閉じる"
+            title={isSpinning ? '福引の回転中は閉じられません' : '閉じる'}
           >
             <X className="w-5 h-5" />
           </button>
