@@ -578,8 +578,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     if (res.success) {
       onImportNyans(res.updatedNyans, res.addedCount, res.updatedCount);
+      // Automatically publish to official Firestore master so reloads and other users retain updates
+      try {
+        await publishMasterData(
+          res.updatedNyans,
+          `Googleスプレッドシート同期 (${new Date().toLocaleDateString('ja-JP')})`
+        );
+      } catch (pubErr) {
+        console.warn('Auto publish master failed:', pubErr);
+      }
       setGoogleDocStatus(
-        `✅ 自動連携が成功しました！ (新規追加: ${res.addedCount}体 / 更新: ${res.updatedCount}体 / 全${res.updatedNyans.length}体)`
+        `✅ 自動連携が成功しました！ (新規追加: ${res.addedCount}体 / 更新: ${res.updatedCount}体 / 全${res.updatedNyans.length}体 - クラウドマスター保存完了)`
       );
       confetti({ particleCount: 40, spread: 70, origin: { y: 0.6 } });
     } else {

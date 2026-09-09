@@ -15,7 +15,7 @@ export interface GoogleDocSyncInfo {
 
 // Default provided Google Docs / Sheets URL
 export const DEFAULT_GOOGLE_DOC_URL =
-  'https://docs.google.com/spreadsheets/d/1EVgPLTVb22a4ZUPVaQxbjP7IFnknBVWAYRynDixNvCA/edit?usp=sharing';
+  'https://docs.google.com/spreadsheets/d/1EVgPLTVb22a4ZUPVaQxbjP7lFnknBVWAYRynDixNvCA/edit?usp=sharing';
 
 export function getSavedGoogleDocUrl(): string {
   try {
