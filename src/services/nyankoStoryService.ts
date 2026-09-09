@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
 import { getFirestoreDbInstance } from './firebaseSync';
 import { NyankoStory } from '../types';
 
@@ -490,6 +490,115 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
   } catch (err: any) {
     console.error('Failed to delete story:', err);
     return { success: false, error: err?.message || '削除に失敗しました' };
+  }
+}
+
+export interface RebuildProgress {
+  id: number;
+  name: string;
+  current: number;
+  total: number;
+}
+
+export interface RebuildResult {
+  success: boolean;
+  totalCount: number;
+  syncedNyans: { id: number; name: string; title: string; daysCount: number }[];
+  meta?: NyankoStoriesMeta;
+  error?: string;
+}
+
+/**
+ * Re-scans all existing stories in Firestore collection `nyanko_stories`,
+ * rebuilds the `nyanko_stories_meta` lightweight index document, and saves it.
+ * Calls `onProgress` for each synced nyan to support live UI updates.
+ */
+export async function rebuildStoriesMetaFromFirestore(
+  onProgress?: (progress: RebuildProgress) => void
+): Promise<RebuildResult> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) {
+      return {
+        success: false,
+        totalCount: 0,
+        syncedNyans: [],
+        error: 'Firebaseデータベースに接続できません',
+      };
+    }
+
+    const storiesCol = collection(db, 'nyanko_stories');
+    const snapshot = await getDocs(storiesCol);
+
+    if (snapshot.empty) {
+      return {
+        success: true,
+        totalCount: 0,
+        syncedNyans: [],
+      };
+    }
+
+    const total = snapshot.size;
+    const storiesMap: Record<string, StoryIndexItem> = {};
+    const syncedNyans: { id: number; name: string; title: string; daysCount: number }[] = [];
+
+    let current = 0;
+    for (const docSnap of snapshot.docs) {
+      current++;
+      const data = docSnap.data();
+      const id = Number(data.id || docSnap.id);
+      const name = data.name || `にゃんこ No.${id}`;
+      const title = data.week_info?.week_title || data.title || '';
+      const daysCount = Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0;
+
+      storiesMap[String(id)] = {
+        id,
+        name,
+        kana: data.kana,
+        motif: data.motif,
+        week_title: title,
+        daysCount,
+        updatedAt: data.updatedAt || new Date().toISOString(),
+      };
+
+      syncedNyans.push({ id, name, title, daysCount });
+
+      if (onProgress) {
+        onProgress({ id, name, current, total });
+      }
+    }
+
+    // Sort syncedNyans by id ascending
+    syncedNyans.sort((a, b) => a.id - b.id);
+
+    const meta: NyankoStoriesMeta = {
+      version: Date.now(),
+      updatedAt: Date.now(),
+      storyCount: Object.keys(storiesMap).length,
+      stories: storiesMap,
+    };
+
+    // Save to Firestore kenchiko_world/nyanko_stories_meta
+    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+    await setDoc(metaRef, meta);
+
+    // Save to local cache
+    setLocalStoriesMeta(meta);
+
+    return {
+      success: true,
+      totalCount: syncedNyans.length,
+      syncedNyans,
+      meta,
+    };
+  } catch (err: any) {
+    console.error('Failed to rebuild stories meta:', err);
+    return {
+      success: false,
+      totalCount: 0,
+      syncedNyans: [],
+      error: err?.message || '目録の再構築に失敗しました',
+    };
   }
 }
 

@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Filter,
   Check,
+  ListChecks,
 } from 'lucide-react';
 import { NyanCharacter, NyankoStory } from '../types';
 import {
@@ -24,6 +25,7 @@ import {
   saveSingleStoryToFirestore,
   deleteStoryFromFirestore,
   fetchNyankoStory,
+  rebuildStoriesMetaFromFirestore,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
 
@@ -100,6 +102,68 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
   // Preview Story Modal state
   const [previewNyan, setPreviewNyan] = useState<NyanCharacter | null>(null);
+
+  // Rebuild metadata from Firestore state
+  const [isRebuilding, setIsRebuilding] = useState<boolean>(false);
+  const [rebuildProgress, setRebuildProgress] = useState<{
+    current: number;
+    total: number;
+    currentName: string;
+  } | null>(null);
+  const [syncedNyansList, setSyncedNyansList] = useState<{
+    id: number;
+    name: string;
+    title: string;
+    daysCount: number;
+  }[] | null>(null);
+  const [showSyncedModal, setShowSyncedModal] = useState<boolean>(false);
+
+  // Rebuild stories metadata from Firestore nyanko_stories collection
+  const handleRebuildMeta = async () => {
+    if (isRebuilding) return;
+    setIsRebuilding(true);
+    setStatusMessage(null);
+    setRebuildProgress({ current: 0, total: 0, currentName: 'Firestoreスキャン開始...' });
+
+    try {
+      const res = await rebuildStoriesMetaFromFirestore((progress) => {
+        setRebuildProgress({
+          current: progress.current,
+          total: progress.total,
+          currentName: `No.${progress.id} ${progress.name}`,
+        });
+      });
+
+      if (!res.success) {
+        setStatusMessage({ type: 'error', text: `再同期失敗: ${res.error}` });
+        return;
+      }
+
+      setMeta(res.meta || null);
+      setSyncedNyansList(res.syncedNyans);
+      setShowSyncedModal(true);
+
+      // Sync character hasStory property across all characters in state
+      if (res.meta && onUpdateCharacters) {
+        const registeredIds = new Set(Object.keys(res.meta.stories).map((k) => parseInt(k, 10)));
+        const updatedChars = characters.map((c) => ({
+          ...c,
+          hasStory: registeredIds.has(c.no),
+        }));
+        onUpdateCharacters(updatedChars);
+      }
+
+      setStatusMessage({
+        type: 'success',
+        text: `🎉 Firestoreから全${res.totalCount}匹分の物語目録を完全に再同期しました！`,
+      });
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: `再同期エラー: ${err?.message}` });
+    } finally {
+      setIsRebuilding(false);
+      setRebuildProgress(null);
+    }
+  };
 
   // Load Metadata
   const loadMeta = async (force: boolean = false) => {
@@ -337,24 +401,76 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
           </div>
         </div>
 
-        {/* Coverage Meter */}
-        <div className="flex items-center gap-3 bg-white px-3.5 py-2 rounded-xl border border-[#C6D8CD] shrink-0">
-          <div className="text-right">
-            <div className="text-[10px] font-bold text-[#7D756D]">物語登録率</div>
-            <div className="font-mono font-bold text-sm text-[#487560]">
-              {registeredCount} / {characters.length} 体 ({coveragePercent}%)
-            </div>
-          </div>
+        {/* Actions & Coverage Meter */}
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
-            onClick={() => loadMeta(true)}
-            disabled={isLoadingMeta}
-            title="最新状態を再読込"
-            className="p-2 bg-[#F5F2EA] hover:bg-[#EAE6DC] text-[#4A443F] rounded-lg transition disabled:opacity-50"
+            onClick={handleRebuildMeta}
+            disabled={isRebuilding}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold text-xs rounded-xl shadow-sm transition disabled:opacity-50 cursor-pointer"
+            title="Firestoreの全物語データを走査して目録を再同期します"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoadingMeta ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRebuilding ? 'animate-spin' : ''}`} />
+            <span>{isRebuilding ? '走査・同期中...' : '🔄 目録を再同期 (Firestoreスキャン)'}</span>
           </button>
+
+          {syncedNyansList && syncedNyansList.length > 0 && (
+            <button
+              onClick={() => setShowSyncedModal(true)}
+              className="flex items-center gap-1 px-3 py-2 bg-white hover:bg-[#FAF8F4] border border-[#C6D8CD] text-[#3E3833] font-bold text-xs rounded-xl shadow-xs transition"
+            >
+              <ListChecks className="w-3.5 h-3.5 text-[#487560]" />
+              <span>同期結果 ({syncedNyansList.length}体)</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-[#C6D8CD]">
+            <div className="text-right">
+              <div className="text-[10px] font-bold text-[#7D756D]">物語登録率</div>
+              <div className="font-mono font-bold text-xs text-[#487560]">
+                {registeredCount} / {characters.length} 体 ({coveragePercent}%)
+              </div>
+            </div>
+            <button
+              onClick={() => loadMeta(true)}
+              disabled={isLoadingMeta || isRebuilding}
+              title="最新状態を再読込"
+              className="p-1.5 bg-[#F5F2EA] hover:bg-[#EAE6DC] text-[#4A443F] rounded-lg transition disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingMeta ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Rebuild Progress Live Box */}
+      {isRebuilding && rebuildProgress && (
+        <div className="p-3.5 bg-[#FFF9F2] rounded-xl border border-[#F4D9BD] space-y-2 animate-fadeIn">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-[#8C5A3E] flex items-center gap-1.5">
+              <RefreshCw className="w-4 h-4 animate-spin text-[#8C5A3E]" />
+              <span>Firestoreから物語目録を再同期中…</span>
+            </span>
+            <span className="font-mono font-bold text-[#8C5A3E]">
+              {rebuildProgress.current} / {rebuildProgress.total || '?'} 体
+              {rebuildProgress.total > 0 && ` (${Math.round((rebuildProgress.current / rebuildProgress.total) * 100)}%)`}
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div className="w-full bg-[#EFE3D3] h-2.5 rounded-full overflow-hidden">
+            <div
+              className="bg-[#8C5A3E] h-full transition-all duration-150"
+              style={{
+                width: `${rebuildProgress.total > 0 ? (rebuildProgress.current / rebuildProgress.total) * 100 : 5}%`,
+              }}
+            />
+          </div>
+          {/* Live Synced Nyan Name */}
+          <div className="text-xs text-[#6B5745] font-medium flex items-center gap-1.5">
+            <span className="text-[10px] bg-[#EFE3D3] text-[#8C5A3E] px-1.5 py-0.5 rounded font-bold">走査中</span>
+            <span className="font-bold truncate text-[#3E3833]">{rebuildProgress.currentName}</span>
+          </div>
+        </div>
+      )}
 
       {/* Global Status Message */}
       {statusMessage && (
@@ -407,6 +523,33 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       {/* ============================================================ */}
       {activeTab === 'list' && (
         <div className="space-y-3">
+          {/* Prominent sync callout banner when stories are not indexed */}
+          {(!meta || meta.storyCount === 0) && (
+            <div className="p-4 bg-[#FFF8EE] border-2 border-[#E9BF8C] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 bg-[#8C5A3E] text-white rounded-xl shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </span>
+                <div>
+                  <h5 className="text-xs font-black text-[#5C381E]">
+                    Firestoreに登録済みの物語データ（263匹分）の目録が未同期です
+                  </h5>
+                  <p className="text-[11px] text-[#8C5A3E] mt-0.5">
+                    「目録を再同期」ボタンを押すと、Firestore内の全物語データを自動走査して目録を復元・同期します。
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleRebuildMeta}
+                disabled={isRebuilding}
+                className="w-full sm:w-auto px-4 py-2 bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRebuilding ? 'animate-spin' : ''}`} />
+                <span>{isRebuilding ? '走査・同期中...' : '今すぐ目録を再同期する (263匹)'}</span>
+              </button>
+            </div>
+          )}
+
           {/* Controls: Search and Filter */}
           <div className="bg-[#FAF8F5] p-3 rounded-xl border border-[#DDD7C8] flex flex-col sm:flex-row items-center justify-between gap-2.5">
             <div className="relative flex-1 w-full">
@@ -769,6 +912,82 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
           onClose={() => setPreviewNyan(null)}
           onStoryReadCompleted={() => {}}
         />
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 3: Synced Nyans List Display Modal                     */}
+      {/* ============================================================ */}
+      {showSyncedModal && syncedNyansList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#FAF8F4] w-full max-w-2xl max-h-[85vh] rounded-2xl border-2 border-[#3E3833] shadow-[4px_4px_0px_#3E3833] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 bg-[#EAF0EC] border-b border-[#C6D8CD] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-[#487560] text-white rounded-xl">
+                  <ListChecks className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="font-bold text-sm text-[#234A35]">
+                    同期したにゃんこ一覧（全{syncedNyansList.length}体）
+                  </h4>
+                  <p className="text-xs text-[#487560]">
+                    Firestoreから目録に同期・確認できたにゃんこの名前と話数です
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSyncedModal(false)}
+                className="p-1.5 hover:bg-[#D9E6DD] rounded-lg text-[#234A35] transition"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Nyans List Content */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-2 max-h-[60vh]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {syncedNyansList.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-2.5 bg-white rounded-xl border border-[#DDD7C8] flex items-center justify-between text-xs hover:border-[#487560] transition shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-bold text-[#7D756D] text-[11px] shrink-0">
+                        No.{String(item.id).padStart(3, '0')}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-[#2E2824] truncate">
+                          {item.name}
+                        </div>
+                        {item.title && (
+                          <div className="text-[10px] text-[#7D756D] truncate">
+                            {item.title}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="shrink-0 bg-[#EAF0EC] text-[#245C3B] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#C6D8CD]">
+                      {item.daysCount}話
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 bg-[#ECE7DC] border-t border-[#DDD7C8] flex justify-between items-center">
+              <span className="text-xs text-[#6B6259] font-medium">
+                全 <strong className="text-[#3E3833]">{syncedNyansList.length}</strong> 体が正常に目録化されています
+              </span>
+              <button
+                onClick={() => setShowSyncedModal(false)}
+                className="px-5 py-2 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
