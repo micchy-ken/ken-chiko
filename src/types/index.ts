@@ -54,6 +54,8 @@ export interface NyankoStory {
   name: string;
   kana?: string;
   motif?: string;
+  storyOriginalName?: string;
+  title?: string;
   debut_date?: string;
   voice?: string;
   translation?: string;

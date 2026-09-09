@@ -15,7 +15,17 @@ import {
   Filter,
   Check,
   ListChecks,
+  Archive,
+  UserPlus,
+  ArrowRight,
+  Shuffle,
+  RotateCcw,
+  FolderInput,
+  Layers,
+  ChevronDown,
 } from 'lucide-react';
+import { doc, deleteDoc } from 'firebase/firestore';
+import { getFirestoreDbInstance } from '../services/firebaseSync';
 import { NyanCharacter, NyankoStory } from '../types';
 import {
   NyankoStoriesMeta,
@@ -26,6 +36,9 @@ import {
   deleteStoryFromFirestore,
   fetchNyankoStory,
   rebuildStoriesMetaFromFirestore,
+  fetchUnmappedStoriesArchive,
+  fetchUnmappedStoryFull,
+  assignUnmappedStoryToNyan,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
 
@@ -79,6 +92,17 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
   const [isLoadingMeta, setIsLoadingMeta] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'list' | 'import'>('list');
 
+  // Registered story IDs Set & Unregistered Nyans
+  const registeredStoryMap = useMemo(() => meta?.stories || {}, [meta]);
+  const registeredCount = useMemo(() => Object.keys(registeredStoryMap).length, [registeredStoryMap]);
+  const coveragePercent = useMemo(
+    () => (characters.length > 0 ? Math.round((registeredCount / characters.length) * 100) : 0),
+    [characters.length, registeredCount]
+  );
+  const unregisteredNyans = useMemo(() => {
+    return characters.filter((c) => !registeredStoryMap[String(c.no)]);
+  }, [characters, registeredStoryMap]);
+
   // Filter & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterMode, setFilterMode] = useState<'all' | 'has_story' | 'no_story'>('all');
@@ -94,11 +118,20 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; percent: number } | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Staged assignments for JSON batch import: storyIndex -> { targetNo, updateName }
+  const [stagedAssignments, setStagedAssignments] = useState<Record<number, { targetNo: number; updateName: boolean }>>({});
+
   // Single edit modal state
   const [editingNyan, setEditingNyan] = useState<NyanCharacter | null>(null);
   const [editingJsonText, setEditingJsonText] = useState<string>('');
   const [isLoadingSingleStory, setIsLoadingSingleStory] = useState<boolean>(false);
   const [isSavingSingleStory, setIsSavingSingleStory] = useState<boolean>(false);
+
+  // Single edit modal: stream from archive
+  const [archiveSourceIdToLoad, setArchiveSourceIdToLoad] = useState<string>('');
+  const [loadedArchiveOldId, setLoadedArchiveOldId] = useState<string | null>(null);
+  const [deleteArchiveOnSave, setDeleteArchiveOnSave] = useState<boolean>(true);
+  const [isLoadingArchiveDetail, setIsLoadingArchiveDetail] = useState<boolean>(false);
 
   // Preview Story Modal state
   const [previewNyan, setPreviewNyan] = useState<NyanCharacter | null>(null);
@@ -117,6 +150,103 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     daysCount: number;
   }[] | null>(null);
   const [showSyncedModal, setShowSyncedModal] = useState<boolean>(false);
+
+  // Unmapped legacy archive state
+  const [unmappedList, setUnmappedList] = useState<{
+    oldId: string;
+    name: string;
+    motif?: string;
+    title?: string;
+    daysCount: number;
+  }[] | null>(null);
+  const [showUnmappedModal, setShowUnmappedModal] = useState<boolean>(false);
+  const [isLoadingUnmapped, setIsLoadingUnmapped] = useState<boolean>(false);
+
+  // Archive story assignment modal state
+  const [assigningArchiveStory, setAssigningArchiveStory] = useState<{
+    oldId: string;
+    name: string;
+    motif?: string;
+    title?: string;
+    daysCount: number;
+  } | null>(null);
+  const [assignTargetNyanNo, setAssignTargetNyanNo] = useState<number | null>(null);
+  const [assignSearchQuery, setAssignSearchQuery] = useState<string>('');
+  const [assignRenameToMaster, setAssignRenameToMaster] = useState<boolean>(true);
+  const [assignDeleteFromArchive, setAssignDeleteFromArchive] = useState<boolean>(true);
+  const [isAssigningArchive, setIsAssigningArchive] = useState<boolean>(false);
+
+  const handleOpenUnmappedArchive = async () => {
+    setIsLoadingUnmapped(true);
+    try {
+      const res = await fetchUnmappedStoriesArchive();
+      if (res.success) {
+        setUnmappedList(res.stories);
+        setShowUnmappedModal(true);
+      } else {
+        setStatusMessage({ type: 'error', text: `アーカイブ取得失敗: ${res.error}` });
+      }
+    } finally {
+      setIsLoadingUnmapped(false);
+    }
+  };
+
+  const handleStartAssignArchiveStory = (item: {
+    oldId: string;
+    name: string;
+    motif?: string;
+    title?: string;
+    daysCount: number;
+  }) => {
+    setAssigningArchiveStory(item);
+    setAssignSearchQuery('');
+    setAssignRenameToMaster(true);
+    setAssignDeleteFromArchive(true);
+
+    // Auto-suggest match by name if any unregistered nyan matches, otherwise first unregistered nyan
+    const nameMatch = unregisteredNyans.find(
+      (c) => c.name.includes(item.name) || item.name.includes(c.name)
+    );
+    setAssignTargetNyanNo(nameMatch ? nameMatch.no : (unregisteredNyans[0]?.no || null));
+  };
+
+  const handleConfirmAssignArchiveStory = async () => {
+    if (!assigningArchiveStory || !assignTargetNyanNo) return;
+    const targetChar = characters.find((c) => c.no === assignTargetNyanNo);
+    if (!targetChar) return;
+
+    setIsAssigningArchive(true);
+    try {
+      const res = await assignUnmappedStoryToNyan(
+        assigningArchiveStory.oldId,
+        targetChar,
+        {
+          renameToMasterName: assignRenameToMaster,
+          deleteFromArchive: assignDeleteFromArchive,
+        }
+      );
+
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 旧#${assigningArchiveStory.oldId}「${assigningArchiveStory.name}」を No.${targetChar.no}「${targetChar.name}」に正式割り当て登録しました！`,
+        });
+        if (assignDeleteFromArchive) {
+          setUnmappedList((prev) =>
+            prev ? prev.filter((x) => x.oldId !== assigningArchiveStory.oldId) : null
+          );
+        }
+        setAssigningArchiveStory(null);
+        await loadMeta(true);
+      } else {
+        alert(`割り当てエラー: ${res.error}`);
+      }
+    } catch (err: any) {
+      alert(`割り当て失敗: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsAssigningArchive(false);
+    }
+  };
 
   // Rebuild stories metadata from Firestore nyanko_stories collection
   const handleRebuildMeta = async () => {
@@ -190,19 +320,55 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
   useEffect(() => {
     loadMeta(false);
+    // Pre-fetch unmapped stories in background for dropdown availability
+    fetchUnmappedStoriesArchive().then((res) => {
+      if (res.success) setUnmappedList(res.stories);
+    });
   }, []);
 
-  // Parse JSON input in real time
+  // Parse JSON input in real time and prepare staged assignments
   useEffect(() => {
     if (!jsonInput.trim()) {
       setParsedPreview(null);
+      setStagedAssignments({});
       return;
     }
     const res = parseStoryInputJson(jsonInput);
     setParsedPreview(res);
+
+    if (res.valid && res.stories.length > 0) {
+      const initial: Record<number, { targetNo: number; updateName: boolean }> = {};
+      res.stories.forEach((s, idx) => {
+        const charMatch = characters.find((c) => c.no === s.id);
+        if (charMatch) {
+          initial[idx] = { targetNo: charMatch.no, updateName: false };
+        } else {
+          const candidate = unregisteredNyans[idx];
+          initial[idx] = { targetNo: candidate ? candidate.no : s.id, updateName: true };
+        }
+      });
+      setStagedAssignments(initial);
+    }
   }, [jsonInput]);
 
-  // Handle batch upload
+  // Auto-assign batch parsed stories sequentially to unregistered nyankos
+  const handleAutoAssignBatchToUnregistered = () => {
+    if (!parsedPreview || !parsedPreview.valid || parsedPreview.stories.length === 0) return;
+    const newAssignments: Record<number, { targetNo: number; updateName: boolean }> = {};
+    parsedPreview.stories.forEach((_, idx) => {
+      const targetChar = unregisteredNyans[idx] || characters[idx % characters.length];
+      if (targetChar) {
+        newAssignments[idx] = { targetNo: targetChar.no, updateName: true };
+      }
+    });
+    setStagedAssignments(newAssignments);
+    setStatusMessage({
+      type: 'success',
+      text: `未登録にゃんこ（${Math.min(parsedPreview.stories.length, unregisteredNyans.length)}体）に自動順次割り付けを設定しました`,
+    });
+  };
+
+  // Handle batch upload with assigned target IDs and names
   const handleUploadBatch = async () => {
     if (!parsedPreview || !parsedPreview.valid || parsedPreview.stories.length === 0) return;
     setIsUploading(true);
@@ -210,7 +376,23 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     setUploadProgress({ current: 0, total: parsedPreview.stories.length, percent: 0 });
 
     try {
-      const res = await uploadStoriesJsonToFirestore(parsedPreview.stories, (p) => {
+      const finalStories = parsedPreview.stories.map((story, idx) => {
+        const assignment = stagedAssignments[idx];
+        if (assignment) {
+          const targetChar = characters.find((c) => c.no === assignment.targetNo);
+          return {
+            ...story,
+            id: assignment.targetNo,
+            name: assignment.updateName && targetChar ? targetChar.name : story.name,
+            storyOriginalName: story.name,
+            motif: targetChar?.motif || story.motif,
+            kana: targetChar?.reading || story.kana,
+          };
+        }
+        return story;
+      });
+
+      const res = await uploadStoriesJsonToFirestore(finalStories, (p) => {
         setUploadProgress(p);
       });
 
@@ -221,6 +403,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
         });
         setJsonInput('');
         setParsedPreview(null);
+        setStagedAssignments({});
         await loadMeta(true);
         setActiveTab('list');
       } else {
@@ -259,6 +442,16 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     setIsLoadingSingleStory(true);
     setEditingJsonText('');
     setStatusMessage(null);
+    setArchiveSourceIdToLoad('');
+    setLoadedArchiveOldId(null);
+    setDeleteArchiveOnSave(true);
+
+    // Ensure archive list is available for streaming
+    if (!unmappedList) {
+      fetchUnmappedStoriesArchive().then((res) => {
+        if (res.success) setUnmappedList(res.stories);
+      });
+    }
 
     try {
       const res = await fetchNyankoStory(nyan.no);
@@ -303,6 +496,37 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     }
   };
 
+  // Stream archived story into single story editor
+  const handleLoadArchiveIntoSingleEditor = async () => {
+    if (!archiveSourceIdToLoad || !editingNyan) return;
+    setIsLoadingArchiveDetail(true);
+    try {
+      const story = await fetchUnmappedStoryFull(archiveSourceIdToLoad);
+      if (!story) {
+        alert('保管庫の物語データの取得に失敗しました');
+        return;
+      }
+      const loaded: NyankoStory = {
+        ...story,
+        id: editingNyan.no,
+        name: editingNyan.name,
+        storyOriginalName: story.name,
+        kana: editingNyan.reading || story.kana,
+        motif: editingNyan.motif || story.motif,
+      };
+      setEditingJsonText(JSON.stringify(loaded, null, 2));
+      setLoadedArchiveOldId(archiveSourceIdToLoad);
+      setStatusMessage({
+        type: 'success',
+        text: `旧#${archiveSourceIdToLoad}「${story.name}」の物語を No.${editingNyan.no}「${editingNyan.name}」に流し込みました`,
+      });
+    } catch (err: any) {
+      alert(`流し込み失敗: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsLoadingArchiveDetail(false);
+    }
+  };
+
   // Save single story
   const handleSaveSingleStory = async () => {
     if (!editingNyan) return;
@@ -318,8 +542,24 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       setIsSavingSingleStory(true);
       const res = await saveSingleStoryToFirestore(story);
       if (res.success) {
+        // If loaded from unmapped archive and deletion is enabled
+        if (loadedArchiveOldId && deleteArchiveOnSave) {
+          try {
+            const db = getFirestoreDbInstance();
+            if (db) {
+              await deleteDoc(doc(db, 'nyanko_stories_unmapped', loadedArchiveOldId));
+              setUnmappedList((prev) =>
+                prev ? prev.filter((x) => x.oldId !== loadedArchiveOldId) : null
+              );
+            }
+          } catch (delErr) {
+            console.warn('Failed to delete from unmapped after single save:', delErr);
+          }
+        }
+
         await loadMeta(true);
         setEditingNyan(null);
+        setLoadedArchiveOldId(null);
         setStatusMessage({
           type: 'success',
           text: `🎉 No.${editingNyan.no} ${editingNyan.name} の物語を保存しました！`,
@@ -354,11 +594,6 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       alert(`削除エラー: ${err?.message || '不明なエラー'}`);
     }
   };
-
-  // Registered story IDs Set
-  const registeredStoryMap = meta?.stories || {};
-  const registeredCount = Object.keys(registeredStoryMap).length;
-  const coveragePercent = characters.length > 0 ? Math.round((registeredCount / characters.length) * 100) : 0;
 
   // Filtered list
   const filteredNyans = useMemo(() => {
@@ -410,7 +645,17 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
             title="Firestoreの全物語データを走査して目録を再同期します"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRebuilding ? 'animate-spin' : ''}`} />
-            <span>{isRebuilding ? '走査・同期中...' : '🔄 目録を再同期 (Firestoreスキャン)'}</span>
+            <span>{isRebuilding ? '走査・同期中...' : '🔄 目録を再同期'}</span>
+          </button>
+
+          <button
+            onClick={handleOpenUnmappedArchive}
+            disabled={isLoadingUnmapped}
+            className="flex items-center gap-1 px-3 py-2 bg-[#F3ECE0] hover:bg-[#E8DFCة] border border-[#D5C7B4] text-[#6B543D] font-bold text-xs rounded-xl shadow-2xs transition disabled:opacity-50 cursor-pointer"
+            title="現在の図鑑に未紐付けの旧物語データ（アーカイブ）を確認します"
+          >
+            <Archive className={`w-3.5 h-3.5 text-[#8C5A3E] ${isLoadingUnmapped ? 'animate-spin' : ''}`} />
+            <span>未紐付け保管庫</span>
           </button>
 
           {syncedNyansList && syncedNyansList.length > 0 && (
@@ -803,7 +1048,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 <button
                   onClick={handleUploadBatch}
                   disabled={isUploading}
-                  className="px-4 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl font-bold shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 shrink-0 active:scale-95"
+                  className="px-4 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl font-bold shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 shrink-0 active:scale-95 cursor-pointer"
                 >
                   <UploadCloud className={`w-4 h-4 ${isUploading ? 'animate-bounce' : ''}`} />
                   <span>
@@ -813,6 +1058,155 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                   </span>
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Unregistered Nyanko Assignment Mapping Section for Batch Upload */}
+          {parsedPreview && parsedPreview.valid && (
+            <div className="bg-white rounded-xl border border-[#DDD7C8] p-3.5 space-y-3 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFECE4] pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-[#EAF0EC] text-[#245C3B] rounded-lg">
+                    <UserPlus className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <h6 className="text-xs font-black text-[#2E2824]">
+                      にゃんこ割り付け設定（未登録にゃんこへの紐付け）
+                    </h6>
+                    <p className="text-[11px] text-[#7A726A]">
+                      物語をどの未登録にゃんこ（現在{unregisteredNyans.length}体）に登録するか個別に調整できます
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleAutoAssignBatchToUnregistered}
+                    className="px-3 py-1.5 bg-[#8C5A3E] hover:bg-[#784A30] text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    title="未登録にゃんこに上から順番に自動で割り付けます"
+                  >
+                    <Shuffle className="w-3.5 h-3.5" />
+                    <span>未登録にゃんこに自動順次割り付け</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reset: Record<number, { targetNo: number; updateName: boolean }> = {};
+                      parsedPreview.stories.forEach((s, idx) => {
+                        const charMatch = characters.find((c) => c.no === s.id);
+                        if (charMatch) {
+                          reset[idx] = { targetNo: charMatch.no, updateName: false };
+                        } else {
+                          const candidate = unregisteredNyans[idx];
+                          reset[idx] = { targetNo: candidate ? candidate.no : s.id, updateName: true };
+                        }
+                      });
+                      setStagedAssignments(reset);
+                    }}
+                    className="p-1.5 hover:bg-[#EFECE4] text-[#7A726A] rounded-lg text-xs transition cursor-pointer"
+                    title="初期設定に戻す"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Staged Stories List */}
+              <div className="max-h-64 overflow-y-auto divide-y divide-[#EFECE4] text-xs">
+                {parsedPreview.stories.map((story, idx) => {
+                  const currentTarget = stagedAssignments[idx];
+                  const targetNo = currentTarget ? currentTarget.targetNo : story.id;
+                  const targetChar = characters.find((c) => c.no === targetNo);
+                  const isUnregistered = targetChar && !registeredStoryMap[String(targetChar.no)];
+
+                  return (
+                    <div
+                      key={idx}
+                      className="py-2 px-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-[#FAF8F5] rounded-lg transition"
+                    >
+                      {/* Left: Original Story Info */}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span className="w-5 h-5 rounded-full bg-[#EFECE4] text-[#5A524A] font-bold text-[10px] flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-[#2E2824] truncate flex items-center gap-1.5">
+                            <span>{story.name}</span>
+                            <span className="text-[10px] text-[#A8A096] font-mono">
+                              (元JSON ID: {story.id})
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-[#7A726A] truncate">
+                            {story.week_info?.week_title || `${story.week_info?.days?.length || 0}日分`}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Target Assignment Select */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <ArrowRight className="w-3.5 h-3.5 text-[#A8A096] hidden sm:inline" />
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={targetNo}
+                            onChange={(e) => {
+                              const newNo = parseInt(e.target.value, 10);
+                              setStagedAssignments((prev) => ({
+                                ...prev,
+                                [idx]: {
+                                  targetNo: newNo,
+                                  updateName: prev[idx]?.updateName ?? true,
+                                },
+                              }));
+                            }}
+                            className={`text-xs px-2.5 py-1.5 rounded-lg border font-bold focus:outline-none ${
+                              isUnregistered
+                                ? 'bg-[#FFF8EE] border-[#E9BF8C] text-[#8C5A3E]'
+                                : 'bg-white border-[#DDD7C8] text-[#3A342F]'
+                            }`}
+                          >
+                            <optgroup label="🌟 未登録のにゃんこ (優先)">
+                              {unregisteredNyans.map((c) => (
+                                <option key={c.no} value={c.no}>
+                                  未登録 No.{c.no} {c.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="登録済みのにゃんこ">
+                              {characters
+                                .filter((c) => !!registeredStoryMap[String(c.no)])
+                                .map((c) => (
+                                  <option key={c.no} value={c.no}>
+                                    登録済 No.{c.no} {c.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          </select>
+
+                          <label className="flex items-center gap-1 text-[11px] text-[#5A524A] cursor-pointer whitespace-nowrap pl-1">
+                            <input
+                              type="checkbox"
+                              checked={currentTarget?.updateName ?? true}
+                              onChange={(e) => {
+                                setStagedAssignments((prev) => ({
+                                  ...prev,
+                                  [idx]: {
+                                    targetNo: prev[idx]?.targetNo ?? targetNo,
+                                    updateName: e.target.checked,
+                                  },
+                                }));
+                              }}
+                              className="rounded text-[#487560]"
+                            />
+                            <span>名前同期</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -867,11 +1261,69 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 </div>
               ) : (
                 <>
+                  {/* Stream from unmapped archive banner */}
+                  {unmappedList && unmappedList.length > 0 && (
+                    <div className="p-3 bg-[#F8F4EE] border border-[#DDD7C8] rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Archive className="w-4 h-4 text-[#8C5A3E] shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-[#4E2E17]">
+                            未紐付け保管庫から物語を流し込んで割り付け
+                          </span>
+                          <p className="text-[10px] text-[#8C5A3E] truncate">
+                            保管庫（{unmappedList.length}件）の会話劇をこのにゃんこ（No.{editingNyan.no} {editingNyan.name}）に設定します
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                        <select
+                          value={archiveSourceIdToLoad}
+                          onChange={(e) => setArchiveSourceIdToLoad(e.target.value)}
+                          className="text-xs bg-white border border-[#DDD7C8] rounded-lg px-2 py-1.5 text-[#3E3833] focus:outline-none focus:border-[#8C5A3E] flex-1 sm:w-56"
+                        >
+                          <option value="">-- 保管庫の物語を選択 --</option>
+                          {unmappedList.map((u) => (
+                            <option key={u.oldId} value={u.oldId}>
+                              旧#{u.oldId} {u.name} ({u.daysCount}話)
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleLoadArchiveIntoSingleEditor}
+                          disabled={!archiveSourceIdToLoad || isLoadingArchiveDetail}
+                          className="px-3 py-1.5 bg-[#8C5A3E] hover:bg-[#73472F] text-white rounded-lg text-xs font-bold transition disabled:opacity-50 shrink-0 flex items-center gap-1 cursor-pointer"
+                        >
+                          <FolderInput className={`w-3.5 h-3.5 ${isLoadingArchiveDetail ? 'animate-spin' : ''}`} />
+                          <span>流し込む</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {loadedArchiveOldId && (
+                    <div className="flex items-center justify-between p-2.5 bg-[#EAF0EC] border border-[#C2DACB] rounded-xl text-xs text-[#245C3B]">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-[#2E7D32]" />
+                        <span>旧#{loadedArchiveOldId}の物語データを読み込みました</span>
+                      </div>
+                      <label className="flex items-center gap-1 text-[11px] font-bold text-[#245C3B] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deleteArchiveOnSave}
+                          onChange={(e) => setDeleteArchiveOnSave(e.target.checked)}
+                          className="rounded text-[#487560]"
+                        />
+                        <span>保存時に保管庫から削除する（推奨）</span>
+                      </label>
+                    </div>
+                  )}
+
                   <p className="text-[11px] text-[#7A726A]">
                     このにゃんこ専用の物語JSONです。メッセージのセリフや話数、登場人物などを直接編集して「保存」できます。
                   </p>
                   <textarea
-                    rows={15}
+                    rows={13}
                     value={editingJsonText}
                     onChange={(e) => setEditingJsonText(e.target.value)}
                     className="w-full p-3 font-mono text-xs bg-white border border-[#DDD7C8] rounded-xl text-[#2E2824] focus:outline-none focus:border-[#487560] leading-relaxed"
@@ -981,9 +1433,294 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
               </span>
               <button
                 onClick={() => setShowSyncedModal(false)}
-                className="px-5 py-2 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs"
+                className="px-5 py-2 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 4: Unmapped Legacy Stories Archive Modal               */}
+      {/* ============================================================ */}
+      {showUnmappedModal && unmappedList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#FAF8F4] w-full max-w-2xl max-h-[85vh] rounded-2xl border-2 border-[#3E3833] shadow-[4px_4px_0px_#3E3833] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 bg-[#F5EDE1] border-b border-[#D8C7B0] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-[#8C5A3E] text-white rounded-xl">
+                  <Archive className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="font-bold text-sm text-[#4E2E17]">
+                    未紐付け物語保管庫（全{unmappedList.length}件）
+                  </h4>
+                  <p className="text-xs text-[#8C5A3E]">
+                    現在の図鑑（265体）に存在しない旧リストの物語データです。安全に退避・保管されています。
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUnmappedModal(false)}
+                className="p-1.5 hover:bg-[#EADBCA] rounded-lg text-[#4E2E17] transition cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content List */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-2 max-h-[60vh]">
+              <div className="text-xs text-[#7D6B57] bg-[#FFF9F2] p-2.5 rounded-xl border border-[#EADBCA] mb-2 flex items-center justify-between gap-2">
+                <div>
+                  ※ 現在の図鑑（265体）に名前が一致しなかった旧物語データです。各物語の「割付」ボタンを押すと、現在物語が未登録のにゃんこを選んで正式に割り当て登録できます。
+                </div>
+                <div className="shrink-0 font-bold text-[#8C5A3E]">
+                  未登録にゃんこ: {unregisteredNyans.length}体
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                {unmappedList.map((item) => (
+                  <div
+                    key={item.oldId}
+                    className="p-3 bg-white rounded-xl border border-[#DDD7C8] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-[#8C5A3E] transition shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="font-mono text-[#8C5A3E] text-[10px] font-bold shrink-0 bg-[#F5EDE1] px-2 py-1 rounded-md border border-[#EADBCA]">
+                        旧#{item.oldId}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-[#2E2824] truncate flex items-center gap-1.5">
+                          <span>{item.name}</span>
+                          <span className="shrink-0 bg-[#F5EDE1] text-[#8C5A3E] font-bold text-[10px] px-2 py-0.5 rounded-full border border-[#D8C7B0]">
+                            {item.daysCount}話
+                          </span>
+                        </div>
+                        {item.motif && (
+                          <div className="text-[10px] text-[#7D756D] truncate">
+                            {item.motif}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleStartAssignArchiveStory(item)}
+                      className="px-3 py-1.5 bg-[#8C5A3E] hover:bg-[#73472F] text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 shadow-xs cursor-pointer active:scale-95"
+                      title="現在の未登録にゃんこを選んでこの物語を正式割り当て"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>未登録にゃんこに割付</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 bg-[#ECE7DC] border-t border-[#DDD7C8] flex justify-between items-center">
+              <span className="text-xs text-[#6B6259] font-medium">
+                全 <strong className="text-[#3E3833]">{unmappedList.length}</strong> 件が安全に保管されています
+              </span>
+              <button
+                onClick={() => setShowUnmappedModal(false)}
+                className="px-5 py-2 bg-[#3A342F] hover:bg-[#23201D] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 5: Assign Unmapped Archive Story to Unregistered Nyan  */}
+      {/* ============================================================ */}
+      {assigningArchiveStory && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-[#FAF8F4] w-full max-w-lg rounded-2xl border-2 border-[#3E3833] shadow-[4px_4px_0px_#3E3833] flex flex-col max-h-[85vh] overflow-hidden">
+            {/* Header */}
+            <div className="p-4 bg-[#F5EDE1] border-b border-[#D8C7B0] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-[#8C5A3E] text-white rounded-xl">
+                  <UserPlus className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="font-bold text-sm text-[#4E2E17]">
+                    未登録にゃんこへの物語割り付け
+                  </h4>
+                  <p className="text-xs text-[#8C5A3E]">
+                    保管庫の物語を正式なにゃんこに割り当てて登録します
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssigningArchiveStory(null)}
+                className="p-1.5 hover:bg-[#EADBCA] rounded-lg text-[#4E2E17] transition cursor-pointer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Target story details */}
+            <div className="p-3 bg-[#EFE6D8] border-b border-[#DDD7C8] flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-mono bg-[#8C5A3E] text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                  旧#{assigningArchiveStory.oldId}
+                </span>
+                <span className="font-black text-[#3E3833]">
+                  {assigningArchiveStory.name}
+                </span>
+                {assigningArchiveStory.motif && (
+                  <span className="text-[11px] text-[#6B5745]">
+                    （{assigningArchiveStory.motif}）
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] font-bold text-[#8C5A3E]">
+                {assigningArchiveStory.daysCount}話分
+              </span>
+            </div>
+
+            {/* Body: Select unregistered nyan */}
+            <div className="p-4 flex-1 overflow-y-auto space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#3E3833]">
+                  割り付け先のにゃんこを選択（未登録：{unregisteredNyans.length}体）:
+                </span>
+              </div>
+
+              {/* Search filter */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#A8A096] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Noや名前、モチーフで未登録にゃんこを絞り込み..."
+                  value={assignSearchQuery}
+                  onChange={(e) => setAssignSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#DDD7C8] rounded-xl text-xs text-[#3E3833] focus:outline-none focus:border-[#8C5A3E]"
+                />
+              </div>
+
+              {/* Unregistered Nyans List */}
+              <div className="max-h-56 overflow-y-auto border border-[#DDD7C8] rounded-xl divide-y divide-[#EFECE4] bg-white">
+                {unregisteredNyans
+                  .filter((c) => {
+                    if (!assignSearchQuery.trim()) return true;
+                    const q = assignSearchQuery.toLowerCase().trim();
+                    return (
+                      String(c.no).includes(q) ||
+                      c.name.toLowerCase().includes(q) ||
+                      c.reading.toLowerCase().includes(q) ||
+                      (c.motif || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map((nyan) => {
+                    const isSelected = assignTargetNyanNo === nyan.no;
+                    return (
+                      <div
+                        key={nyan.no}
+                        onClick={() => setAssignTargetNyanNo(nyan.no)}
+                        className={`p-2.5 flex items-center justify-between gap-2.5 cursor-pointer text-xs transition ${
+                          isSelected
+                            ? 'bg-[#FDF6ED] text-[#8C5A3E] font-bold border-l-4 border-[#8C5A3E]'
+                            : 'hover:bg-[#FAF8F5] text-[#3E3833]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-[#FAF8F5] border border-[#DDD7C8] flex items-center justify-center shrink-0 overflow-hidden">
+                            {nyan.customImageUrl ? (
+                              <img
+                                src={nyan.customImageUrl}
+                                alt={nyan.name}
+                                className="w-full h-full object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <span className="font-mono text-[10px] font-bold text-[#A8A096]">
+                                #{nyan.no}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-[11px] text-[#7A726A]">
+                                No.{nyan.no}
+                              </span>
+                              <span className="font-black truncate">{nyan.name}</span>
+                            </div>
+                            {nyan.motif && (
+                              <div className="text-[10px] text-[#9A9288] truncate">
+                                {nyan.motif}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {isSelected && (
+                          <span className="p-1 bg-[#8C5A3E] text-white rounded-full shrink-0">
+                            <Check className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Options */}
+              <div className="space-y-2 bg-[#F5EDE1] p-3 rounded-xl border border-[#EADBCA] text-xs">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-[#4E2E17]">
+                  <input
+                    type="checkbox"
+                    checked={assignRenameToMaster}
+                    onChange={(e) => setAssignRenameToMaster(e.target.checked)}
+                    className="rounded text-[#8C5A3E]"
+                  />
+                  <span>
+                    物語内の主役名をマスターの名前に同期する（推奨）
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-[#4E2E17]">
+                  <input
+                    type="checkbox"
+                    checked={assignDeleteFromArchive}
+                    onChange={(e) => setAssignDeleteFromArchive(e.target.checked)}
+                    className="rounded text-[#8C5A3E]"
+                  />
+                  <span>
+                    正式登録完了後に保管庫から削除する（推奨）
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 bg-[#ECE7DC] border-t border-[#DDD7C8] flex justify-between items-center">
+              <button
+                type="button"
+                onClick={() => setAssigningArchiveStory(null)}
+                className="px-4 py-2 bg-white hover:bg-[#FAF8F5] text-[#5A524A] border border-[#DDD7C8] rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                キャンセル
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmAssignArchiveStory}
+                disabled={!assignTargetNyanNo || isAssigningArchive}
+                className="px-5 py-2 bg-[#8C5A3E] hover:bg-[#73472F] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className={`w-4 h-4 ${isAssigningArchive ? 'animate-spin' : ''}`} />
+                <span>
+                  {isAssigningArchive
+                    ? '割り当て中...'
+                    : assignTargetNyanNo
+                    ? `No.${assignTargetNyanNo} に割り当てて正式登録`
+                    : 'にゃんこを選択してください'}
+                </span>
               </button>
             </div>
           </div>

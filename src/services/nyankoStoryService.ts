@@ -602,3 +602,142 @@ export async function rebuildStoriesMetaFromFirestore(
   }
 }
 
+/**
+ * Fetches archived stories that were not matched to the current master nyans (legacy list).
+ */
+export async function fetchUnmappedStoriesArchive(): Promise<{
+  success: boolean;
+  stories: { oldId: string; name: string; motif?: string; title?: string; daysCount: number }[];
+  error?: string;
+}> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) {
+      return { success: false, stories: [], error: 'Firebaseデータベースに接続できません' };
+    }
+
+    const colRef = collection(db, 'nyanko_stories_unmapped');
+    const snap = await getDocs(colRef);
+    const list = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        oldId: d.id,
+        name: data.name || '',
+        motif: data.motif || '',
+        title: data.week_info?.week_title || data.title || '',
+        daysCount: Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0,
+      };
+    });
+
+    list.sort((a, b) => Number(a.oldId) - Number(b.oldId));
+    return { success: true, stories: list };
+  } catch (err: any) {
+    console.error('Failed to fetch unmapped stories archive:', err);
+    return { success: false, stories: [], error: err?.message || '取得に失敗しました' };
+  }
+}
+
+/**
+ * Fetches full story detail from the unmapped stories archive.
+ */
+export async function fetchUnmappedStoryFull(oldId: string): Promise<NyankoStory | null> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) return null;
+    const snap = await getDoc(doc(db, 'nyanko_stories_unmapped', oldId));
+    if (snap.exists()) {
+      return snap.data() as NyankoStory;
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to fetch unmapped story detail:', err);
+    return null;
+  }
+}
+
+/**
+ * Assigns an archived unmapped story directly to a target master nyan,
+ * saves it into nyanko_stories, removes it from archive, and updates metadata.
+ */
+export async function assignUnmappedStoryToNyan(
+  oldId: string,
+  targetNyan: { no: number; name: string; reading?: string; motif?: string },
+  options: {
+    renameToMasterName?: boolean;
+    deleteFromArchive?: boolean;
+  } = { renameToMasterName: true, deleteFromArchive: true }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) {
+      return { success: false, error: 'Firebaseデータベースに接続できません' };
+    }
+
+    const unmappedRef = doc(db, 'nyanko_stories_unmapped', oldId);
+    const unmappedSnap = await getDoc(unmappedRef);
+    if (!unmappedSnap.exists()) {
+      return { success: false, error: `保管庫にID ${oldId} の物語が見つかりません` };
+    }
+    const rawData = unmappedSnap.data();
+
+    const finalName = options.renameToMasterName !== false ? targetNyan.name : (rawData.name || targetNyan.name);
+    const updatedPayload: any = {
+      ...rawData,
+      id: targetNyan.no,
+      name: finalName,
+      storyOriginalName: rawData.name || '',
+      motif: targetNyan.motif || rawData.motif || '',
+      kana: targetNyan.reading || rawData.kana || '',
+      updatedAt: new Date().toISOString(),
+    };
+    delete updatedPayload.oldDocId;
+    delete updatedPayload.archivedAt;
+    delete updatedPayload.reason;
+
+    // Save to nyanko_stories
+    const targetDocRef = doc(db, 'nyanko_stories', String(targetNyan.no));
+    await setDoc(targetDocRef, updatedPayload);
+
+    // Optionally delete from nyanko_stories_unmapped
+    if (options.deleteFromArchive !== false) {
+      await deleteDoc(unmappedRef);
+    }
+
+    // Save to local cache
+    saveToLocalCache(targetNyan.no, updatedPayload);
+
+    // Update metadata index
+    const currentMeta = (await fetchStoriesMeta(true)) || {
+      version: 1,
+      updatedAt: Date.now(),
+      storyCount: 0,
+      stories: {},
+    };
+
+    const title = updatedPayload.week_info?.week_title || updatedPayload.title || '';
+    const daysCount = Array.isArray(updatedPayload.week_info?.days) ? updatedPayload.week_info.days.length : 0;
+
+    currentMeta.stories[String(targetNyan.no)] = {
+      id: targetNyan.no,
+      name: finalName,
+      kana: updatedPayload.kana || '',
+      motif: updatedPayload.motif || '',
+      week_title: title,
+      daysCount,
+      updatedAt: updatedPayload.updatedAt,
+    };
+    currentMeta.storyCount = Object.keys(currentMeta.stories).length;
+    currentMeta.updatedAt = Date.now();
+    currentMeta.version = (currentMeta.version || 1) + 1;
+
+    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+    await setDoc(metaRef, currentMeta);
+    setLocalStoriesMeta(currentMeta);
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to assign unmapped story:', err);
+    return { success: false, error: err?.message || '割り付け登録に失敗しました' };
+  }
+}
+
