@@ -26,6 +26,7 @@ export interface KounichanVehicleConfig {
 export interface KounichanSettings {
   enabled: boolean;
   direction?: 'rtl' | 'ltr'; // 走行方向: 'rtl'（右から左・固定）または 'ltr'（左から右）
+  showOnomatopoeia?: boolean; // オノマトペ吹き出しの表示（false: 消す・非表示、true: 表示）
   frequency: 'rare' | 'normal' | 'often' | 'test'; // 出現頻度
   customSheetUrl?: string; // 6台一括元画像（生画像データURL）
   vehicles: Record<KounichanVehicleId, KounichanVehicleConfig>;
@@ -116,6 +117,7 @@ export const DEFAULT_KOUNICHAN_VEHICLES: Record<KounichanVehicleId, KounichanVeh
 export const DEFAULT_KOUNICHAN_SETTINGS: KounichanSettings = {
   enabled: false, // Default to disabled as requested
   direction: 'rtl', // 右から左（デフォルト固定）
+  showOnomatopoeia: false, // オノマトペ吹き出しを消す（イラストを踏まないようデフォルト非表示）
   frequency: 'normal',
   vehicles: DEFAULT_KOUNICHAN_VEHICLES,
   stats: {

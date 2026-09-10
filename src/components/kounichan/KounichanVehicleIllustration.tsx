@@ -22,17 +22,14 @@ export const KounichanVehicleIllustration: React.FC<KounichanVehicleIllustration
   const isFlipped = direction === 'rtl';
 
   // If custom user image exists (sliced PNG or uploaded image)
+  // 原画がすべて「右から左に走る（左向き）」イラストのため、反転せずそのまま表示
   if (vehicle.customImageUrl) {
     return (
       <div
         className={`relative inline-flex flex-col items-center justify-center select-none ${className}`}
         style={{ width: size }}
       >
-        <div
-          className={`relative w-full flex items-center justify-center transition-transform duration-200 ${
-            isFlipped ? '-scale-x-100' : 'scale-x-100'
-          }`}
-        >
+        <div className="relative w-full flex items-center justify-center">
           <img
             src={getAssetUrl(vehicle.customImageUrl)}
             alt={`${vehicle.name}に乗るこうにちゃん`}

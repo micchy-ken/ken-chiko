@@ -1015,7 +1015,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div>
             <label className="font-bold text-[#5C544D] block mb-1">
               こうにちゃんの登場設定
@@ -1063,11 +1063,31 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
               }}
               className="w-full text-xs font-bold px-3 py-1.5 rounded-xl border border-[#DDD7C8] bg-white text-[#3E3833] focus:outline-none focus:border-[#C8744E]"
             >
-              <option value="rtl">➡️ 右から左へ走行（固定・デフォルト推奨）</option>
+              <option value="rtl">➡️ 右から左へ走行（固定・原画の向き）</option>
               <option value="ltr">⬅️ 左から右へ走行</option>
             </select>
             <p className="text-[11px] text-[#7A6B63] mt-1">
-              ご指定の「右から左に固定」設定をデータベースに保存・保持します。
+              原画の向きのまま反転させずに右から左へ走行します。
+            </p>
+          </div>
+
+          <div>
+            <label className="font-bold text-[#5C544D] block mb-1">
+              オノマトペ（吹き出し文字）
+            </label>
+            <select
+              value={settings.showOnomatopoeia ? 'show' : 'hide'}
+              onChange={(e) => {
+                const val = e.target.value === 'show';
+                updateSettings((prev) => ({ ...prev, showOnomatopoeia: val }));
+              }}
+              className="w-full text-xs font-bold px-3 py-1.5 rounded-xl border border-[#DDD7C8] bg-white text-[#3E3833] focus:outline-none focus:border-[#C8744E]"
+            >
+              <option value="hide">🔕 消す・非表示（イラストを綺麗に見せる）</option>
+              <option value="show">💬 表示する（頭上に吹き出しを表示）</option>
+            </select>
+            <p className="text-[11px] text-[#7A6B63] mt-1">
+              「消す」にするとイラストが文字を踏まずすっきり走行します。
             </p>
           </div>
 

@@ -219,26 +219,28 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
         return next;
       });
 
-      // Spawn onomatopoeia bubbles rhythmically while cruising
-      bubbleTimerRef.current += dt;
-      const bubbleInterval = isDashing ? 0.22 : 0.85;
-      if (bubbleTimerRef.current >= bubbleInterval) {
-        bubbleTimerRef.current = 0;
-        const bubbleText = isDashing
-          ? activeVehicle.turboOnomatopoeia
-          : Math.random() > 0.4
-          ? activeVehicle.onomatopoeia
-          : activeVehicle.subOnomatopoeia || activeVehicle.onomatopoeia;
+      // Spawn onomatopoeia bubbles rhythmically while cruising (only when enabled)
+      if (settings?.showOnomatopoeia) {
+        bubbleTimerRef.current += dt;
+        const bubbleInterval = isDashing ? 0.22 : 0.85;
+        if (bubbleTimerRef.current >= bubbleInterval) {
+          bubbleTimerRef.current = 0;
+          const bubbleText = isDashing
+            ? activeVehicle.turboOnomatopoeia
+            : Math.random() > 0.4
+            ? activeVehicle.onomatopoeia
+            : activeVehicle.subOnomatopoeia || activeVehicle.onomatopoeia;
 
-        const newBubble: ActiveBubble = {
-          id: Date.now() + Math.random(),
-          text: bubbleText,
-          imgUrl: activeVehicle.customOnomatopoeiaImageUrl,
-          xPercent: progress + (direction === 'ltr' ? -8 : 8),
-          yPx: Math.random() * 16 - 8,
-        };
+          const newBubble: ActiveBubble = {
+            id: Date.now() + Math.random(),
+            text: bubbleText,
+            imgUrl: activeVehicle.customOnomatopoeiaImageUrl,
+            xPercent: progress + (direction === 'ltr' ? -12 : 12),
+            yPx: Math.random() * 12 - 6,
+          };
 
-        setBubbles((prev) => [...prev.slice(-4), newBubble]);
+          setBubbles((prev) => [...prev.slice(-4), newBubble]);
+        }
       }
 
       animFrameRef.current = requestAnimationFrame(updateFrame);
@@ -371,29 +373,30 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
         </div>
       )}
 
-      {/* 2. Floating Onomatopoeia bubbles */}
-      {bubbles.map((b) => (
-        <div
-          key={b.id}
-          style={{
-            left: `${b.xPercent}%`,
-            bottom: `${48 + b.yPx}px`,
-          }}
-          className="absolute z-20 pointer-events-none -translate-x-1/2 -translate-y-4 animate-floatFade text-center select-none"
-        >
-          {b.imgUrl ? (
-            <img
-              src={getAssetUrl(b.imgUrl)}
-              alt={b.text}
-              className="max-h-8 max-w-[100px] object-contain filter drop-shadow-sm"
-            />
-          ) : (
-            <div className="px-2.5 py-1 bg-[#FFFDF9]/95 border-1.5 border-[#3E3833] rounded-full shadow-sm text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap transform rotate-[-3deg]">
-              {b.text}
-            </div>
-          )}
-        </div>
-      ))}
+      {/* 2. Floating Onomatopoeia bubbles (only when enabled) */}
+      {settings?.showOnomatopoeia &&
+        bubbles.map((b) => (
+          <div
+            key={b.id}
+            style={{
+              left: `${b.xPercent}%`,
+              bottom: `${115 + b.yPx}px`,
+            }}
+            className="absolute z-20 pointer-events-none -translate-x-1/2 -translate-y-4 animate-floatFade text-center select-none"
+          >
+            {b.imgUrl ? (
+              <img
+                src={getAssetUrl(b.imgUrl)}
+                alt={b.text}
+                className="max-h-8 max-w-[100px] object-contain filter drop-shadow-sm"
+              />
+            ) : (
+              <div className="px-2.5 py-1 bg-[#FFFDF9]/95 border-1.5 border-[#3E3833] rounded-full shadow-sm text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap transform rotate-[-3deg]">
+                {b.text}
+              </div>
+            )}
+          </div>
+        ))}
 
       {/* 3. Kouni-chan on Vehicle Moving Across the Stage */}
       {isRunning && activeVehicle && (

@@ -39,7 +39,7 @@
         },
         "kounichan": {
           "type": "object",
-          "description": "Kounichan settings including master switch, running direction (rtl/ltr), frequency, vehicle configs, and appearance"
+          "description": "Kounichan settings including master switch, running direction (rtl/ltr), showOnomatopoeia flag, frequency, vehicle configs, and appearance"
         },
         "kihonNyanCustomImageUrl": {
           "type": "string",

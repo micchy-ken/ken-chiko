@@ -189,25 +189,27 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
         return next;
       });
 
-      // Spawn onomatopoeia bubbles
-      bubbleTimerRef.current += dt;
-      const interval = isDashing ? 0.25 : 0.8;
-      if (bubbleTimerRef.current >= interval) {
-        bubbleTimerRef.current = 0;
-        const text = isDashing
-          ? vehicle.turboOnomatopoeia
-          : Math.random() > 0.4
-          ? vehicle.onomatopoeia
-          : vehicle.subOnomatopoeia || vehicle.onomatopoeia;
+      // Spawn onomatopoeia bubbles (only when enabled)
+      if (settings?.showOnomatopoeia) {
+        bubbleTimerRef.current += dt;
+        const interval = isDashing ? 0.25 : 0.8;
+        if (bubbleTimerRef.current >= interval) {
+          bubbleTimerRef.current = 0;
+          const text = isDashing
+            ? vehicle.turboOnomatopoeia
+            : Math.random() > 0.4
+            ? vehicle.onomatopoeia
+            : vehicle.subOnomatopoeia || vehicle.onomatopoeia;
 
-        const newBubble: TestBubble = {
-          id: Date.now() + Math.random(),
-          text,
-          imgUrl: vehicle.customOnomatopoeiaImageUrl,
-          xPercent: progress + (direction === 'ltr' ? -6 : 6),
-          yPx: Math.random() * 12 - 6,
-        };
-        setBubbles((prev) => [...prev.slice(-3), newBubble]);
+          const newBubble: TestBubble = {
+            id: Date.now() + Math.random(),
+            text,
+            imgUrl: vehicle.customOnomatopoeiaImageUrl,
+            xPercent: progress + (direction === 'ltr' ? -10 : 10),
+            yPx: Math.random() * 12 - 6,
+          };
+          setBubbles((prev) => [...prev.slice(-3), newBubble]);
+        }
       }
 
       animRef.current = requestAnimationFrame(tick);
@@ -315,24 +317,26 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
         return next;
       });
 
-      overlayBubbleTimerRef.current += dt;
-      const interval = overlayDashing ? 0.22 : 0.75;
-      if (overlayBubbleTimerRef.current >= interval) {
-        overlayBubbleTimerRef.current = 0;
-        const text = overlayDashing
-          ? vehicle.turboOnomatopoeia
-          : Math.random() > 0.4
-          ? vehicle.onomatopoeia
-          : vehicle.subOnomatopoeia || vehicle.onomatopoeia;
+      if (settings?.showOnomatopoeia) {
+        overlayBubbleTimerRef.current += dt;
+        const interval = overlayDashing ? 0.22 : 0.75;
+        if (overlayBubbleTimerRef.current >= interval) {
+          overlayBubbleTimerRef.current = 0;
+          const text = overlayDashing
+            ? vehicle.turboOnomatopoeia
+            : Math.random() > 0.4
+            ? vehicle.onomatopoeia
+            : vehicle.subOnomatopoeia || vehicle.onomatopoeia;
 
-        const newBubble: TestBubble = {
-          id: Date.now() + Math.random(),
-          text,
-          imgUrl: vehicle.customOnomatopoeiaImageUrl,
-          xPercent: overlayProgress + 6,
-          yPx: Math.random() * 14 - 7,
-        };
-        setOverlayBubbles((prev) => [...prev.slice(-3), newBubble]);
+          const newBubble: TestBubble = {
+            id: Date.now() + Math.random(),
+            text,
+            imgUrl: vehicle.customOnomatopoeiaImageUrl,
+            xPercent: overlayProgress + 10,
+            yPx: Math.random() * 14 - 7,
+          };
+          setOverlayBubbles((prev) => [...prev.slice(-3), newBubble]);
+        }
       }
 
       overlayAnimRef.current = requestAnimationFrame(tickOverlay);
@@ -488,29 +492,30 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
           </div>
         )}
 
-        {/* Onomatopoeia Sound Effect Bubbles */}
-        {bubbles.map((b) => (
-          <div
-            key={b.id}
-            style={{
-              left: `${b.xPercent}%`,
-              bottom: `${58 + b.yPx}px`,
-            }}
-            className="absolute z-20 pointer-events-none -translate-x-1/2 animate-floatFade text-center"
-          >
-            {b.imgUrl ? (
-              <img
-                src={getAssetUrl(b.imgUrl)}
-                alt={b.text}
-                className="max-h-7 max-w-[90px] object-contain drop-shadow-sm"
-              />
-            ) : (
-              <div className="px-2.5 py-0.5 bg-white/95 border-1.5 border-[#2E2824] rounded-full shadow-sm text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap transform rotate-[-2deg]">
-                {b.text}
-              </div>
-            )}
-          </div>
-        ))}
+        {/* Onomatopoeia Sound Effect Bubbles (only when enabled) */}
+        {settings?.showOnomatopoeia &&
+          bubbles.map((b) => (
+            <div
+              key={b.id}
+              style={{
+                left: `${b.xPercent}%`,
+                bottom: `${115 + b.yPx}px`,
+              }}
+              className="absolute z-20 pointer-events-none -translate-x-1/2 animate-floatFade text-center"
+            >
+              {b.imgUrl ? (
+                <img
+                  src={getAssetUrl(b.imgUrl)}
+                  alt={b.text}
+                  className="max-h-7 max-w-[90px] object-contain drop-shadow-sm"
+                />
+              ) : (
+                <div className="px-2.5 py-0.5 bg-white/95 border-1.5 border-[#2E2824] rounded-full shadow-sm text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap transform rotate-[-2deg]">
+                  {b.text}
+                </div>
+              )}
+            </div>
+          ))}
 
         {/* Moving Kouni-chan Vehicle */}
         <div
@@ -691,26 +696,27 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
               </div>
             )}
 
-            {/* Overlay Bubbles */}
-            {overlayBubbles.map((b) => (
-              <div
-                key={b.id}
-                style={{ left: `${b.xPercent}%`, bottom: `${50 + b.yPx}px` }}
-                className="absolute z-20 pointer-events-none -translate-x-1/2 animate-floatFade text-center"
-              >
-                {b.imgUrl ? (
-                  <img
-                    src={getAssetUrl(b.imgUrl)}
-                    alt={b.text}
-                    className="max-h-8 max-w-[100px] object-contain drop-shadow-md"
-                  />
-                ) : (
-                  <div className="px-3 py-1 bg-white/95 border-2 border-[#2E2824] rounded-full shadow-md text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap">
-                    {b.text}
-                  </div>
-                )}
-              </div>
-            ))}
+            {/* Overlay Bubbles (only when enabled) */}
+            {settings?.showOnomatopoeia &&
+              overlayBubbles.map((b) => (
+                <div
+                  key={b.id}
+                  style={{ left: `${b.xPercent}%`, bottom: `${115 + b.yPx}px` }}
+                  className="absolute z-20 pointer-events-none -translate-x-1/2 animate-floatFade text-center"
+                >
+                  {b.imgUrl ? (
+                    <img
+                      src={getAssetUrl(b.imgUrl)}
+                      alt={b.text}
+                      className="max-h-8 max-w-[100px] object-contain drop-shadow-md"
+                    />
+                  ) : (
+                    <div className="px-3 py-1 bg-white/95 border-2 border-[#2E2824] rounded-full shadow-md text-xs font-black font-handwriting text-[#2E2824] whitespace-nowrap">
+                      {b.text}
+                    </div>
+                  )}
+                </div>
+              ))}
 
             {/* Overlay Vehicle */}
             <div
