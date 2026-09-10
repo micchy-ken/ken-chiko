@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { KenchikoState, NyanCharacter, GiftItem, LocationId } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { KenchikoFigure } from './KenchikoFigure';
@@ -6,6 +6,7 @@ import { KenchikoAvatar } from './KenchikoAvatar';
 import { NyanIllustration } from './NyanIllustration';
 import { LocationIllustration } from './LocationIllustration';
 import { TransitVehicleView } from './TransitVehicleView';
+import { splitDialogueIntoPages, getDialogueFontSizeClass } from '../utils/textPaging';
 import {
   MapPin,
   Clock,
@@ -16,6 +17,8 @@ import {
   Sparkles,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -56,6 +59,45 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
 }) => {
   const [pettingEffect, setPettingEffect] = useState(false);
   const petTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // RPG / Novel style monologue paging for mobile screens
+  const [monologuePage, setMonologuePage] = useState(0);
+
+  // Break monologue into 28-36 char pages suitable for smartphone speech bubbles
+  const monologuePages = useMemo(() => {
+    return splitDialogueIntoPages(kenchiko.monologue || '', 34);
+  }, [kenchiko.monologue]);
+
+  const isMultiPage = monologuePages.length > 1;
+  const hasNextPage = monologuePage < monologuePages.length - 1;
+  const hasPrevPage = monologuePage > 0;
+  const currentPageText = monologuePages[monologuePage] || kenchiko.monologue || '';
+  const fontSizeClass = getDialogueFontSizeClass(currentPageText.length);
+
+  // Reset page to 0 whenever monologue content updates
+  useEffect(() => {
+    setMonologuePage(0);
+  }, [kenchiko.monologue]);
+
+  const handleMonologueBoxClick = () => {
+    if (hasNextPage) {
+      setMonologuePage((prev) => prev + 1);
+    } else {
+      onManualMonologue();
+    }
+  };
+
+  const handlePrevPage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (hasPrevPage) {
+      setMonologuePage((prev) => prev - 1);
+    }
+  };
+
+  const handleRefreshMonologue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onManualMonologue();
+  };
 
   useEffect(() => {
     return () => {
@@ -189,31 +231,96 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           </svg>
         </div>
 
-        {/* Kenchiko Monologue Speech Bubble (Hand-drawn talk box) */}
+        {/* Kenchiko Monologue Speech Bubble (Hand-drawn talk box with RPG/Novel paging) */}
         <div className="relative z-20 w-full max-w-lg mb-2">
-          <button
-            onClick={onManualMonologue}
-            title="タップでけんちこのつぶやきを聞く"
-            className="w-full group bg-[#FFFDF9] sketch-card-subtle px-4 py-3 text-left transition hover:-translate-y-0.5 active:translate-y-0 flex items-start gap-3 relative z-20 shadow-xs"
+          <div
+            onClick={handleMonologueBoxClick}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleMonologueBoxClick();
+              }
+            }}
+            title={
+              hasNextPage
+                ? 'タップで続きを読む'
+                : 'タップでつぶやきを聞く / 次のお話へ'
+            }
+            className="w-full group bg-[#FFFDF9] sketch-card-subtle px-3.5 sm:px-4 py-2.5 sm:py-3 text-left transition hover:-translate-y-0.5 active:translate-y-0 flex items-start gap-3 relative z-20 shadow-xs cursor-pointer select-none"
           >
-            <div className="shrink-0 mt-0.5">
+            <div className="shrink-0 mt-0.5 relative">
               <KenchikoAvatar size={36} imageUrl={kenchiko.customImageUrl} />
+              {isMultiPage && (
+                <span
+                  title={`ページ ${monologuePage + 1} / ${monologuePages.length}`}
+                  className="absolute -bottom-1 -right-1 bg-[#487560] text-white text-[9px] font-bold px-1 py-0.2 rounded-full shadow-2xs font-mono"
+                >
+                  {monologuePage + 1}/{monologuePages.length}
+                </span>
+              )}
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between text-[11px] text-[#7A726A] font-bold mb-0.5 font-handwriting">
-                <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[280px]">
+                <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[200px] sm:max-w-[280px]">
                   <span className="w-2 h-2 rounded-full bg-[#487560] shrink-0" />
                   {kenchiko.currentActivityTitle || 'まったり中'}
                 </span>
-                <span className="text-[#487560] group-hover:underline flex items-center gap-1 shrink-0 ml-2">
+                <button
+                  type="button"
+                  onClick={handleRefreshMonologue}
+                  title="新しいたいくつぶやきに更新する"
+                  className="text-[#487560] hover:underline flex items-center gap-1 shrink-0 px-1 py-0.5 rounded hover:bg-[#FAF8F4] transition ml-2"
+                >
                   <Sparkles className="w-3 h-3" /> つぶやき更新
-                </span>
+                </button>
               </div>
-              <p className="text-sm font-bold text-[#2E2824] leading-snug font-handwriting">
-                「{kenchiko.monologue}」
-              </p>
+
+              {/* Dialogue Text Container */}
+              <div className="min-h-[38px] flex items-center">
+                <p
+                  key={`${kenchiko.monologue}_${monologuePage}`}
+                  className={`font-bold text-[#2E2824] leading-snug font-handwriting ${fontSizeClass} animate-fadeIn transition-opacity duration-150 line-clamp-2`}
+                >
+                  「{currentPageText}」
+                </p>
+              </div>
+
+              {/* RPG-style Paging / Next Prompt Indicator */}
+              {isMultiPage && (
+                <div className="mt-1 flex items-center justify-between pt-1 border-t border-[#F0EBE0] text-[10px] text-[#7A726A] font-handwriting">
+                  <div className="flex items-center gap-1">
+                    {hasPrevPage && (
+                      <button
+                        type="button"
+                        onClick={handlePrevPage}
+                        title="前のセリフに戻る"
+                        className="text-[#5C544D] hover:text-[#2E2824] flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#F4EFE6] hover:bg-[#EAE5D9] transition font-bold"
+                      >
+                        <ChevronLeft className="w-2.5 h-2.5" /> 戻る
+                      </button>
+                    )}
+                    <span className="text-[#8C847B] text-[9px] font-mono font-bold">
+                      {monologuePage + 1} / {monologuePages.length}
+                    </span>
+                  </div>
+
+                  {hasNextPage ? (
+                    <div className="flex items-center gap-1 text-[#487560] font-bold animate-pulse">
+                      <span>タップで続き</span>
+                      <span className="text-[11px] animate-bounce">▼</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-[#8C847B] font-bold">
+                      <span>タップでつぎのお話</span>
+                      <span className="text-[10px]">💬</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </button>
+          </div>
         </div>
 
         {/* Scenic Location Postcard / Sketch Pin on Left Wall */}
@@ -339,14 +446,14 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
               {(companionNyan.dialogue || companionNyan.dialogueMeaning) ? (
                 <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3.5 py-2 shadow-sm text-center animate-fadeIn max-w-[230px] sm:max-w-[260px]">
                   {companionNyan.dialogue && (
-                    <p className="text-xs sm:text-sm font-bold text-[#2E2824] leading-snug font-handwriting">
+                    <p className="text-xs sm:text-sm font-bold text-[#2E2824] leading-snug font-handwriting break-words line-clamp-3">
                       {companionNyan.dialogue.startsWith('「') && companionNyan.dialogue.endsWith('」')
                         ? companionNyan.dialogue
                         : `「${companionNyan.dialogue}」`}
                     </p>
                   )}
                   {companionNyan.dialogueMeaning && (
-                    <p className="text-xs sm:text-[13px] text-[#3E3833] font-bold leading-snug font-handwriting mt-1 border-t border-[#EAE5D9] pt-1">
+                    <p className="text-xs sm:text-[13px] text-[#3E3833] font-bold leading-snug font-handwriting mt-1 border-t border-[#EAE5D9] pt-1 break-words line-clamp-3">
                       {companionNyan.dialogueMeaning}
                     </p>
                   )}
