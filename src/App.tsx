@@ -7,6 +7,8 @@ import {
   DiaryEntry,
   LocationId,
   TransportMethod,
+  DEFAULT_KOUNICHAN_SETTINGS,
+  KounichanSettings,
 } from './types';
 import { DEFAULT_INITIAL_STATE } from './services/storage';
 import {
@@ -606,6 +608,68 @@ export default function App() {
     if (toastMsg) {
       setRewardToastMessage(toastMsg);
     }
+  };
+
+  // Handle Kouni-chan Gift (10pt or Undiscovered Cat)
+  const handleClaimKounichanGift = (type: 'points' | 'cat', cat?: NyanCharacter) => {
+    setSaveData((prev) => {
+      let updatedRewards = prev.rewards;
+      let updatedCharacters = prev.characters;
+
+      if (type === 'points') {
+        const currentPts = prev.rewards?.points || 0;
+        const currentLife = prev.rewards?.lifetimePoints || 0;
+        updatedRewards = {
+          ...(prev.rewards || {
+            points: 0,
+            lifetimePoints: 0,
+            hasClaimedInitialBonus: true,
+            hasClaimedInitialDiscoveryBonus: true,
+            initialBonusAmount: 0,
+            readStoryIds: [],
+            tickets: [],
+            history: [],
+          }),
+          points: currentPts + 10,
+          lifetimePoints: currentLife + 10,
+        };
+        setRewardToastMessage('🛵 こうにちゃんからおこづかい（10pt）をもらいました！');
+      } else if (type === 'cat' && cat) {
+        updatedCharacters = prev.characters.map((c) =>
+          c.no === cat.no ? { ...c, isDiscovered: true, discoveredAt: Date.now() } : c
+        );
+        updatedRewards = addDiscoveryPoints(prev.rewards);
+        setRewardToastMessage(`🛵 こうにちゃんが新しいお友達【${cat.name}】を連れてきてくれました！`);
+      }
+
+      const nextData: GameSaveData = {
+        ...prev,
+        characters: updatedCharacters,
+        rewards: updatedRewards,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData);
+      return nextData;
+    });
+  };
+
+  // Handle Kouni-chan stats updates
+  const handleUpdateKounichanStats = (
+    updater: (prev: KounichanSettings['stats']) => KounichanSettings['stats']
+  ) => {
+    setSaveData((prev) => {
+      const curK = prev.kounichan || DEFAULT_KOUNICHAN_SETTINGS;
+      const updatedStats = updater(curK.stats);
+      const nextData: GameSaveData = {
+        ...prev,
+        kounichan: {
+          ...curK,
+          stats: updatedStats,
+        },
+      };
+      saveOnUserAction(nextData);
+      return nextData;
+    });
   };
 
   // Current Companion Nyan
@@ -1908,6 +1972,9 @@ export default function App() {
               characters={saveData.characters}
               remainingTimeSec={remainingTimeSec}
               timeSpeed={timeSpeed}
+              kounichanSettings={saveData.kounichan}
+              onClaimKounichanGift={handleClaimKounichanGift}
+              onUpdateKounichanStats={handleUpdateKounichanStats}
               onPet={handlePetKenchiko}
               onOpenOuenModal={() => setShowOuenModal(true)}
               onCheerMore={handleCheerMore}

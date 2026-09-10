@@ -110,8 +110,9 @@ import { getAssetUrl, handleImageError, ASSET_PATHS } from '../utils/assetPath';
 import { AdminUserManagement } from './AdminUserManagement';
 import { AdminOuenEditor } from './AdminOuenEditor';
 import { AdminStoryManager } from './AdminStoryManager';
+import { AdminKounichanEditor } from './kounichan/AdminKounichanEditor';
 
-export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'kounichan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase' | 'github' | 'csv';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -187,7 +188,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase', 'github', 'csv'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -1276,6 +1277,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>きほんのにゃんこ画像登録</span>
           </button>
 
+          {/* TAB: Kouni-chan & Vehicles (こうにちゃん＆のりもの設定) */}
+          <button
+            onClick={() => setActiveTab('kounichan')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+              activeTab === 'kounichan'
+                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+            }`}
+          >
+            <span className="text-sm">🛵</span>
+            <span>こうにちゃん＆乗り物設定 (6台)</span>
+          </button>
+
           {/* TAB 3: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
@@ -1812,6 +1826,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB: KOUNI-CHAN & VEHICLES (こうにちゃん＆乗り物設定) */}
+          {/* ========================================================= */}
+          {activeTab === 'kounichan' && (
+            <AdminKounichanEditor
+              saveData={saveData}
+              onUpdateSaveData={onUpdateSaveData}
+            />
           )}
 
           {/* ========================================================= */}

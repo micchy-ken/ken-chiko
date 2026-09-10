@@ -6,6 +6,8 @@ import { KenchikoAvatar } from './KenchikoAvatar';
 import { NyanIllustration } from './NyanIllustration';
 import { LocationIllustration } from './LocationIllustration';
 import { TransitVehicleView } from './TransitVehicleView';
+import { KounichanCrossStage } from './kounichan/KounichanCrossStage';
+import { KounichanSettings } from '../types/kounichan';
 import { splitDialogueIntoPages, getDialogueFontSizeClass } from '../utils/textPaging';
 import {
   MapPin,
@@ -28,6 +30,9 @@ interface KenchikoStageProps {
   characters?: NyanCharacter[];
   remainingTimeSec: number;
   timeSpeed: number;
+  kounichanSettings?: KounichanSettings;
+  onClaimKounichanGift?: (type: 'points' | 'cat', cat?: NyanCharacter) => void;
+  onUpdateKounichanStats?: (updater: (prev: KounichanSettings['stats']) => KounichanSettings['stats']) => void;
   onPet: () => void;
   onOpenOuenModal?: () => void;
   onCheerMore?: () => void;
@@ -46,6 +51,9 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   characters = [],
   remainingTimeSec,
   timeSpeed,
+  kounichanSettings,
+  onClaimKounichanGift,
+  onUpdateKounichanStats,
   onPet,
   onOpenOuenModal,
   onCheerMore,
@@ -479,6 +487,20 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             </div>
           )}
         </div>
+
+        {/* Kouni-chan on Vehicle Crossing the Stage (when no companion cat is present) */}
+        <KounichanCrossStage
+          settings={kounichanSettings}
+          isCompanionPresent={!!companionNyan}
+          isTransit={kenchiko.currentActivity === 'transit'}
+          undiscoveredCats={characters.filter((c) => !c.isDiscovered)}
+          onClaimGift={(type, cat) => {
+            if (onClaimKounichanGift) {
+              onClaimKounichanGift(type, cat);
+            }
+          }}
+          onUpdateStats={onUpdateKounichanStats}
+        />
 
         {/* Activity Progress Bar Bottom (Pencil Line Progress) */}
         <div className="relative z-10 w-full max-w-lg mt-2 bg-[#FFFDF9] text-[#2E2824] sketch-card-subtle px-4 py-2.5">

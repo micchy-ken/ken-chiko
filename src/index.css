@@ -56,3 +56,41 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #ADA390;
 }
+
+@keyframes floatFade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -4px) scale(1.05);
+  }
+  80% {
+    opacity: 0.95;
+    transform: translate(-50%, -12px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -24px) scale(0.95);
+  }
+}
+
+.animate-floatFade {
+  animation: floatFade 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scaleUp {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

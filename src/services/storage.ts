@@ -1,4 +1,4 @@
-import { GameSaveData } from '../types';
+import { GameSaveData, DEFAULT_KOUNICHAN_SETTINGS } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -47,6 +47,7 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     tickets: [],
     history: [],
   },
+  kounichan: DEFAULT_KOUNICHAN_SETTINGS,
   lastSaved: Date.now(),
   githubRepo: 'ken-chiko',
   autoSyncGithub: true,

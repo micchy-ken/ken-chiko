@@ -202,9 +202,11 @@ export interface GameSaveData {
     totalTrips: number;
   };
   rewards?: import('./rewards').UserRewardState; // ポイント・引換券・福引状態
+  kounichan?: import('./kounichan').KounichanSettings; // こうにちゃん・乗り物設定
   lastSaved: number;
   githubRepo: string;
   autoSyncGithub: boolean;
 }
 
 export * from './rewards';
+export * from './kounichan';
