@@ -43,6 +43,7 @@ import {
   fetchUnmappedStoryFull,
   assignUnmappedStoryToNyan,
   saveStoriesMetaDoc,
+  saveStoriesToUnmappedArchive,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
 
@@ -462,6 +463,41 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       setStatusMessage({
         type: 'error',
         text: `アップロード失敗: ${err?.message || '不明なエラー'}`,
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Handle batch saving directly to unmapped stories archive
+  const handleSaveBatchToUnmapped = async () => {
+    if (!parsedPreview || !parsedPreview.valid || parsedPreview.stories.length === 0) return;
+    setIsUploading(true);
+    setStatusMessage(null);
+    try {
+      const res = await saveStoriesToUnmappedArchive(parsedPreview.stories);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `📦 ${res.count} 件の物語を「未紐付け物語保管庫」に保存しました！`,
+        });
+        setJsonInput('');
+        setParsedPreview(null);
+        // Refresh unmapped list
+        const unmappedRes = await fetchUnmappedStoriesArchive();
+        if (unmappedRes.success) {
+          setUnmappedList(unmappedRes.stories);
+        }
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: `エラー: ${res.error || '未紐づけ保管庫への保存に失敗しました'}`,
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: `保存中にエラーが発生しました: ${err?.message || err}`,
       });
     } finally {
       setIsUploading(false);
@@ -1107,18 +1143,30 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
               </div>
 
               {parsedPreview.valid && (
-                <button
-                  onClick={handleUploadBatch}
-                  disabled={isUploading}
-                  className="px-4 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl font-bold shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 shrink-0 active:scale-95 cursor-pointer"
-                >
-                  <UploadCloud className={`w-4 h-4 ${isUploading ? 'animate-bounce' : ''}`} />
-                  <span>
-                    {isUploading
-                      ? 'Firestoreへアップロード中...'
-                      : `${parsedPreview.stories.length}件をFirestoreに登録・反映`}
-                  </span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleSaveBatchToUnmapped}
+                    disabled={isUploading}
+                    className="px-3.5 py-2 bg-[#8C5A3E] hover:bg-[#784A30] text-white rounded-xl font-bold shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-xs"
+                    title="図鑑に紐づけず、後から自由に割り振れる未紐づけ保管庫に格納します"
+                  >
+                    <Archive className="w-4 h-4" />
+                    <span>未紐づけ保管庫に投入</span>
+                  </button>
+
+                  <button
+                    onClick={handleUploadBatch}
+                    disabled={isUploading}
+                    className="px-4 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl font-bold shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2 shrink-0 active:scale-95 cursor-pointer text-xs"
+                  >
+                    <UploadCloud className={`w-4 h-4 ${isUploading ? 'animate-bounce' : ''}`} />
+                    <span>
+                      {isUploading
+                        ? 'Firestoreへアップロード中...'
+                        : `${parsedPreview.stories.length}件を図鑑に登録・反映`}
+                    </span>
+                  </button>
+                </div>
               )}
             </div>
           )}

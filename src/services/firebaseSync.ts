@@ -1627,6 +1627,9 @@ export async function saveGlobalAsobiList(
 
     return { success: true, count: cleanList.length };
   } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
+      markQuotaExhausted();
+    }
     console.error('Failed to save global asobiList:', err);
     return { success: false, error: err?.message || String(err) };
   }
@@ -1678,6 +1681,9 @@ export async function saveGlobalOuenList(
 
     return { success: true, count: ouenList.length };
   } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
+      markQuotaExhausted();
+    }
     console.error('Failed to save global ouenList:', err);
     return { success: false, error: err?.message || String(err) };
   }
@@ -1740,6 +1746,9 @@ export async function saveGlobalKounichanSettings(
 
     return { success: true };
   } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
+      markQuotaExhausted();
+    }
     console.error('Failed to save global kounichan settings:', err);
     return { success: false, error: err?.message || String(err) };
   }

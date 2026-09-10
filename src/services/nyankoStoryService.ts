@@ -145,9 +145,10 @@ export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoSt
 /**
  * Parse input string or object into a verified list of NyankoStory objects.
  * Supports:
- * 1. Keyed object format: { "かがみもちにゃん": { id: 1, ... } }
- * 2. Array format: [ { id: 1, ... }, ... ]
- * 3. Single object format: { id: 1, ... }
+ * 1. Keyed object format: { "ほむらにゃん": { character_id: 176, ... } }
+ * 2. Array format: [ { character_id: 176, ... }, ... ]
+ * 3. Single object format: { character_name: "...", ... }
+ * 4. Multi-object text format: { "ほむらにゃん": {...} }, { "まどかにゃん": {...} }
  */
 export function parseStoryInputJson(input: string | any): {
   valid: boolean;
@@ -161,7 +162,16 @@ export function parseStoryInputJson(input: string | any): {
       if (!trimmed) {
         return { valid: false, stories: [], error: 'JSONデータが入力されていません' };
       }
-      parsed = JSON.parse(trimmed);
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (firstErr) {
+        // Try wrapping comma-separated objects in array brackets: [ { ... }, { ... } ]
+        try {
+          parsed = JSON.parse(`[${trimmed.replace(/,\s*$/, '')}]`);
+        } catch {
+          throw firstErr;
+        }
+      }
     }
 
     if (!parsed || typeof parsed !== 'object') {
@@ -170,36 +180,55 @@ export function parseStoryInputJson(input: string | any): {
 
     const result: NyankoStory[] = [];
 
+    const processObject = (obj: any, fallbackName?: string) => {
+      if (!obj || typeof obj !== 'object') return;
+
+      // If it's a wrapper with nyan name as key: { "ほむらにゃん": { character_id: 176, ... } }
+      const keys = Object.keys(obj);
+      const isInnerStoryObject =
+        obj.id !== undefined ||
+        obj.no !== undefined ||
+        obj.character_id !== undefined ||
+        obj.name !== undefined ||
+        obj.character_name !== undefined ||
+        obj.week_info !== undefined ||
+        obj.week_period !== undefined ||
+        obj.weekly_dialogue_records !== undefined;
+
+      if (isInnerStoryObject) {
+        const itemWithFallback = {
+          ...obj,
+          name: obj.name || obj.character_name || fallbackName || '',
+        };
+        const validItem = normalizeStoryItem(itemWithFallback);
+        if (validItem) result.push(validItem);
+      } else {
+        for (const [key, val] of Object.entries(obj)) {
+          if (val && typeof val === 'object') {
+            const itemWithFallback = {
+              ...(val as any),
+              name: (val as any).name || (val as any).character_name || key,
+            };
+            const validItem = normalizeStoryItem(itemWithFallback);
+            if (validItem) result.push(validItem);
+          }
+        }
+      }
+    };
+
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
-        if (item && typeof item === 'object') {
-          const validItem = normalizeStoryItem(item);
-          if (validItem) result.push(validItem);
-        }
+        processObject(item);
       }
-    } else if (parsed.id !== undefined && parsed.name) {
-      // Single story object
-      const validItem = normalizeStoryItem(parsed);
-      if (validItem) result.push(validItem);
     } else {
-      // Keyed dictionary: { "名前": { id: 1, ... } }
-      for (const [key, val] of Object.entries(parsed)) {
-        if (val && typeof val === 'object') {
-          const itemWithFallback = {
-            ...(val as any),
-            name: (val as any).name || key,
-          };
-          const validItem = normalizeStoryItem(itemWithFallback);
-          if (validItem) result.push(validItem);
-        }
-      }
+      processObject(parsed);
     }
 
     if (result.length === 0) {
       return {
         valid: false,
         stories: [],
-        error: '有効な物語データ（idとnameを含むデータ）が見つかりませんでした',
+        error: '有効な物語データ（名前やセリフデータを含むデータ）が見つかりませんでした',
       };
     }
 
@@ -216,12 +245,12 @@ export function parseStoryInputJson(input: string | any): {
 }
 
 /**
- * Helper to normalize and validate a single story item
+ * Helper to normalize and validate a single story item across multiple schema formats.
  */
 function normalizeStoryItem(raw: any): NyankoStory | null {
-  const rawId = raw.id ?? raw.no;
+  const rawId = raw.id ?? raw.no ?? raw.character_id ?? raw.oldId;
   const numId = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10);
-  if (isNaN(numId) || numId <= 0) return null;
+  const finalId = !isNaN(numId) && numId > 0 ? numId : 9999;
 
   const name = String(raw.name || raw.character_name || '').trim();
   if (!name) return null;
@@ -230,31 +259,50 @@ function normalizeStoryItem(raw: any): NyankoStory | null {
     ? raw.week_info.days
     : Array.isArray(raw.days)
     ? raw.days
+    : Array.isArray(raw.weekly_dialogue_records)
+    ? raw.weekly_dialogue_records
     : [];
 
+  const weekTitle =
+    raw.week_info?.week_title ||
+    raw.week_title ||
+    raw.week_period?.title ||
+    raw.title ||
+    '';
+  const weekStart =
+    raw.week_info?.week_start ||
+    raw.week_start ||
+    raw.week_period?.start_date ||
+    '';
+  const weekEnd =
+    raw.week_info?.week_end ||
+    raw.week_end ||
+    raw.week_period?.end_date ||
+    '';
+
   return {
-    id: numId,
+    id: finalId,
     name,
     kana: raw.kana || undefined,
     motif: raw.motif || undefined,
     debut_date: raw.debut_date || undefined,
-    voice: raw.voice || undefined,
-    translation: raw.translation || undefined,
+    voice: raw.voice || raw.representative_cat_speech || undefined,
+    translation: raw.translation || raw.representative_translation || undefined,
     episode_summary: raw.episode_summary || raw.summary || undefined,
-    prompt_ja: raw.prompt_ja || undefined,
-    prompt_en: raw.prompt_en || undefined,
+    prompt_ja: raw.prompt_ja || raw.image_prompt_ja || undefined,
+    prompt_en: raw.prompt_en || raw.image_prompt_en || undefined,
     doc_link: raw.doc_link || undefined,
     week_info: {
-      week_title: raw.week_info?.week_title || raw.week_title || '',
-      week_start: raw.week_info?.week_start || raw.week_start || '',
-      week_end: raw.week_info?.week_end || raw.week_end || '',
+      week_title: weekTitle,
+      week_start: weekStart,
+      week_end: weekEnd,
       days: days.map((d: any) => ({
         date_header: String(d.date_header || d.date || ''),
         messages: Array.isArray(d.messages)
           ? d.messages.map((m: any) => ({
               time: String(m.time || ''),
               sender: String(m.sender || ''),
-              body: String(m.body || ''),
+              body: String(m.body || m.content || ''),
             }))
           : [],
       })),
@@ -773,5 +821,51 @@ export async function assignUnmappedStoryToNyan(
     return { success: false, error: err?.message || '割り付け登録に失敗しました' };
   }
 }
+
+/**
+ * Saves one or multiple stories directly into the unmapped archive (`nyanko_stories_unmapped`).
+ */
+export async function saveStoriesToUnmappedArchive(
+  stories: (NyankoStory | any)[]
+): Promise<{ success: boolean; count: number; savedIds: string[]; error?: string }> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) {
+      return { success: false, count: 0, savedIds: [], error: 'Firebaseデータベースに接続できません' };
+    }
+
+    const savedIds: string[] = [];
+    const batch = writeBatch(db);
+
+    for (let i = 0; i < stories.length; i++) {
+      const story = stories[i];
+      const validItem = normalizeStoryItem(story);
+      if (!validItem) continue;
+
+      const docId = String(story.oldId || (story.id && story.id !== 9999 ? story.id : `unmapped_${story.name || i}_${Date.now()}`));
+      const docRef = doc(db, 'nyanko_stories_unmapped', docId);
+
+      const payload = {
+        ...validItem,
+        oldDocId: docId,
+        archivedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      batch.set(docRef, payload);
+      savedIds.push(docId);
+    }
+
+    if (savedIds.length > 0) {
+      await batch.commit();
+    }
+
+    return { success: true, count: savedIds.length, savedIds };
+  } catch (err: any) {
+    console.error('Failed to save to unmapped archive batch:', err);
+    return { success: false, count: 0, savedIds: [], error: err?.message || '未紐づけ保管庫への一括投入に失敗しました' };
+  }
+}
+
 
 
