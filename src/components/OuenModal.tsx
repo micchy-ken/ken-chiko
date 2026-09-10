@@ -1,3 +1,6 @@
+/**
+ * OuenModal: Modal dialog for choosing a mood category when asking Kenchiko for cheer and encouragement.
+ */
 import React from 'react';
 import { OuenCategory, KenchikoState } from '../types';
 import { KenchikoAvatar } from './KenchikoAvatar';

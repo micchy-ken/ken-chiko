@@ -1,3 +1,7 @@
+/**
+ * AdminOuenEditor: Management console for Kenchiko's cheering messages and categories.
+ * Allows editing, testing, resetting, and synchronizing with global Firestore.
+ */
 import React, { useState, useMemo } from 'react';
 import { OuenCategory, OuenItem, GameSaveData } from '../types';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';

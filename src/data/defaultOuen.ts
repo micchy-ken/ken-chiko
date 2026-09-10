@@ -1,3 +1,7 @@
+/**
+ * Initial cheer categories and messages for Kenchiko.
+ * Provides mood categories and warm cheering responses.
+ */
 import { OuenCategory, OuenItem } from '../types';
 
 export const INITIAL_OUEN_CATEGORIES: OuenCategory[] = [
@@ -14,3 +18,4 @@ export const INITIAL_OUEN_LIST: OuenItem[] = [
     createdAt: 1741334400000,
   },
 ];
+

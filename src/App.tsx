@@ -1,3 +1,7 @@
+/**
+ * App: Main application container for Kenchiko World.
+ * Integrates Kenchiko stage observation, zukan, diary, rewards, ouen cheering modal, and administrative sync.
+ */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   GameSaveData,

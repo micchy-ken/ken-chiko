@@ -1,3 +1,6 @@
+/**
+ * Shared TypeScript type definitions for Kenchiko World.
+ */
 export type TransportMethod = 'walk' | 'bicycle' | 'car' | 'jinbei_nyan' | 'train';
 
 export type LocationId =

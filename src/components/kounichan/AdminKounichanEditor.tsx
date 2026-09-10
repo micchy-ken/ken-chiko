@@ -1,3 +1,7 @@
+/**
+ * AdminKounichanEditor: Administrative editor for Kounichan crossing character and vehicle settings.
+ * Supports image uploads, automatic pencil-line preservation transparency, and global Firestore sync.
+ */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   KounichanSettings,

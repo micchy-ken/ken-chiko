@@ -1,3 +1,7 @@
+/**
+ * firebaseSync: Cloud Firestore synchronization service for Kenchiko World.
+ * Manages user-specific save slots and the global shared master document for asobi, ouen, and kounichan configurations.
+ */
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import {
   initializeFirestore,

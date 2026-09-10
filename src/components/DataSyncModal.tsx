@@ -1,3 +1,7 @@
+/**
+ * DataSyncModal: Master administration and synchronization center for Kenchiko World.
+ * Coordinates Google Docs/Sheets import, Google Drive folder sync, Asobi master, Ouen messages, Kounichan, and Firebase cloud backup.
+ */
 import React, { useState, useEffect } from 'react';
 import {
   NyanCharacter,
