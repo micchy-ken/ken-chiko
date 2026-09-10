@@ -86,6 +86,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   // Official Master Publisher State
   const [masterMeta, setMasterMeta] = useState<KenchikoMasterMeta | null>(null);
   const [isPublishingMaster, setIsPublishingMaster] = useState(false);
+  const [isSavingCharacter, setIsSavingCharacter] = useState(false);
   const [publishStatus, setPublishStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -224,12 +225,12 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         feather: 2,
         trimPadding: trimPadding,
       };
-      const processed = await compressAndResizeImage(file, 600, 600, 0.92, opts);
+      const processed = await compressAndResizeImage(file, 280, 280, 0.9, opts);
       setFormCustomImageUrl(processed);
       setFormRawImageUrl(processed);
       setFormUrlInput(processed);
       setIsProcessingImage(false);
-      setFormNotice('✨ 画像をセットしました。「保存してFirebaseに反映」を押して完了してください。');
+      setFormNotice('✨ 画像をセットしました。「保存してFirebaseに反映」を押して全環境に即時同期してください。');
     } catch (err: any) {
       setIsProcessingImage(false);
       setFormNotice(`❌ 画像の処理に失敗しました: ${err.message}`);
@@ -254,7 +255,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
           feather: 2,
           trimPadding: trimPadding,
         };
-        const processed = await compressAndResizeImage(normalized, 600, 600, 0.92, opts);
+        const processed = await compressAndResizeImage(normalized, 280, 280, 0.9, opts);
         setFormCustomImageUrl(processed);
         setIsProcessingImage(false);
         setFormNotice('🔗 画像URLを読み込み、透過処理を適用しました！');
@@ -294,7 +295,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         feather: 2,
         trimPadding: trimPadding,
       };
-      const processed = await compressAndResizeImage(source, 600, 600, 0.92, opts);
+      const processed = await compressAndResizeImage(source, 280, 280, 0.9, opts);
       setFormCustomImageUrl(processed);
       setIsProcessingImage(false);
       setFormNotice('✨ 背景透過設定（しきい値: ' + transparencyTolerance + '）を再適用しました！');
@@ -309,21 +310,23 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormCustomImageUrl('');
     setFormRawImageUrl('');
     setFormUrlInput('');
-    setFormNotice('🖌️ デフォルトイラストに戻しました。');
+    setFormNotice('🖌️ デフォルトイラストに戻しました。「保存してFirebaseに反映」を押すとFirestoreマスターからも旧画像が完全に解除されます。');
   };
 
   // Save Character Changes
-  const handleSaveCharacter = () => {
+  const handleSaveCharacter = async () => {
     if (!formName.trim()) {
       setFormNotice('⚠️ にゃんこの名前を入力してください。');
       return;
     }
 
-    const transparencyConfig: NyanTransparencyOptions = {
-      enableTransparency: autoTransparent,
-      tolerance: transparencyTolerance,
-      trimPadding: trimPadding,
-    };
+    const transparencyConfig: NyanTransparencyOptions | undefined = autoTransparent
+      ? {
+          enableTransparency: true,
+          tolerance: transparencyTolerance,
+          trimPadding: trimPadding,
+        }
+      : undefined;
 
     const nyanData: NyanCharacter = {
       no: formNo,
@@ -353,20 +356,43 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       } else {
         updatedCharacters = [...characters, nyanData].sort((a, b) => a.no - b.no);
       }
-      setNotice(`🎉 新しいにゃんこ「No.${formNo} ${formName}」を追加・保存しました！`);
     } else {
       updatedCharacters = characters.map((c) => (c.no === formNo ? nyanData : c));
-      setNotice(`✅ 「No.${formNo} ${formName}」の図鑑情報と画像を更新・保存しました！`);
     }
 
-    onUpdateSaveData((prev) => ({
-      ...prev,
-      characters: updatedCharacters,
-      lastSaved: Date.now(),
-    }), true);
+    setIsSavingCharacter(true);
+    setFormNotice('☁️ Firestoreマスターと端末データを同期中...');
 
-    handleCloseModal();
-    confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+    try {
+      // 1. Update save data
+      onUpdateSaveData((prev) => ({
+        ...prev,
+        characters: updatedCharacters,
+        lastSaved: Date.now(),
+      }), true);
+
+      // 2. Publish to official Firestore master so ALL environments and users receive it immediately!
+      const pubRes = await publishMasterData(
+        updatedCharacters,
+        `No.${formNo} ${formName} ${formCustomImageUrl ? '画像・情報更新' : 'デフォルト画像へ復帰'}`
+      );
+
+      if (pubRes.success) {
+        setNotice(`🎉 「No.${formNo} ${formName}」の保存と公式マスター（Firestore v${pubRes.version}）への配信が完了しました！他環境でも即時反映されます。`);
+        fetchMasterMeta().then(setMasterMeta).catch(() => {});
+      } else {
+        setNotice(`✅ 「No.${formNo} ${formName}」をローカルに保存しました（※マスター更新: ${pubRes.error || '保留'}）`);
+      }
+
+      handleCloseModal();
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+    } catch (err: any) {
+      console.error('Failed to save character:', err);
+      setNotice(`⚠️ 保存中に注意: ${err?.message || String(err)}`);
+      handleCloseModal();
+    } finally {
+      setIsSavingCharacter(false);
+    }
   };
 
   // Google Drive Folder Bulk Sync
@@ -406,8 +432,18 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             lastSaved: Date.now(),
           }), true);
 
+          // Auto-publish to Firestore master so all devices get the synced images
+          publishMasterData(
+            result.updatedNyans,
+            `Google Drive一括画像同期 (${result.matchedCount}体)`
+          ).then((pub) => {
+            if (pub.success) {
+              fetchMasterMeta().then(setMasterMeta).catch(() => {});
+            }
+          }).catch(() => {});
+
           setDriveSyncStatus(
-            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込み・透過反映しました！`
+            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込み・公式マスターへ反映しました！`
           );
           setNotice(`🎉 Google Driveから ${result.matchedCount} 体のにゃんこ画像を同期・保存しました！`);
           confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
@@ -1490,10 +1526,15 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                 </button>
                 <button
                   onClick={handleSaveCharacter}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95"
+                  disabled={isSavingCharacter}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] disabled:bg-[#C8744E]/60 text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 disabled:cursor-not-allowed"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>保存してFirebaseに反映</span>
+                  {isSavingCharacter ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  <span>{isSavingCharacter ? '同期中...' : '保存してFirebaseに反映'}</span>
                 </button>
               </div>
             </div>

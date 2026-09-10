@@ -146,14 +146,11 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
         if (char.rawImageUrl) entry.rawImageUrl = char.rawImageUrl;
         if (char.transparency) entry.transparency = char.transparency;
 
-        // Size optimization: Protect against Firestore 1MB single-doc limit.
-        // If rawImageUrl is present (e.g. Google Drive/external URL), we don't need to persist a 400KB base64 duplicate.
-        // If it is a standalone custom image, allow it only if reasonable in size (< 40KB).
+        // Custom image persistence:
+        // Allow external URLs (Google Drive / web) or compact data URLs (<= 60KB)
         if (char.customImageUrl) {
-          const isLargeDataUrl = char.customImageUrl.startsWith('data:image') && char.customImageUrl.length > 40000;
-          if (!char.rawImageUrl && !isLargeDataUrl) {
-            entry.customImageUrl = char.customImageUrl;
-          } else if (char.rawImageUrl && !isLargeDataUrl && !char.customImageUrl.startsWith('data:image')) {
+          const isTooLarge = char.customImageUrl.startsWith('data:image') && char.customImageUrl.length > 65000;
+          if (!isTooLarge) {
             entry.customImageUrl = char.customImageUrl;
           }
         }
@@ -339,8 +336,8 @@ export function reconstructGameSaveData(
           lastMetAt: prog.lastMetAt || base.lastMetAt,
           friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
           playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,
-          customImageUrl: prog.customImageUrl || (prog.rawImageUrl ? prog.rawImageUrl : base.customImageUrl),
-          rawImageUrl: prog.rawImageUrl || base.rawImageUrl,
+          customImageUrl: prog.customImageUrl !== undefined ? (prog.customImageUrl || undefined) : (prog.rawImageUrl ? prog.rawImageUrl : base.customImageUrl),
+          rawImageUrl: prog.rawImageUrl !== undefined ? (prog.rawImageUrl || undefined) : base.rawImageUrl,
           transparency: prog.transparency || base.transparency,
         });
       }
@@ -1339,6 +1336,17 @@ export async function executeFirestoreWrite(
   saveLocalBackup(data);
 
   const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
+  const dailyStats = getDailyWriteStats();
+
+  // Absolute hard emergency ceiling for ANY session (including admin) to prevent 20,000 quota exhaustion
+  const ABSOLUTE_DAILY_EMERGENCY_LIMIT = 500;
+  if (dailyStats.count >= ABSOLUTE_DAILY_EMERGENCY_LIMIT) {
+    console.warn(`[CloudSync] 🛑 1日の緊急安全上限(${ABSOLUTE_DAILY_EMERGENCY_LIMIT}回)に達したためローカル保存に固定`);
+    return {
+      success: true,
+      error: `Firestore無料枠保護のため、本日の安全書き込み上限（${ABSOLUTE_DAILY_EMERGENCY_LIMIT}回）で停止し、ローカル保存で安全に継続しています。`,
+    };
+  }
 
   // 1. Check quota exhaustion (skip if manual save or admin)
   if (!forceManual && !isAdmin && getIsQuotaExhausted()) {
@@ -1352,7 +1360,6 @@ export async function executeFirestoreWrite(
   }
 
   // 3. Strict daily write budget (Skip if manual save, admin session, or daily limit disabled)
-  const dailyStats = getDailyWriteStats();
   if (!forceManual && !isAdmin && dailyStats.count >= MAX_DAILY_WRITES) {
     console.warn(`[CloudSync] ⚠️ 本日の安全書き込み上限(${MAX_DAILY_WRITES}回)に達したためローカル保存に切り替え`);
     return {
@@ -1365,17 +1372,18 @@ export async function executeFirestoreWrite(
   const compactProgressDoc = extractUserProgress(data);
   const currentMeaningfulHash = getMeaningfulUserProgressHash(compactProgressDoc);
 
-  // Skip write completely if meaningful game progress has not changed (unless forced manual or admin)
-  if (!forceManual && !isAdmin && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
+  // Skip write completely if meaningful game progress has not changed (ALWAYS check this, even for admin, unless forceManual)
+  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
     console.log('[CloudSync] ⏭️ クラウド書き込みスキップ: 有意な進行度（新発見・アイテム等）の変化なし（Firestore通信: 0回）');
     return { success: true };
   }
 
   const now = Date.now();
-  // 4. Enforce strict rate-limit throttle: Minimum 120s between routine non-manual writes (skip for admin / manual)
-  if (!forceManual && !isAdmin && now - lastSuccessfulWriteTime < MIN_AUTO_SYNC_INTERVAL_MS) {
-    const waitSec = Math.round((MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime)) / 1000);
-    console.log(`[CloudSync] ⏳ スロットル待機中: 最低120秒間隔のため待機 (${waitSec}秒後に保留分を書き込み)`);
+  // 4. Enforce rate-limit throttle: Minimum 120s for auto-sync, 2.5s for admin/immediate writes
+  const minInterval = isAdmin ? 2500 : MIN_AUTO_SYNC_INTERVAL_MS;
+  if (!forceManual && now - lastSuccessfulWriteTime < minInterval) {
+    const waitSec = Math.round((minInterval - (now - lastSuccessfulWriteTime)) / 1000);
+    console.log(`[CloudSync] ⏳ スロットル待機中: 最低間隔のため待機 (${waitSec}秒後に保留分を書き込み)`);
     if (!pendingWriteTimeout) {
       latestPendingData = data;
       pendingWriteTimeout = setTimeout(() => {
@@ -1383,7 +1391,7 @@ export async function executeFirestoreWrite(
         if (latestPendingData) {
           executeFirestoreWrite(latestPendingData, config, false, isAdmin).catch(() => {});
         }
-      }, MIN_AUTO_SYNC_INTERVAL_MS - (now - lastSuccessfulWriteTime));
+      }, minInterval - (now - lastSuccessfulWriteTime));
     }
     return { success: true };
   }

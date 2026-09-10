@@ -263,10 +263,10 @@ export function mergeMasterWithCurrentProgress(
       lastMetAt: Math.max(cur.lastMetAt || 0, master.lastMetAt || 0),
       friendshipLevel: Math.max(cur.friendshipLevel || 0, master.friendshipLevel || 0, 1),
       playCount: Math.max(cur.playCount || 0, master.playCount || 0),
-      // User custom image override if set, otherwise use master image
-      customImageUrl: cur.customImageUrl || master.customImageUrl,
-      rawImageUrl: cur.rawImageUrl || master.rawImageUrl,
-      transparency: cur.transparency ?? master.transparency,
+      // Master image is authoritative for official character art; prevent resurrecting removed/reset images
+      customImageUrl: master.customImageUrl || undefined,
+      rawImageUrl: master.rawImageUrl || undefined,
+      transparency: master.transparency ?? cur.transparency,
     };
   });
 }

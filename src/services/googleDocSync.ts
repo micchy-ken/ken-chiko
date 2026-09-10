@@ -273,6 +273,17 @@ export function parseGvizAndMergeNyans(
         (importedImageUrl && importedImageUrl !== (existing.customImageUrl || ''));
 
       if (hasChanged) {
+        const isNameChanged = name && name !== existing.name;
+        const isPlaceholder = !name || name.includes('準備中') || name.includes('欠番');
+        let nextCustomImage = importedImageUrl ? importedImageUrl : existing.customImageUrl;
+        let nextRawImage = importedImageUrl ? importedImageUrl : existing.rawImageUrl;
+        
+        // If cat name was changed or marked as placeholder, and sheet has no new image URL, reset images
+        if ((isNameChanged || isPlaceholder) && !importedImageUrl) {
+          nextCustomImage = undefined;
+          nextRawImage = undefined;
+        }
+
         existingMap.set(no, {
           ...existing,
           name: name || existing.name,
@@ -284,7 +295,8 @@ export function parseGvizAndMergeNyans(
           promptEn: promptEn || existing.promptEn,
           dialogue: dialogue || existing.dialogue || undefined,
           dialogueMeaning: dialogueMeaning || existing.dialogueMeaning || undefined,
-          customImageUrl: importedImageUrl ? importedImageUrl : existing.customImageUrl,
+          customImageUrl: nextCustomImage,
+          rawImageUrl: nextRawImage,
         });
         updatedCount++;
       }
