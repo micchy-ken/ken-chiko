@@ -8,6 +8,7 @@ import {
 } from '../../types/kounichan';
 import { GameSaveData } from '../../types';
 import { KounichanVehicleIllustration } from './KounichanVehicleIllustration';
+import { AdminKounichanTestTrack } from './AdminKounichanTestTrack';
 import {
   processBackgroundTransparency,
   compressAndResizeImage,
@@ -69,6 +70,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
   const currentSingleTargetRef = useRef<KounichanVehicleId | null>(null);
+  const testTrackRef = useRef<HTMLDivElement | null>(null);
 
   // Helper to update settings
   const updateSettings = (updater: (prev: KounichanSettings) => KounichanSettings) => {
@@ -303,12 +305,85 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => handleTestRun()}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95"
+              onClick={() => {
+                testTrackRef.current?.scrollIntoView({ behavior: 'smooth' });
+                handleTestRun();
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>今すぐ走行テスト</span>
+              <span>テストコースで走らせる</span>
             </button>
+          </div>
+        </div>
+
+        {/* Master ON/OFF Toggle Bar (Prompt: 一度無効にして！管理画面の無効をオンにして！) */}
+        <div
+          className={`mt-3 p-3.5 rounded-2xl border transition-all shadow-xs ${
+            !settings.enabled
+              ? 'bg-[#FEF2F2] border-[#FCA5A5]'
+              : 'bg-[#F0FDF4] border-[#86EFAC]'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3">
+              <span
+                className={`w-3.5 h-3.5 mt-1 sm:mt-0 rounded-full shrink-0 ${
+                  !settings.enabled
+                    ? 'bg-red-500 ring-4 ring-red-200 animate-pulse'
+                    : 'bg-emerald-500 ring-4 ring-emerald-200'
+                }`}
+              />
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`text-sm font-black font-handwriting ${
+                      !settings.enabled ? 'text-red-700' : 'text-emerald-800'
+                    }`}
+                  >
+                    {!settings.enabled
+                      ? '🛑【現在：無効中】こうにちゃんはステージに自動出現しません'
+                      : '🟢【現在：有効中】ねこ不在時にこうにちゃんが横切ります'}
+                  </span>
+                  <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-gray-200 font-bold text-[#7A6B63]">
+                    トリプルタップ検証対応
+                  </span>
+                </div>
+                <p className="text-xs text-[#5C544D] mt-0.5 font-handwriting">
+                  {!settings.enabled
+                    ? '「無効」がオンになっています。ステージ画面を素早く3回タップ（トリプルタップ）すると検証時のみ呼び出せます。'
+                    : '通常設定です。ねこがいない時に設定された頻度でランダム走行します。'}
+                </p>
+              </div>
+            </div>
+
+            {/* Clear Radio-style Master Switch Buttons */}
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => updateSettings((prev) => ({ ...prev, enabled: false }))}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                  !settings.enabled
+                    ? 'bg-red-600 text-white shadow-sm ring-2 ring-red-400'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <span>🛑 無効にする（登場させない）</span>
+                {!settings.enabled && <span className="text-xs">✓ 適用中</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSettings((prev) => ({ ...prev, enabled: true }))}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                  settings.enabled
+                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
+                    : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <span>🟢 有効にする</span>
+                {settings.enabled && <span className="text-xs">✓ 適用中</span>}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -339,6 +414,41 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
             </span>
           </div>
         </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION: In-Admin Live Interactive Test Track Course                      */}
+      {/* ========================================================================= */}
+      <div ref={testTrackRef} className="scroll-mt-4">
+        <AdminKounichanTestTrack
+          settings={settings}
+          activeVehicleId={activeVehicleId}
+          onSelectVehicle={(id) => setActiveVehicleId(id)}
+          undiscoveredCats={saveData.characters.filter((c) => !c.discovered && !c.isDiscovered)}
+          onClaimGift={(type, cat) => {
+            if (type === 'cat' && cat) {
+              onUpdateSaveData((prev) => ({
+                ...prev,
+                characters: prev.characters.map((c) =>
+                  c.no === cat.no
+                    ? {
+                        ...c,
+                        discovered: true,
+                        isDiscovered: true,
+                        lastEncounterTime: Date.now(),
+                      }
+                    : c
+                ),
+              }), true);
+            }
+          }}
+          onUpdateStats={(updater) => {
+            updateSettings((prev) => ({
+              ...prev,
+              stats: updater(prev.stats),
+            }));
+          }}
+        />
       </div>
 
       {/* ========================================================================= */}
@@ -551,11 +661,14 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
                 <div className="flex items-center gap-2 mt-2">
                   <button
                     type="button"
-                    onClick={() => handleTestRun(activeVehicle.id)}
-                    className="px-3 py-1 bg-[#487560] hover:bg-[#3B624E] text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1 transition active:scale-95"
+                    onClick={() => {
+                      testTrackRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      handleTestRun(activeVehicle.id);
+                    }}
+                    className="px-3 py-1.5 bg-[#487560] hover:bg-[#3B624E] text-white text-xs font-bold rounded-lg shadow-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
                   >
                     <Play className="w-3 h-3 fill-current" />
-                    <span>この乗り物で走行テスト</span>
+                    <span>この乗り物をテストコースで走らせる</span>
                   </button>
                 </div>
 
@@ -789,30 +902,37 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div>
             <label className="font-bold text-[#5C544D] block mb-1">
-              こうにちゃんの登場
+              こうにちゃんの登場設定
             </label>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[#3E3833]">
                 <input
                   type="radio"
                   name="kouni_enabled"
-                  checked={settings.enabled}
-                  onChange={() => updateSettings((prev) => ({ ...prev, enabled: true }))}
-                  className="text-[#C8744E] focus:ring-[#C8744E]"
+                  checked={!settings.enabled}
+                  onChange={() => updateSettings((prev) => ({ ...prev, enabled: false }))}
+                  className="text-red-600 focus:ring-red-600"
                 />
-                <span>有効にする</span>
+                <span className={!settings.enabled ? 'text-red-700 font-black' : ''}>
+                  🛑 無効にする（登場させない）
+                </span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[#3E3833]">
                 <input
                   type="radio"
                   name="kouni_enabled"
-                  checked={!settings.enabled}
-                  onChange={() => updateSettings((prev) => ({ ...prev, enabled: false }))}
-                  className="text-[#C8744E] focus:ring-[#C8744E]"
+                  checked={settings.enabled}
+                  onChange={() => updateSettings((prev) => ({ ...prev, enabled: true }))}
+                  className="text-emerald-600 focus:ring-emerald-600"
                 />
-                <span>無効にする</span>
+                <span className={settings.enabled ? 'text-emerald-700 font-black' : ''}>
+                  🟢 有効にする
+                </span>
               </label>
             </div>
+            <p className="text-[11px] text-[#7A6B63] mt-1">
+              ※無効時でもステージ上のトリプルタップ（素早く3回タップ）で検証走行が可能です。
+            </p>
           </div>
 
           <div>

@@ -113,7 +113,7 @@ export const DEFAULT_KOUNICHAN_VEHICLES: Record<KounichanVehicleId, KounichanVeh
 };
 
 export const DEFAULT_KOUNICHAN_SETTINGS: KounichanSettings = {
-  enabled: true,
+  enabled: false, // Default to disabled as requested
   frequency: 'normal',
   vehicles: DEFAULT_KOUNICHAN_VEHICLES,
   stats: {

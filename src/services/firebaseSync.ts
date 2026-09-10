@@ -15,6 +15,7 @@ import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEn
 import { UserRewardState, RewardTicket, GaraponHistoryEntry } from '../types/rewards';
 import { createInitialRewardState } from './rewardService';
 import { DEFAULT_INITIAL_STATE } from './storage';
+import { DEFAULT_KOUNICHAN_SETTINGS } from '../types/kounichan';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
@@ -89,6 +90,7 @@ export interface UserProgressDoc {
     totalTrips: number;
   };
   rewards?: import('../types/rewards').UserRewardState;
+  kounichan?: import('../types/kounichan').KounichanSettings;
   lastSaved: number;
   updatedAt?: string;
 }
@@ -200,6 +202,7 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
       totalTrips: 0,
     },
     rewards: data.rewards ? removeUndefinedDeep(data.rewards) : undefined,
+    kounichan: data.kounichan ? removeUndefinedDeep(data.kounichan) : undefined,
     lastSaved: data.lastSaved || Date.now(),
   };
 
@@ -386,6 +389,7 @@ export function reconstructGameSaveData(
     googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,
     stats: remoteDoc.stats || DEFAULT_INITIAL_STATE.stats,
     rewards: remoteDoc.rewards || DEFAULT_INITIAL_STATE.rewards,
+    kounichan: remoteDoc.kounichan || DEFAULT_KOUNICHAN_SETTINGS,
     lastSaved: remoteDoc.lastSaved || Date.now(),
     githubRepo: remoteDoc.githubRepo || 'ken-chiko',
     autoSyncGithub: remoteDoc.autoSyncGithub ?? true,

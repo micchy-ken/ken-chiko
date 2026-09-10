@@ -54,6 +54,8 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
     cat?: NyanCharacter;
     points?: number;
   } | null>(null);
+  const [showSummonToast, setShowSummonToast] = useState<string | null>(null);
+  const tapHistoryRef = useRef<number[]>([]);
 
   const animFrameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
@@ -83,14 +85,18 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
 
   // Launch a crossing run
   const triggerCrossing = (forcedVehicleId?: KounichanVehicleId) => {
-    if (isRunning || enabledVehicles.length === 0) return;
+    if (isRunning) return;
 
     let selectedVehicle: KounichanVehicleConfig;
     if (forcedVehicleId && settings?.vehicles[forcedVehicleId]) {
       selectedVehicle = settings.vehicles[forcedVehicleId];
-    } else {
+    } else if (enabledVehicles.length > 0) {
       const idx = Math.floor(Math.random() * enabledVehicles.length);
       selectedVehicle = enabledVehicles[idx];
+    } else if (settings?.vehicles) {
+      selectedVehicle = (Object.values(settings.vehicles) as KounichanVehicleConfig[])[0];
+    } else {
+      return;
     }
 
     const dir: 'ltr' | 'rtl' = Math.random() > 0.5 ? 'ltr' : 'rtl';
@@ -120,6 +126,35 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
     window.addEventListener('kounichan:test_run' as any, handleTestEvent);
     return () => {
       window.removeEventListener('kounichan:test_run' as any, handleTestEvent);
+    };
+  }, [enabledVehicles, isRunning]);
+
+  // Triple-tap summon mode for verification:
+  // Tapping the screen 3 times quickly summons Kouni-chan on demand (even if disabled in settings)!
+  useEffect(() => {
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          'button, input, textarea, a, select, [role="button"], .modal-overlay, .modal-content, [data-prevent-kouni-tap]'
+        )
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      tapHistoryRef.current = [...tapHistoryRef.current.filter((t) => now - t < 700), now];
+      if (tapHistoryRef.current.length >= 3) {
+        tapHistoryRef.current = [];
+        triggerCrossing();
+        setShowSummonToast('🛵【検証モード】トリプルタップでこうにちゃんを呼び出しました！');
+        setTimeout(() => setShowSummonToast(null), 3500);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
     };
   }, [enabledVehicles, isRunning]);
 
@@ -307,7 +342,10 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
     setDroppedGift(null);
   };
 
-  if (!isEnabled) return null;
+  // Only hide when not enabled AND not running a test or showing gifts/modals
+  if (!isEnabled && !isRunning && !droppedGift && !giftResultModal && !showSummonToast) {
+    return null;
+  }
 
   return (
     <>
@@ -446,6 +484,14 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
               ありがとう！
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Verification Summon Toast Notification */}
+      {showSummonToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#2E2824]/95 text-[#FAF8F4] px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-[#C8744E] text-xs font-bold font-handwriting flex items-center gap-2 pointer-events-none animate-bounce">
+          <span className="text-base">🛵</span>
+          <span>{showSummonToast}</span>
         </div>
       )}
     </>

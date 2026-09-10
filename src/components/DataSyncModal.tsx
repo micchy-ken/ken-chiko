@@ -1287,7 +1287,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             }`}
           >
             <span className="text-sm">🛵</span>
-            <span>こうにちゃん＆乗り物設定 (6台)</span>
+            <span>こうにちゃん設定</span>
+            {!saveData.kounichan?.enabled ? (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-red-100 text-red-700 font-bold border border-red-300">
+                🛑 無効
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 font-bold border border-emerald-300">
+                🟢 有効
+              </span>
+            )}
           </button>
 
           {/* TAB 3: Events & Asobi Editor (全イベント編集) */}

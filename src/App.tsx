@@ -393,6 +393,20 @@ export default function App() {
           } else if (mergedData.kenchiko.customImageUrl) {
             saveLocalKenchikoImage(mergedData.kenchiko.customImageUrl);
           }
+
+          // Ensure Kounichan is set to disabled by default on this version
+          try {
+            if (typeof window !== 'undefined' && !localStorage.getItem('kounichan_default_disabled_v3')) {
+              localStorage.setItem('kounichan_default_disabled_v3', 'true');
+              if (mergedData.kounichan) {
+                mergedData.kounichan = {
+                  ...mergedData.kounichan,
+                  enabled: false,
+                };
+              }
+            }
+          } catch (_e) {}
+
           activeData = mergedData;
           setSaveData(mergedData);
           setIsFirebaseSynced(true);
