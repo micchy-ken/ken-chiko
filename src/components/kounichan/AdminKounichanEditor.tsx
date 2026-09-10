@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   KounichanSettings,
   KounichanVehicleConfig,
@@ -33,6 +33,11 @@ import {
   Clock,
   Layers,
   HelpCircle,
+  Crop,
+  Move,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { saveGlobalKounichanSettings } from '../../services/firebaseSync';
@@ -51,6 +56,23 @@ const VEHICLE_ORDER: KounichanVehicleId[] = [
   'aqua_yakkun',
 ];
 
+export interface CropBox {
+  x: number; // percentage (0..100)
+  y: number; // percentage (0..100)
+  width: number; // percentage (0..100)
+  height: number; // percentage (0..100)
+}
+
+// 6台のデフォルト初期切り抜き枠（横3台 × 縦2台）
+const DEFAULT_CROP_BOXES: Record<KounichanVehicleId, CropBox> = {
+  tricycle_turbo: { x: 1, y: 1, width: 31.33, height: 48 },
+  koyumi_2: { x: 34.33, y: 1, width: 31.33, height: 48 },
+  four_wheeler: { x: 67.66, y: 1, width: 31.34, height: 48 },
+  dendrobium: { x: 1, y: 51, width: 31.33, height: 48 },
+  space_trike: { x: 34.33, y: 51, width: 31.33, height: 48 },
+  aqua_yakkun: { x: 67.66, y: 51, width: 31.34, height: 48 },
+};
+
 export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   saveData,
   onUpdateSaveData,
@@ -62,7 +84,15 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   const [isProcessingSheet, setIsProcessingSheet] = useState(false);
   const [sheetStatus, setSheetStatus] = useState<string | null>(null);
 
-  // Sliced previews from sheet
+  // 6-in-1 Sheet raw image data URL (persisted in memory / settings)
+  const [sheetImageSource, setSheetImageSource] = useState<string | null>(
+    settings.customSheetUrl || null
+  );
+
+  // 1台ごとの切り抜き枠（パーセント座標 0〜100%）
+  const [cropBoxes, setCropBoxes] = useState<Record<KounichanVehicleId, CropBox>>(DEFAULT_CROP_BOXES);
+
+  // Sliced previews for each vehicle
   const [slicedPreviews, setSlicedPreviews] = useState<Record<KounichanVehicleId, string> | null>(null);
 
   // Firestore Cloud Sync status
@@ -73,11 +103,23 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   const [autoTrans, setAutoTrans] = useState(true);
   const [tolerance, setTolerance] = useState(32);
   const [feather, setFeather] = useState(2);
+  const [trimPadding, setTrimPadding] = useState(true);
+
+  // Dragging state for visual box adjuster
+  const [dragState, setDragState] = useState<{
+    vehicleId: KounichanVehicleId;
+    mode: 'move' | 'resize';
+    startX: number;
+    startY: number;
+    initialBox: CropBox;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
   const currentSingleTargetRef = useRef<KounichanVehicleId | null>(null);
   const testTrackRef = useRef<HTMLDivElement | null>(null);
+  const sheetViewerRef = useRef<HTMLDivElement | null>(null);
+  const loadedImageRef = useRef<HTMLImageElement | null>(null);
 
   // Helper to update settings
   const updateSettings = (updater: (prev: KounichanSettings) => KounichanSettings) => {
@@ -140,7 +182,82 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   };
 
   /**
-   * Process 6-in-1 image sheet (2 rows x 3 columns)
+   * Slice a single vehicle from the loaded image with the specified bounding box
+   */
+  const sliceSingleVehicle = useCallback(
+    (
+      img: HTMLImageElement,
+      box: CropBox,
+      isAutoTrans = autoTrans,
+      tol = tolerance,
+      fth = feather,
+      trim = trimPadding
+    ): string | null => {
+      const imgW = img.naturalWidth;
+      const imgH = img.naturalHeight;
+
+      const startX = Math.max(0, (box.x / 100) * imgW);
+      const startY = Math.max(0, (box.y / 100) * imgH);
+      const cropW = Math.max(10, Math.min(imgW - startX, (box.width / 100) * imgW));
+      const cropH = Math.max(10, Math.min(imgH - startY, (box.height / 100) * imgH));
+
+      // Downscale to web-optimized retina size (max 320x320) so all 6 vehicles fit safely in Firestore
+      const maxDim = 320;
+      let targetW = cropW;
+      let targetH = cropH;
+      if (targetW > maxDim || targetH > maxDim) {
+        if (targetW > targetH) {
+          targetH = Math.round((targetH * maxDim) / targetW);
+          targetW = maxDim;
+        } else {
+          targetW = Math.round((targetW * maxDim) / targetH);
+          targetH = maxDim;
+        }
+      }
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = targetW;
+      cropCanvas.height = targetH;
+      const ctx = cropCanvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.drawImage(img, startX, startY, cropW, cropH, 0, 0, targetW, targetH);
+
+      let finalCanvas = cropCanvas;
+      if (isAutoTrans) {
+        finalCanvas = processBackgroundTransparency(cropCanvas, {
+          enableTransparency: true,
+          tolerance: tol,
+          feather: fth,
+          trimPadding: trim,
+        });
+      }
+
+      return finalCanvas.toDataURL('image/png');
+    },
+    [autoTrans, tolerance, feather, trimPadding]
+  );
+
+  /**
+   * Re-generate sliced previews for all 6 vehicles
+   */
+  const regenerateAllSlices = useCallback(
+    (img: HTMLImageElement, boxes = cropBoxes) => {
+      const results: Record<KounichanVehicleId, string> = {} as any;
+      VEHICLE_ORDER.forEach((id) => {
+        const box = boxes[id] || DEFAULT_CROP_BOXES[id];
+        const sliced = sliceSingleVehicle(img, box);
+        if (sliced) {
+          results[id] = sliced;
+        }
+      });
+      setSlicedPreviews(results);
+    },
+    [cropBoxes, sliceSingleVehicle]
+  );
+
+  /**
+   * Process 6-in-1 image sheet upload
    */
   const process6In1Sheet = async (file: File) => {
     setIsProcessingSheet(true);
@@ -152,78 +269,18 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
         const rawDataUrl = e.target?.result as string;
         if (!rawDataUrl) return;
 
+        setSheetImageSource(rawDataUrl);
+
         const img = new Image();
         img.onload = () => {
-          setSheetStatus('✂️ 6台の乗り物を自動切り出し＆背景透過処理中...');
-
-          const imgW = img.naturalWidth;
-          const imgH = img.naturalHeight;
-
-          // 2 rows, 3 columns
-          // Col 0: 0% to 33.3%, Col 1: 33.3% to 66.6%, Col 2: 66.6% to 100%
-          // Row 0: 0% to 50%, Row 1: 50% to 100%
-          const gridConfig: { id: KounichanVehicleId; row: number; col: number }[] = [
-            { id: 'tricycle_turbo', row: 0, col: 0 },
-            { id: 'koyumi_2', row: 0, col: 1 },
-            { id: 'four_wheeler', row: 0, col: 2 },
-            { id: 'dendrobium', row: 1, col: 0 },
-            { id: 'space_trike', row: 1, col: 1 },
-            { id: 'aqua_yakkun', row: 1, col: 2 },
-          ];
-
-          const slicedResults: Record<KounichanVehicleId, string> = {} as any;
-
-          gridConfig.forEach(({ id, row, col }) => {
-            const cellW = imgW / 3;
-            const cellH = imgH / 2;
-
-            const startX = col * cellW;
-            const startY = row * cellH;
-
-            // Downscale to web-optimized retina size (max 320x320) so all 6 vehicles fit safely in Firestore
-            const maxDim = 320;
-            let targetW = cellW;
-            let targetH = cellH;
-            if (targetW > maxDim || targetH > maxDim) {
-              if (targetW > targetH) {
-                targetH = Math.round((targetH * maxDim) / targetW);
-                targetW = maxDim;
-              } else {
-                targetW = Math.round((targetW * maxDim) / targetH);
-                targetH = maxDim;
-              }
-            }
-
-            // Crop the individual vehicle
-            const cropCanvas = document.createElement('canvas');
-            cropCanvas.width = targetW;
-            cropCanvas.height = targetH;
-            const ctx = cropCanvas.getContext('2d');
-            if (!ctx) return;
-
-            ctx.drawImage(img, startX, startY, cellW, cellH, 0, 0, targetW, targetH);
-
-            // Apply smart transparency
-            let finalCanvas = cropCanvas;
-            if (autoTrans) {
-              finalCanvas = processBackgroundTransparency(cropCanvas, {
-                enableTransparency: true,
-                tolerance,
-                feather,
-                trimPadding: true,
-              });
-            }
-
-            slicedResults[id] = finalCanvas.toDataURL('image/png');
-          });
-
-          setSlicedPreviews(slicedResults);
+          loadedImageRef.current = img;
+          setSheetStatus('✂️ 6台の個別切り抜き枠を自動配置しました！');
+          regenerateAllSlices(img, cropBoxes);
           setIsProcessingSheet(false);
-          setSheetStatus('✨ 6台の切り出しが完了しました！下の「一括適用」ボタンで反映できます。');
 
           try {
-            confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
-          } catch (e) {}
+            confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
+          } catch (err) {}
         };
         img.src = rawDataUrl;
       };
@@ -231,12 +288,27 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
     } catch (err) {
       console.error(err);
       setIsProcessingSheet(false);
-      setSheetStatus('❌ 画像の切り出し中にエラーが発生しました。');
+      setSheetStatus('❌ 画像の読み込み中にエラーが発生しました。');
     }
   };
 
+  // Re-slice when active vehicle's crop box or transparency options change
+  useEffect(() => {
+    if (!sheetImageSource) return;
+    const img = loadedImageRef.current || new Image();
+    if (!loadedImageRef.current) {
+      img.onload = () => {
+        loadedImageRef.current = img;
+        regenerateAllSlices(img, cropBoxes);
+      };
+      img.src = sheetImageSource;
+    } else {
+      regenerateAllSlices(loadedImageRef.current, cropBoxes);
+    }
+  }, [cropBoxes, autoTrans, tolerance, feather, trimPadding, sheetImageSource, regenerateAllSlices]);
+
   /**
-   * Apply the 6 sliced images to settings
+   * Apply all 6 sliced images to settings
    */
   const handleApplyAllSliced = () => {
     if (!slicedPreviews) return;
@@ -253,14 +325,160 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
       });
       return {
         ...prev,
+        customSheetUrl: sheetImageSource || prev.customSheetUrl,
         vehicles: updatedVehicles,
       };
     });
 
-    setSheetStatus('🎉 6台すべての乗り物イラストが更新・保存されました！');
+    setSheetStatus('🎉 6台すべての乗り物イラストが一括適用・保存されました！');
     try {
       confetti({ particleCount: 60, spread: 80, origin: { y: 0.6 } });
     } catch (e) {}
+  };
+
+  /**
+   * Apply just the active vehicle's slice
+   */
+  const handleApplySingleVehicleSlice = (vehicleId: KounichanVehicleId) => {
+    if (!slicedPreviews || !slicedPreviews[vehicleId]) return;
+
+    updateSettings((prev) => ({
+      ...prev,
+      vehicles: {
+        ...prev.vehicles,
+        [vehicleId]: {
+          ...prev.vehicles[vehicleId],
+          customImageUrl: slicedPreviews[vehicleId],
+        },
+      },
+    }));
+
+    const vName = settings.vehicles[vehicleId]?.name || vehicleId;
+    setSheetStatus(`✨ 「${vName}」の切り抜きイラストを適用しました！`);
+    try {
+      confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
+    } catch (e) {}
+  };
+
+  /**
+   * Shrink the active box slightly inwards to eliminate surrounding onomatopoeia letters
+   */
+  const handleShrinkToAvoidText = (vehicleId: KounichanVehicleId) => {
+    setCropBoxes((prev) => {
+      const cur = prev[vehicleId] || DEFAULT_CROP_BOXES[vehicleId];
+      const shrinkX = 2; // shrink 2% from each side
+      const shrinkY = 2;
+      const newW = Math.max(10, cur.width - shrinkX * 2);
+      const newH = Math.max(10, cur.height - shrinkY * 2);
+      const newX = Math.min(100 - newW, cur.x + shrinkX);
+      const newY = Math.min(100 - newH, cur.y + shrinkY);
+      return {
+        ...prev,
+        [vehicleId]: {
+          x: Math.round(newX * 10) / 10,
+          y: Math.round(newY * 10) / 10,
+          width: Math.round(newW * 10) / 10,
+          height: Math.round(newH * 10) / 10,
+        },
+      };
+    });
+  };
+
+  /**
+   * Expand the active box slightly outwards
+   */
+  const handleExpandBox = (vehicleId: KounichanVehicleId) => {
+    setCropBoxes((prev) => {
+      const cur = prev[vehicleId] || DEFAULT_CROP_BOXES[vehicleId];
+      const expandX = 2;
+      const expandY = 2;
+      const newW = Math.min(100, cur.width + expandX * 2);
+      const newH = Math.min(100, cur.height + expandY * 2);
+      const newX = Math.max(0, cur.x - expandX);
+      const newY = Math.max(0, cur.y - expandY);
+      return {
+        ...prev,
+        [vehicleId]: {
+          x: Math.round(newX * 10) / 10,
+          y: Math.round(newY * 10) / 10,
+          width: Math.round(newW * 10) / 10,
+          height: Math.round(newH * 10) / 10,
+        },
+      };
+    });
+  };
+
+  /**
+   * Reset single vehicle crop box
+   */
+  const handleResetSingleBox = (vehicleId: KounichanVehicleId) => {
+    setCropBoxes((prev) => ({
+      ...prev,
+      [vehicleId]: { ...DEFAULT_CROP_BOXES[vehicleId] },
+    }));
+  };
+
+  /**
+   * Handle mouse/touch drag on visual sheet
+   */
+  const handlePointerDown = (
+    e: React.PointerEvent,
+    vehicleId: KounichanVehicleId,
+    mode: 'move' | 'resize'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setActiveVehicleId(vehicleId);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    setDragState({
+      vehicleId,
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialBox: { ...(cropBoxes[vehicleId] || DEFAULT_CROP_BOXES[vehicleId]) },
+    });
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragState || !sheetViewerRef.current) return;
+    const rect = sheetViewerRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const dxPercent = ((e.clientX - dragState.startX) / rect.width) * 100;
+    const dyPercent = ((e.clientY - dragState.startY) / rect.height) * 100;
+    const init = dragState.initialBox;
+
+    setCropBoxes((prev) => {
+      let updated = { ...init };
+      if (dragState.mode === 'move') {
+        const newX = Math.max(0, Math.min(100 - init.width, init.x + dxPercent));
+        const newY = Math.max(0, Math.min(100 - init.height, init.y + dyPercent));
+        updated = {
+          ...init,
+          x: Math.round(newX * 10) / 10,
+          y: Math.round(newY * 10) / 10,
+        };
+      } else if (dragState.mode === 'resize') {
+        const newW = Math.max(8, Math.min(100 - init.x, init.width + dxPercent));
+        const newH = Math.max(8, Math.min(100 - init.y, init.height + dyPercent));
+        updated = {
+          ...init,
+          width: Math.round(newW * 10) / 10,
+          height: Math.round(newH * 10) / 10,
+        };
+      }
+      return { ...prev, [dragState.vehicleId]: updated };
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (dragState) {
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (err) {}
+      setDragState(null);
+    }
   };
 
   /**
@@ -326,6 +544,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   };
 
   const activeVehicle = settings.vehicles[activeVehicleId] || DEFAULT_KOUNICHAN_VEHICLES[activeVehicleId];
+  const activeCropBox = cropBoxes[activeVehicleId] || DEFAULT_CROP_BOXES[activeVehicleId];
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -554,145 +773,489 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 1: 6-in-1 Sheet Auto-Slicer (2 Rows x 3 Columns)                  */}
+      {/* SECTION 1: 6-in-1 Sheet Auto-Slicer & Individual Range Cropper            */}
       {/* ========================================================================= */}
       <div className="bg-[#FFFDF9] p-4 sm:p-5 rounded-2xl border-2 border-[#DDD7C8] shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EAE5D9] pb-3">
           <div className="flex items-center gap-2">
             <Scissors className="w-5 h-5 text-[#C8744E]" />
-            <h4 className="text-xs sm:text-sm font-black text-[#2E2824] font-handwriting">
-              6台一括画像シート（横3台×縦2台）自動スライス＆透過取り込み
-            </h4>
-          </div>
-          <span className="text-[10px] bg-[#EAE5D9] text-[#5C544D] font-bold px-2 py-0.5 rounded-full">
-            一発登録
-          </span>
-        </div>
-
-        <p className="text-xs text-[#7A726A] leading-relaxed">
-          横3台・縦2台で並んだイラスト画像（用紙に描かれたイラスト）をドラッグ＆ドロップすると、
-          <strong>6台すべてを個別に自動スライス＆白・クリーム色背景を透過処理</strong>して一括設定できます。
-        </p>
-
-        {/* Dropzone */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setSheetDragActive(true);
-          }}
-          onDragLeave={() => setSheetDragActive(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setSheetDragActive(false);
-            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-              process6In1Sheet(e.dataTransfer.files[0]);
-            }
-          }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`p-6 border-2 border-dashed rounded-2xl text-center cursor-pointer transition flex flex-col items-center justify-center ${
-            sheetDragActive
-              ? 'border-[#C8744E] bg-[#FAF2EB]'
-              : 'border-[#DDD7C8] bg-[#FAF8F5] hover:border-[#C8744E]'
-          }`}
-        >
-          <Upload className="w-8 h-8 text-[#C8744E] mb-2" />
-          <p className="text-xs font-bold text-[#2E2824]">
-            6台並んだイラスト画像をここにドラッグ＆ドロップ
-          </p>
-          <p className="text-[11px] text-[#7A726A] mt-1">
-            またはクリックして画像ファイル（PNG / JPG）を選択
-          </p>
-          <div className="mt-3 flex items-center gap-3 text-[10px] text-[#9E958C]">
-            <span>上段: 三輪車 / こゆみ号2 / 四輪車</span>
-            <span>・</span>
-            <span>下段: デンドロビウム風 / 宇宙仕様 / やっくん</span>
-          </div>
-        </div>
-
-        {/* Transparency Options */}
-        <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#EAE5D9] flex flex-wrap items-center justify-between gap-3 text-xs">
-          <label className="flex items-center gap-2 cursor-pointer font-bold text-[#3E3833]">
-            <input
-              type="checkbox"
-              checked={autoTrans}
-              onChange={(e) => setAutoTrans(e.target.checked)}
-              className="rounded text-[#C8744E] focus:ring-[#C8744E]"
-            />
-            <span>紙の背景を自動透過する (スマート透過)</span>
-          </label>
-
-          {autoTrans && (
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="text-[#7A726A]">透過許容度:</span>
-                <input
-                  type="range"
-                  min={10}
-                  max={60}
-                  value={tolerance}
-                  onChange={(e) => setTolerance(Number(e.target.value))}
-                  className="w-24 accent-[#C8744E]"
-                />
-                <span className="font-mono font-bold text-[#3E3833]">{tolerance}</span>
-              </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-[#2E2824] font-handwriting">
+                6台画像シート取り込み ＆ 1台ごとの切り抜き範囲（文字除外）設定
+              </h4>
+              <p className="text-[11px] text-[#7A726A]">
+                6台並んだ原画シートから、1台ずつ文字を避けて車体だけを自由に囲って切り抜けます。
+              </p>
             </div>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 bg-[#FAF2EB] hover:bg-[#F0DFD3] text-[#C8744E] border border-[#E8C2AF] text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>{sheetImageSource ? '別の原画シートを再選択' : '原画シート画像を選択'}</span>
+            </button>
+          </div>
         </div>
 
-        {sheetStatus && (
-          <p className="text-xs font-bold text-[#C8744E] bg-[#FAF2EB] px-3 py-2 rounded-xl border border-[#F0D5C3]">
-            {sheetStatus}
-          </p>
+        {/* Dropzone (Shown when no image loaded or when dragging) */}
+        {!sheetImageSource && (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setSheetDragActive(true);
+            }}
+            onDragLeave={() => setSheetDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setSheetDragActive(false);
+              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                process6In1Sheet(e.dataTransfer.files[0]);
+              }
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`p-8 border-2 border-dashed rounded-2xl text-center cursor-pointer transition flex flex-col items-center justify-center ${
+              sheetDragActive
+                ? 'border-[#C8744E] bg-[#FAF2EB]'
+                : 'border-[#DDD7C8] bg-[#FAF8F5] hover:border-[#C8744E]'
+            }`}
+          >
+            <Upload className="w-10 h-10 text-[#C8744E] mb-2" />
+            <p className="text-sm font-bold text-[#2E2824]">
+              6台並んだイラスト画像をここにドラッグ＆ドロップ
+            </p>
+            <p className="text-xs text-[#7A726A] mt-1">
+              またはクリックして画像ファイル（PNG / JPG）を選択
+            </p>
+            <div className="mt-3 flex items-center gap-3 text-[11px] text-[#9E958C]">
+              <span>上段: 三輪車 / こゆみ号2 / 四輪車</span>
+              <span>・</span>
+              <span>下段: デンドロビウム風 / 宇宙仕様 / やっくん</span>
+            </div>
+          </div>
         )}
 
-        {/* Sliced Previews */}
-        {slicedPreviews && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <h5 className="text-xs font-bold text-[#3E3833]">切り出し結果プレビュー</h5>
-              <button
-                type="button"
-                onClick={handleApplyAllSliced}
-                className="px-4 py-2 bg-[#2E2824] hover:bg-[#453D37] text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4 text-[#A7F3D0]" />
-                <span>この6台を一括適用する！</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-              {VEHICLE_ORDER.map((id) => {
+        {/* Interactive Workspace (Shown when image is loaded) */}
+        {sheetImageSource && (
+          <div className="space-y-4">
+            {/* Vehicle Selector Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <span className="text-xs font-bold text-[#5C544D] shrink-0 mr-1 flex items-center gap-1">
+                <Crop className="w-3.5 h-3.5 text-[#C8744E]" />
+                調整する乗り物:
+              </span>
+              {VEHICLE_ORDER.map((id, index) => {
                 const v = settings.vehicles[id] || DEFAULT_KOUNICHAN_VEHICLES[id];
-                const previewImg = slicedPreviews[id];
+                const isSelected = activeVehicleId === id;
                 return (
-                  <div
+                  <button
                     key={id}
-                    className="bg-[#FAF8F5] p-2 rounded-xl border border-[#DDD7C8] flex flex-col items-center text-center"
+                    type="button"
+                    onClick={() => setActiveVehicleId(id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap shrink-0 flex items-center gap-1.5 border cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#C8744E] text-white border-[#C8744E] shadow-sm'
+                        : 'bg-[#FAF8F5] text-[#5C544D] border-[#DDD7C8] hover:bg-[#F2ECE4]'
+                    }`}
                   >
-                    <span className="text-[10px] font-bold text-[#5C544D] truncate w-full mb-1">
-                      {v.name.split('（')[0]}
-                    </span>
-                    <div
-                      className="w-full aspect-square rounded-lg border border-[#2E2824]/20 p-1 flex items-center justify-center overflow-hidden"
-                      style={{
-                        backgroundImage:
-                          'linear-gradient(45deg, #E2DFD8 25%, transparent 25%), linear-gradient(-45deg, #E2DFD8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E2DFD8 75%), linear-gradient(-45deg, transparent 75%, #E2DFD8 75%)',
-                        backgroundSize: '12px 12px',
-                        backgroundColor: '#F7F5F0',
-                      }}
-                    >
-                      {previewImg && (
-                        <img
-                          src={previewImg}
-                          alt={v.name}
-                          className="max-w-full max-h-full object-contain filter drop-shadow-sm"
-                        />
-                      )}
-                    </div>
-                  </div>
+                    <span className="opacity-80">#{index + 1}</span>
+                    <span>{v.name.split('（')[0]}</span>
+                  </button>
                 );
               })}
             </div>
+
+            {/* Main Interactive Row: Visual Sheet on Left, Fine-Tuning Box on Right */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              {/* Left (7 cols): Visual Sheet with 6 Crop Boxes */}
+              <div className="lg:col-span-7 bg-[#2E2824]/5 p-3 rounded-2xl border border-[#DDD7C8] space-y-2">
+                <div className="flex items-center justify-between text-xs text-[#5C544D]">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <Move className="w-3.5 h-3.5 text-[#C8744E]" />
+                    原画シート上で枠を直接ドラッグ移動・角でサイズ変更
+                  </span>
+                  <span className="text-[11px] text-[#8C837A]">
+                    枠内を掴んで移動 / 右下角でリサイズ
+                  </span>
+                </div>
+
+                {/* Sheet Interactive Canvas Container */}
+                <div
+                  ref={sheetViewerRef}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                  className="relative w-full rounded-xl overflow-hidden border-2 border-[#2E2824]/30 bg-white select-none touch-none cursor-crosshair shadow-inner"
+                >
+                  <img
+                    src={sheetImageSource}
+                    alt="6-in-1 Sheet"
+                    className="w-full h-auto block select-none pointer-events-none"
+                    draggable={false}
+                  />
+
+                  {/* 6 Overlaid Bounding Boxes */}
+                  {VEHICLE_ORDER.map((id, index) => {
+                    const box = cropBoxes[id] || DEFAULT_CROP_BOXES[id];
+                    const isSelected = activeVehicleId === id;
+                    const v = settings.vehicles[id] || DEFAULT_KOUNICHAN_VEHICLES[id];
+
+                    return (
+                      <div
+                        key={id}
+                        style={{
+                          left: `${box.x}%`,
+                          top: `${box.y}%`,
+                          width: `${box.width}%`,
+                          height: `${box.height}%`,
+                        }}
+                        onPointerDown={(e) => handlePointerDown(e, id, 'move')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveVehicleId(id);
+                        }}
+                        className={`absolute transition-[border-color,background-color] select-none ${
+                          isSelected
+                            ? 'border-2 border-[#C8744E] bg-[#C8744E]/20 z-20 shadow-md ring-2 ring-white/80 cursor-move'
+                            : 'border border-[#2E2824]/40 bg-black/5 hover:bg-[#C8744E]/10 z-10 cursor-pointer'
+                        }`}
+                      >
+                        {/* Vehicle Label Badge */}
+                        <div
+                          className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] font-black whitespace-nowrap shadow-xs pointer-events-none ${
+                            isSelected
+                              ? 'bg-[#C8744E] text-white'
+                              : 'bg-[#2E2824]/80 text-white/90'
+                          }`}
+                        >
+                          #{index + 1} {v.name.split('（')[0]}
+                        </div>
+
+                        {/* Active Box Corner Resize Handle (Bottom-Right) */}
+                        {isSelected && (
+                          <div
+                            onPointerDown={(e) => handlePointerDown(e, id, 'resize')}
+                            className="absolute -bottom-2 -right-2 w-6 h-6 bg-[#C8744E] border-2 border-white rounded-full flex items-center justify-center cursor-se-resize shadow-md hover:scale-110 active:scale-95 z-30"
+                            title="角をドラッグしてサイズ変更"
+                          >
+                            <Maximize2 className="w-3 h-3 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-[#7A6B63] pt-1">
+                  <span>オレンジ色の枠が現在選択中の切り抜き範囲です</span>
+                  <button
+                    type="button"
+                    onClick={() => setCropBoxes(DEFAULT_CROP_BOXES)}
+                    className="text-xs text-[#7A6B63] hover:text-[#C8744E] hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>全6台の枠を初期位置にリセット</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Right (5 cols): Range Adjustment Sliders & Live Cropped Result */}
+              <div className="lg:col-span-5 bg-[#FAF8F5] p-4 rounded-2xl border border-[#DDD7C8] space-y-4">
+                <div className="flex items-center justify-between border-b border-[#EAE5D9] pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Crop className="w-4 h-4 text-[#C8744E]" />
+                    <h5 className="text-xs font-black text-[#2E2824]">
+                      【{activeVehicle.name.split('（')[0]}】の範囲微調整
+                    </h5>
+                  </div>
+                  <span className="text-[10px] bg-[#EAE5D9] text-[#5C544D] font-mono px-2 py-0.5 rounded-full font-bold">
+                    {activeCropBox.width}% × {activeCropBox.height}%
+                  </span>
+                </div>
+
+                {/* Quick Action Helpers (Especially for avoiding text!) */}
+                <div className="bg-[#FAF2EB] p-3 rounded-xl border border-[#F0D5C3] space-y-2">
+                  <div className="text-[11px] font-bold text-[#874A2E] flex items-center gap-1">
+                    <span>💡 オノマトペ文字を消す・外すワンタッチ操作</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleShrinkToAvoidText(activeVehicleId)}
+                      className="px-2.5 py-1.5 bg-white hover:bg-[#FDF6F0] text-[#C8744E] border border-[#E8C2AF] font-bold rounded-lg shadow-2xs transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer text-[11px]"
+                      title="枠を内側に狭めて周囲の文字をカット"
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                      <span>文字を避けて内側に縮小</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExpandBox(activeVehicleId)}
+                      className="px-2.5 py-1.5 bg-white hover:bg-[#FDF6F0] text-[#5C544D] border border-[#DDD7C8] font-bold rounded-lg shadow-2xs transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer text-[11px]"
+                    >
+                      <Maximize2 className="w-3 h-3" />
+                      <span>枠を少し広げる</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Range Sliders */}
+                <div className="space-y-2.5 text-xs text-[#5C544D]">
+                  {/* X Position */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="w-16 shrink-0 text-[11px] font-bold">左右位置 (X):</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100 - activeCropBox.width}
+                      step={0.5}
+                      value={activeCropBox.x}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setCropBoxes((prev) => ({
+                          ...prev,
+                          [activeVehicleId]: { ...prev[activeVehicleId], x: val },
+                        }));
+                      }}
+                      className="flex-1 accent-[#C8744E]"
+                    />
+                    <span className="w-10 text-right font-mono font-bold text-[11px]">
+                      {activeCropBox.x}%
+                    </span>
+                  </div>
+
+                  {/* Y Position */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="w-16 shrink-0 text-[11px] font-bold">上下位置 (Y):</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100 - activeCropBox.height}
+                      step={0.5}
+                      value={activeCropBox.y}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setCropBoxes((prev) => ({
+                          ...prev,
+                          [activeVehicleId]: { ...prev[activeVehicleId], y: val },
+                        }));
+                      }}
+                      className="flex-1 accent-[#C8744E]"
+                    />
+                    <span className="w-10 text-right font-mono font-bold text-[11px]">
+                      {activeCropBox.y}%
+                    </span>
+                  </div>
+
+                  {/* Width */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="w-16 shrink-0 text-[11px] font-bold">横幅 (W):</span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100 - activeCropBox.x}
+                      step={0.5}
+                      value={activeCropBox.width}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setCropBoxes((prev) => ({
+                          ...prev,
+                          [activeVehicleId]: { ...prev[activeVehicleId], width: val },
+                        }));
+                      }}
+                      className="flex-1 accent-[#C8744E]"
+                    />
+                    <span className="w-10 text-right font-mono font-bold text-[11px]">
+                      {activeCropBox.width}%
+                    </span>
+                  </div>
+
+                  {/* Height */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="w-16 shrink-0 text-[11px] font-bold">高さ (H):</span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100 - activeCropBox.y}
+                      step={0.5}
+                      value={activeCropBox.height}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setCropBoxes((prev) => ({
+                          ...prev,
+                          [activeVehicleId]: { ...prev[activeVehicleId], height: val },
+                        }));
+                      }}
+                      className="flex-1 accent-[#C8744E]"
+                    />
+                    <span className="w-10 text-right font-mono font-bold text-[11px]">
+                      {activeCropBox.height}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Live Sliced Preview Card for Selected Vehicle */}
+                <div className="pt-2 border-t border-[#EAE5D9] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#3E3833]">
+                      現在の切り抜き透過プレビュー
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleResetSingleBox(activeVehicleId)}
+                      className="text-[10px] text-[#7A6B63] hover:text-[#C8744E] flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>初期枠に戻す</span>
+                    </button>
+                  </div>
+
+                  <div
+                    className="w-full h-36 rounded-xl border border-[#2E2824]/20 p-2 flex items-center justify-center overflow-hidden relative shadow-inner"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(45deg, #E2DFD8 25%, transparent 25%), linear-gradient(-45deg, #E2DFD8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E2DFD8 75%), linear-gradient(-45deg, transparent 75%, #E2DFD8 75%)',
+                      backgroundSize: '14px 14px',
+                      backgroundColor: '#F7F5F0',
+                    }}
+                  >
+                    {slicedPreviews && slicedPreviews[activeVehicleId] ? (
+                      <img
+                        src={slicedPreviews[activeVehicleId]}
+                        alt={activeVehicle.name}
+                        className="max-h-full max-w-full object-contain filter drop-shadow-md"
+                      />
+                    ) : (
+                      <span className="text-xs text-[#9E958C]">プレビュー生成中...</span>
+                    )}
+                  </div>
+
+                  {/* Apply Just This Vehicle Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleApplySingleVehicleSlice(activeVehicleId)}
+                    disabled={!slicedPreviews || !slicedPreviews[activeVehicleId]}
+                    className="w-full py-2 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-black rounded-xl shadow-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>【この1台（{activeVehicle.name.split('（')[0]}）だけ適用する】</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Global Transparency & Batch Apply Row */}
+            <div className="p-3.5 bg-[#FAF8F4] rounded-2xl border border-[#EAE5D9] flex flex-wrap items-center justify-between gap-4 text-xs">
+              <div className="flex items-center gap-4 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-[#3E3833]">
+                  <input
+                    type="checkbox"
+                    checked={autoTrans}
+                    onChange={(e) => setAutoTrans(e.target.checked)}
+                    className="rounded text-[#C8744E] focus:ring-[#C8744E]"
+                  />
+                  <span>紙の白背景を自動透過</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-[#3E3833]">
+                  <input
+                    type="checkbox"
+                    checked={trimPadding}
+                    onChange={(e) => setTrimPadding(e.target.checked)}
+                    className="rounded text-[#C8744E] focus:ring-[#C8744E]"
+                  />
+                  <span>余白の自動トリミング（中央揃え）</span>
+                </label>
+
+                {autoTrans && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#7A726A]">透過許容度:</span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={60}
+                      value={tolerance}
+                      onChange={(e) => setTolerance(Number(e.target.value))}
+                      className="w-20 accent-[#C8744E]"
+                    />
+                    <span className="font-mono font-bold text-[#3E3833]">{tolerance}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Apply All 6 Vehicles Button */}
+              <button
+                type="button"
+                onClick={handleApplyAllSliced}
+                disabled={!slicedPreviews}
+                className="px-5 py-2.5 bg-[#2E2824] hover:bg-[#453D37] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4 text-[#A7F3D0]" />
+                <span>🚀 調整した枠で【6台すべて一括切り出し＆適用】</span>
+              </button>
+            </div>
+
+            {/* Status Message */}
+            {sheetStatus && (
+              <p className="text-xs font-bold text-[#C8744E] bg-[#FAF2EB] px-3.5 py-2.5 rounded-xl border border-[#F0D5C3]">
+                {sheetStatus}
+              </p>
+            )}
+
+            {/* 6 Vehicles Sliced Previews Strip */}
+            {slicedPreviews && (
+              <div className="space-y-2 pt-2 border-t border-[#EAE5D9]">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-[#3E3833]">
+                    6台の切り出し結果一覧（タップして選択・微調整できます）
+                  </h5>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                  {VEHICLE_ORDER.map((id, index) => {
+                    const v = settings.vehicles[id] || DEFAULT_KOUNICHAN_VEHICLES[id];
+                    const previewImg = slicedPreviews[id];
+                    const isSelected = activeVehicleId === id;
+
+                    return (
+                      <div
+                        key={id}
+                        onClick={() => setActiveVehicleId(id)}
+                        className={`p-2 rounded-xl border flex flex-col items-center text-center cursor-pointer transition ${
+                          isSelected
+                            ? 'bg-[#FAF2EB] border-[#C8744E] ring-2 ring-[#C8744E]/30 shadow-xs'
+                            : 'bg-[#FAF8F5] border-[#DDD7C8] hover:bg-[#F2ECE4]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full text-[10px] font-bold text-[#5C544D] mb-1">
+                          <span>#{index + 1}</span>
+                          <span className="truncate">{v.name.split('（')[0]}</span>
+                        </div>
+                        <div
+                          className="w-full aspect-square rounded-lg border border-[#2E2824]/20 p-1 flex items-center justify-center overflow-hidden"
+                          style={{
+                            backgroundImage:
+                              'linear-gradient(45deg, #E2DFD8 25%, transparent 25%), linear-gradient(-45deg, #E2DFD8 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #E2DFD8 75%), linear-gradient(-45deg, transparent 75%, #E2DFD8 75%)',
+                            backgroundSize: '12px 12px',
+                            backgroundColor: '#F7F5F0',
+                          }}
+                        >
+                          {previewImg && (
+                            <img
+                              src={previewImg}
+                              alt={v.name}
+                              className="max-w-full max-h-full object-contain filter drop-shadow-sm"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
