@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NyanCharacter } from '../types';
 import { NyanIllustration } from './NyanIllustration';
 import {
@@ -9,7 +9,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { NyankoStoryModal } from './NyankoStoryModal';
-import { getLocalStoriesMeta } from '../services/nyankoStoryService';
+import { getLocalStoriesMeta, fetchStoriesMeta } from '../services/nyankoStoryService';
 
 interface ZukanDetailModalProps {
   nyan: NyanCharacter | null;
@@ -27,12 +27,24 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
   readStoryIds = [],
 }) => {
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
+  const [storiesMeta, setStoriesMeta] = useState(() => getLocalStoriesMeta());
+
+  useEffect(() => {
+    // If local metadata is not yet loaded, or doesn't have stories yet, refresh it non-blockingly
+    if (!storiesMeta || Object.keys(storiesMeta.stories || {}).length === 0) {
+      fetchStoriesMeta(false).then((meta) => {
+        if (meta) setStoriesMeta(meta);
+      });
+    }
+  }, [storiesMeta]);
 
   if (!nyan) return null;
 
   const isStoryRead = readStoryIds.includes(nyan.no);
-  const storiesMeta = getLocalStoriesMeta();
-  const hasStory = nyan.hasStory || !!(storiesMeta?.stories && storiesMeta.stories[String(nyan.no)]);
+  // If storiesMeta is available and has populated catalog, check it.
+  // Otherwise default to true so players can directly open and read from Firestore!
+  const hasMetaStories = !!(storiesMeta && storiesMeta.stories && Object.keys(storiesMeta.stories).length > 0);
+  const hasStory = nyan.hasStory ?? (hasMetaStories ? !!storiesMeta?.stories?.[String(nyan.no)] : true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2E2824]/60 backdrop-blur-sm animate-fadeIn">

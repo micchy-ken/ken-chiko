@@ -110,7 +110,10 @@ export function setLocalStoriesMeta(meta: NyankoStoriesMeta): void {
 export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoStoriesMeta | null> {
   if (!force) {
     const local = getLocalStoriesMeta();
-    if (local) return local;
+    // If we have a valid cache with actual registered stories, return it instantly
+    if (local && local.storyCount > 0 && Object.keys(local.stories || {}).length > 0) {
+      return local;
+    }
   }
 
   try {

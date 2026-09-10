@@ -460,6 +460,14 @@ export default function App() {
         } catch (err) {
           console.warn('Background master check note:', err);
         }
+
+        // Background Stories Meta Refresh (1 Read to ensure latest stories catalog is cached locally)
+        try {
+          const { fetchStoriesMeta } = await import('./services/nyankoStoryService');
+          await fetchStoriesMeta(true);
+        } catch (metaErr) {
+          console.warn('Background stories meta sync note:', metaErr);
+        }
       }, 1200);
     };
 
