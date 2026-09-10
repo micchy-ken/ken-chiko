@@ -46,6 +46,7 @@ import {
   setActiveUserId,
   getActiveUserId,
   sanitizeUserId,
+  isSystemUserId,
 } from '../services/userService';
 import { NyanIllustration } from './NyanIllustration';
 import { getAssetUrl } from '../utils/assetPath';
@@ -107,11 +108,12 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     loadUsers();
   }, []);
 
-  // Filtered users by search query
+  // Filtered users by search query (strictly excluding system metadata IDs)
   const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users;
+    const validUsers = users.filter((u) => !isSystemUserId(u.userId));
+    if (!searchQuery.trim()) return validUsers;
     const q = searchQuery.trim().toLowerCase();
-    return users.filter(
+    return validUsers.filter(
       (u) =>
         u.userId.toLowerCase().includes(q) ||
         u.kenchiko.currentLocation.toLowerCase().includes(q) ||
@@ -120,13 +122,14 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     );
   }, [users, searchQuery]);
 
-  // Aggregate stats across all users
+  // Aggregate stats across all users (strictly excluding system metadata IDs)
   const totalStats = useMemo(() => {
-    const totalUsersCount = users.length;
-    const totalEncounters = users.reduce((sum, u) => sum + (u.stats.totalEncounters || 0), 0);
-    const totalSnacks = users.reduce((sum, u) => sum + (u.stats.totalSnacksEaten || 0), 0);
-    const totalTrips = users.reduce((sum, u) => sum + (u.stats.totalTrips || 0), 0);
-    const maxDiscovered = Math.max(0, ...users.map((u) => u.discoveredCount));
+    const validUsers = users.filter((u) => !isSystemUserId(u.userId));
+    const totalUsersCount = validUsers.length;
+    const totalEncounters = validUsers.reduce((sum, u) => sum + (u.stats.totalEncounters || 0), 0);
+    const totalSnacks = validUsers.reduce((sum, u) => sum + (u.stats.totalSnacksEaten || 0), 0);
+    const totalTrips = validUsers.reduce((sum, u) => sum + (u.stats.totalTrips || 0), 0);
+    const maxDiscovered = Math.max(0, ...validUsers.map((u) => u.discoveredCount));
     return {
       totalUsersCount,
       totalEncounters,
@@ -150,6 +153,11 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
   // Handle Delete User
   const handleDeleteUser = (userToDelete: UserDetailData) => {
+    if (isSystemUserId(userToDelete.userId)) {
+      setStatusMessage({ type: 'error', text: 'システム管理ドキュメントは削除できません' });
+      return;
+    }
+
     if (userToDelete.userId === 'default') {
       openConfirm(
         'デフォルトユーザーの初期化',
@@ -245,8 +253,8 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     e.preventDefault();
     setCreateError(null);
     const clean = sanitizeUserId(newUserIdInput);
-    if (!clean) {
-      setCreateError('英数字、ひらがな、カタカナ、漢字等で1文字以上入力してください');
+    if (!clean || isSystemUserId(clean)) {
+      setCreateError('英数字、ひらがな、カタカナ、漢字等で1文字以上入力してください（システム予約名は使用できません）');
       return;
     }
 

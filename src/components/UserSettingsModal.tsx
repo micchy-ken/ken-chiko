@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database, HelpCircle } from 'lucide-react';
-import { getActiveUserId, setActiveUserId } from '../services/userService';
+import { getActiveUserId, setActiveUserId, isSystemUserId, sanitizeUserId } from '../services/userService';
 import {
   getSavedGoogleDocUrl,
   saveGoogleDocUrl,
@@ -52,8 +52,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
   const handleApplyUser = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = targetUserId.trim();
-    if (cleanId) {
+    const cleanId = sanitizeUserId(targetUserId);
+    if (cleanId && !isSystemUserId(cleanId)) {
       setActiveUserId(cleanId);
       if (onSwitchUser) {
         onSwitchUser(cleanId);

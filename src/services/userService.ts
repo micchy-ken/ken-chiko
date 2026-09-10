@@ -18,6 +18,40 @@ export const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
 const ACTIVE_USER_STORAGE_KEY = 'kenchiko_active_user_id';
 const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
 
+/**
+ * System and master data document IDs that must NEVER be treated as user accounts.
+ */
+export const SYSTEM_DOC_IDS = [
+  DEFAULT_GLOBAL_DOC_ID, // 'ken-chiko-global-state'
+  'ken-chiko-master-meta',
+  'ken-chiko-master-nyans',
+  'nyanko_stories_meta',
+] as const;
+
+/**
+ * Checks if a given userId or document ID represents system metadata or an internal system document.
+ */
+export function isSystemUserId(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  const lower = userId.trim().toLowerCase();
+  if (
+    lower === 'global' ||
+    lower === 'system' ||
+    lower === DEFAULT_GLOBAL_DOC_ID.toLowerCase() ||
+    lower === 'ken-chiko-master-meta' ||
+    lower === 'ken-chiko-master-nyans' ||
+    lower === 'nyanko_stories_meta' ||
+    lower.startsWith('ken-chiko-master-') ||
+    lower.startsWith('ken-chiko-global-') ||
+    lower.startsWith('nyanko_story') ||
+    lower.startsWith('nyanko_stories') ||
+    lower.startsWith('master-')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export interface UserCompanionSummary {
   nyanId: number | null;
   name: string;
@@ -94,7 +128,15 @@ export function getKnownUserIds(): string[] {
     if (!raw) return ['default'];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return Array.from(new Set(['default', ...parsed.filter(Boolean)]));
+      // Exclude empty and system document IDs
+      const sanitizedList = Array.from(
+        new Set(['default', ...parsed.filter((id) => Boolean(id) && !isSystemUserId(id))])
+      );
+      // Automatically purge contaminated entries if system IDs were previously stored
+      if (sanitizedList.length !== parsed.length) {
+        localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(sanitizedList));
+      }
+      return sanitizedList;
     }
   } catch {
     // Ignore error
@@ -106,7 +148,7 @@ export function getKnownUserIds(): string[] {
  * Registers a user ID in the locally stored known users list
  */
 export function registerKnownUserId(userId: string): void {
-  if (typeof window === 'undefined' || !userId) return;
+  if (typeof window === 'undefined' || !userId || isSystemUserId(userId)) return;
   try {
     const list = getKnownUserIds();
     if (!list.includes(userId)) {
@@ -140,7 +182,8 @@ export function sanitizeUserId(raw: string | null | undefined): string | null {
   if (!trimmed) return null;
   // Keep alphanumeric, underscores, hyphens, and common safe unicode characters
   const sanitized = trimmed.replace(/[^a-zA-Z0-9_\-\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/g, '').slice(0, 64);
-  return sanitized || null;
+  if (!sanitized || isSystemUserId(sanitized)) return null;
+  return sanitized;
 }
 
 /**
@@ -372,15 +415,13 @@ export async function fetchAllRegisteredUsers(
       console.log(`[CloudSync] 👥 ユーザー一覧の取得 [${snap.docs.length}件読込]: 管理画面のユーザー一覧表示`);
       for (const docSnap of snap.docs) {
         const docId = docSnap.id;
-        // Skip global shared state document
-        if (docId === DEFAULT_GLOBAL_DOC_ID) continue;
-
-        let uid = 'default';
-        if (docId.startsWith('ken-chiko-user-')) {
-          uid = docId.slice('ken-chiko-user-'.length) || 'default';
-        } else {
-          uid = docId;
+        // Strictly skip all system metadata documents (only ken-chiko-user-* documents are users)
+        if (!docId.startsWith('ken-chiko-user-')) {
+          continue;
         }
+
+        const uid = docId.slice('ken-chiko-user-'.length) || 'default';
+        if (isSystemUserId(uid)) continue;
 
         const raw = docSnap.data();
         const parsed = reconstructGameSaveData(raw, masterNyans);
@@ -423,7 +464,15 @@ export async function fetchAllRegisteredUsers(
         const key = localStorage.key(i);
         if (key && key.startsWith(USER_LOCAL_KEY_PREFIX)) {
           const uid = key.slice(USER_LOCAL_KEY_PREFIX.length);
-          if (!uid) continue;
+          if (!uid || isSystemUserId(uid)) {
+            // Clean up any stale contaminated system key in localStorage
+            if (uid && isSystemUserId(uid)) {
+              try {
+                localStorage.removeItem(key);
+              } catch (_) {}
+            }
+            continue;
+          }
           const rawStr = localStorage.getItem(key);
           if (rawStr) {
             const parsed = JSON.parse(rawStr);
@@ -446,6 +495,7 @@ export async function fetchAllRegisteredUsers(
     // Check known user ids list
     const knownList = getKnownUserIds();
     for (const kid of knownList) {
+      if (isSystemUserId(kid)) continue;
       if (!userMap.has(kid)) {
         // Prepare initial empty state
         const fresh: GameSaveData = {
@@ -509,8 +559,8 @@ export async function fetchAllRegisteredUsers(
 export async function deleteUserAccount(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!userId) {
-    return { success: false, error: 'ユーザーIDが指定されていません' };
+  if (!userId || isSystemUserId(userId)) {
+    return { success: false, error: 'システム管理ドキュメントは削除できません' };
   }
 
   try {
@@ -548,8 +598,8 @@ export async function resetUserAccount(
   masterNyans: NyanCharacter[] = INITIAL_NYANS,
   masterAsobi: KenchikoAsobi[] = INITIAL_ASOBI_LIST
 ): Promise<{ success: boolean; error?: string; freshData?: GameSaveData }> {
-  if (!userId) {
-    return { success: false, error: 'ユーザーIDが指定されていません' };
+  if (!userId || isSystemUserId(userId)) {
+    return { success: false, error: 'システム管理ドキュメントは初期化できません' };
   }
 
   try {
