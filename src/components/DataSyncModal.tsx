@@ -10,12 +10,6 @@ import {
   GiftItem,
 } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
-import { exportNyansToCsv, mergeImportedCsv } from '../utils/csvParser';
-import {
-  generateDeployGitHubPagesYaml,
-  generateFirebaseDeployYaml,
-  generateGitHubWorkflowYaml,
-} from '../utils/githubSync';
 import {
   loadSavedFirebaseConfig,
   saveFirebaseConfig,
@@ -56,8 +50,6 @@ import {
   Upload,
   Download,
   Database,
-  FileSpreadsheet,
-  Github,
   Check,
   Copy,
   Sparkles,
@@ -112,7 +104,7 @@ import { AdminOuenEditor } from './AdminOuenEditor';
 import { AdminStoryManager } from './AdminStoryManager';
 import { AdminKounichanEditor } from './kounichan/AdminKounichanEditor';
 
-export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'kounichan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase' | 'github' | 'csv';
+export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'kounichan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -188,7 +180,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase', 'github', 'csv'];
+    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase'];
     if (initialTab && validTabs.includes(initialTab)) {
       return initialTab;
     }
@@ -218,8 +210,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     return saveData.kenchiko.customImageUrl || loadLocalKenchikoImage() || '';
   });
   const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [copiedWorkflow, setCopiedWorkflow] = useState(false);
-  const [githubWorkflowType, setGithubWorkflowType] = useState<'pages' | 'firebase' | 'data'>('pages');
 
   // Background transparency options
   const [autoTransparent, setAutoTransparent] = useState(true);
@@ -1015,71 +1005,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     return true;
   });
 
-  // CSV
-  const handleCsvFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      if (text) {
-        processCsvText(text);
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const processCsvText = (csvText: string) => {
-    try {
-      const { updatedNyans, addedCount, updatedCount } = mergeImportedCsv(csvText, characters);
-      onImportNyans(updatedNyans, addedCount, updatedCount);
-      setImportStatus(
-        `✅ CSVの取り込みが完了しました！ (新規追加: ${addedCount}体 / 更新: ${updatedCount}体 / 合計: ${updatedNyans.length}体)`
-      );
-      confetti({ particleCount: 30, spread: 70, origin: { y: 0.6 } });
-    } catch (err: any) {
-      setImportStatus(`❌ CSVの解析に失敗しました: ${err.message || 'フォーマットをご確認ください'}`);
-    }
-  };
-
-  const handleDownloadCsv = () => {
-    const csvContent = exportNyansToCsv(characters);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `nyans_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadSaveJson = () => {
-    const jsonStr = JSON.stringify(saveData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `kenchiko_pet_state_${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const getActiveWorkflowCode = () => {
-    if (githubWorkflowType === 'pages') return generateDeployGitHubPagesYaml();
-    if (githubWorkflowType === 'firebase') return generateFirebaseDeployYaml(fbProjectId || 'gen-lang-client-0027333270');
-    return generateGitHubWorkflowYaml();
-  };
-
-  const getActiveWorkflowFileName = () => {
-    if (githubWorkflowType === 'pages') return '.github/workflows/deploy-gh-pages.yml';
-    if (githubWorkflowType === 'firebase') return '.github/workflows/deploy-firebase.yml';
-    return '.github/workflows/sync-kenchiko.yml';
-  };
-
-  const handleCopyWorkflow = () => {
-    navigator.clipboard.writeText(getActiveWorkflowCode());
-    setCopiedWorkflow(true);
-    setTimeout(() => setCopiedWorkflow(false), 2000);
-  };
-
   // --- RENDER PASSWORD LOCK SCREEN ---
   if (!isAuthenticated) {
     return (
@@ -1375,32 +1300,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Cloud className="w-4 h-4 text-[#728C7E]" />
             <span>Firebase設定</span>
-          </button>
-
-          {/* TAB 7: GitHub */}
-          <button
-            onClick={() => setActiveTab('github')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
-              activeTab === 'github'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Rocket className="w-4 h-4 text-[#C8744E]" />
-            <span>GitHub YAML</span>
-          </button>
-
-          {/* TAB 8: CSV */}
-          <button
-            onClick={() => setActiveTab('csv')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
-              activeTab === 'csv'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-[#728C7E]" />
-            <span>CSV出力</span>
           </button>
         </div>
 
@@ -3055,147 +2954,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               {fbSyncStatus && (
                 <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
                   {fbSyncStatus}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* TAB 5: GitHub Actions YAML */}
-          {/* ========================================================= */}
-          {activeTab === 'github' && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3]">
-                <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5 mb-1">
-                  <Github className="w-4 h-4 text-[#C8744E]" />
-                  GitHub Actions 自動デプロイ設定
-                </h4>
-                <p className="text-xs text-[#874A2E] leading-relaxed">
-                  リポジトリの <code>.github/workflows/deploy-gh-pages.yml</code> に以下の設定を配置すると、GitHubへコミットするだけで自動ビルド＆Pages公開が完了します。
-                </p>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setGithubWorkflowType('pages')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    githubWorkflowType === 'pages'
-                      ? 'bg-[#C8744E] text-white shadow-sm'
-                      : 'bg-[#EFECE4] text-[#6B6259]'
-                  }`}
-                >
-                  GitHub Pages 自動公開
-                </button>
-                <button
-                  onClick={() => setGithubWorkflowType('firebase')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    githubWorkflowType === 'firebase'
-                      ? 'bg-[#C8744E] text-white shadow-sm'
-                      : 'bg-[#EFECE4] text-[#6B6259]'
-                  }`}
-                >
-                  Firebase Hosting 自動公開
-                </button>
-              </div>
-
-              <div className="relative bg-[#2B2724] rounded-2xl p-4 text-xs font-mono text-[#CCC4B2] overflow-x-auto max-h-56">
-                <div className="flex items-center justify-between border-b border-[#3A342F] pb-2 mb-2">
-                  <span className="text-[11px] text-[#A69B8D]">{getActiveWorkflowFileName()}</span>
-                  <button
-                    onClick={handleCopyWorkflow}
-                    className="flex items-center gap-1 bg-[#3A342F] hover:bg-[#4A443F] text-white px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
-                  >
-                    {copiedWorkflow ? <Check className="w-3 h-3 text-[#728C7E]" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedWorkflow ? 'コピー完了' : 'YAMLをコピー'}</span>
-                  </button>
-                </div>
-                <pre>{getActiveWorkflowCode()}</pre>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* TAB 6: CSV Export & Import */}
-          {/* ========================================================= */}
-          {activeTab === 'csv' && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-4 bg-[#F5F2EA] rounded-2xl border border-[#DDD7C8] flex flex-col justify-between">
-                  <div>
-                    <h5 className="font-black text-xs text-[#3A342F] mb-1">CSV ダウンロード</h5>
-                    <p className="text-xs text-[#7D756D]">
-                      現在の全キャラクター図鑑（{characters.length}体）をCSVファイルとして保存します。
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleDownloadCsv}
-                    className="mt-3 w-full py-2 bg-[#728C7E] hover:bg-[#5E786A] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>図鑑CSVを保存</span>
-                  </button>
-                </div>
-
-                <div className="p-4 bg-[#F5F2EA] rounded-2xl border border-[#DDD7C8] flex flex-col justify-between">
-                  <div>
-                    <h5 className="font-black text-xs text-[#3A342F] mb-1">全体セーブデータ JSON</h5>
-                    <p className="text-xs text-[#7D756D]">
-                      けんちこの状態・あそび一覧・日記・アイテムすべてを含むバックアップJSONです。
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleDownloadSaveJson}
-                    className="mt-3 w-full py-2 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>セーブJSONを保存</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* CSV Upload Area */}
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    handleCsvFile(e.dataTransfer.files[0]);
-                  }
-                }}
-                className={`p-6 border-2 border-dashed rounded-2xl text-center transition ${
-                  dragActive
-                    ? 'border-[#728C7E] bg-[#EAF0EC]'
-                    : 'border-[#DDD7C8] bg-white hover:border-[#728C7E]'
-                }`}
-              >
-                <Upload className="w-6 h-6 mx-auto text-[#7D756D] mb-2" />
-                <p className="text-xs font-bold text-[#3A342F]">
-                  CSVファイルをここにドラッグ＆ドロップ
-                </p>
-                <p className="text-[11px] text-[#7D756D] mt-1">または</p>
-                <label className="mt-2 inline-block px-4 py-1.5 bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#4A443F] font-bold text-xs rounded-xl cursor-pointer transition border border-[#DDD7C8]">
-                  ファイルを選択
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleCsvFile(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-
-              {importStatus && (
-                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
-                  {importStatus}
                 </div>
               )}
             </div>

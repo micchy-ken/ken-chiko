@@ -316,7 +316,7 @@ export default function App() {
         if (active) setCurrentUserId(active);
       }
 
-      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'asobi', 'users', 'googledoc', 'firebase', 'github', 'csv'];
+      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
