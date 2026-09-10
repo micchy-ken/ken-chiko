@@ -44,9 +44,9 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
   // Active run state
   const [isRunning, setIsRunning] = useState(false);
   const [activeVehicle, setActiveVehicle] = useState<KounichanVehicleConfig | null>(null);
-  const [direction, setDirection] = useState<'ltr' | 'rtl'>('ltr');
+  const [direction, setDirection] = useState<'ltr' | 'rtl'>('rtl');
   const [isDashing, setIsDashing] = useState(false);
-  const [progress, setProgress] = useState(0); // -20 to 120 (percent across stage)
+  const [progress, setProgress] = useState(115); // 115 down to -20 (Right to Left)
   const [bubbles, setBubbles] = useState<ActiveBubble[]>([]);
   const [droppedGift, setDroppedGift] = useState<DroppedGift | null>(null);
   const [giftResultModal, setGiftResultModal] = useState<{
@@ -99,7 +99,8 @@ export const KounichanCrossStage: React.FC<KounichanCrossStageProps> = ({
       return;
     }
 
-    const dir: 'ltr' | 'rtl' = Math.random() > 0.5 ? 'ltr' : 'rtl';
+    // Direction is loaded from database settings (defaults to 'rtl': right to left)
+    const dir: 'ltr' | 'rtl' = settings?.direction || 'rtl';
     setDirection(dir);
     setActiveVehicle(selectedVehicle);
     setIsDashing(false);

@@ -1180,6 +1180,22 @@ export async function fetchInitialFirebaseState(
             ? localBackup.ouenList
             : INITIAL_OUEN_LIST);
 
+    const globalKounichanSettings: import('../types/kounichan').KounichanSettings =
+      globalRaw?.kounichan && typeof globalRaw.kounichan === 'object'
+        ? {
+            ...DEFAULT_KOUNICHAN_SETTINGS,
+            ...globalRaw.kounichan,
+            vehicles: {
+              ...DEFAULT_KOUNICHAN_SETTINGS.vehicles,
+              ...(globalRaw.kounichan.vehicles || {}),
+            },
+            stats: {
+              ...DEFAULT_KOUNICHAN_SETTINGS.stats,
+              ...(globalRaw.kounichan.stats || {}),
+            },
+          }
+        : (localBackup?.kounichan || DEFAULT_KOUNICHAN_SETTINGS);
+
     // --- STEP 4: Assemble User-specific Progress Data ---
     let userBaseData: GameSaveData;
     if (userRaw && userRaw.kenchiko) {
@@ -1197,10 +1213,11 @@ export async function fetchInitialFirebaseState(
 
     const mergedData: GameSaveData = {
       ...userBaseData,
-      // 共通DBから読むデータ: あそびリスト & けんちこ（外見）
+      // 共通DBから読むデータ: あそびリスト & 応援メッセージ & こうにちゃん設定 & けんちこ（外見）
       asobiList: globalAsobiList,
       ouenCategories: globalOuenCategories,
       ouenList: globalOuenList,
+      kounichan: globalKounichanSettings,
       kenchiko: {
         ...userBaseData.kenchiko,
         customImageUrl: globalKenchikoAvatar,
@@ -1662,6 +1679,68 @@ export async function saveGlobalOuenList(
     return { success: true, count: ouenList.length };
   } catch (err: any) {
     console.error('Failed to save global ouenList:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Saves kounichan settings EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
+ * This ensures that vehicles, illustrations, speed, direction, and master switch are shared across all users and devices.
+ */
+export async function saveGlobalKounichanSettings(
+  settings: import('../types/kounichan').KounichanSettings,
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanSettings = removeUndefinedDeep({
+      ...DEFAULT_KOUNICHAN_SETTINGS,
+      ...settings,
+      vehicles: {
+        ...DEFAULT_KOUNICHAN_SETTINGS.vehicles,
+        ...(settings.vehicles || {}),
+      },
+      stats: {
+        ...DEFAULT_KOUNICHAN_SETTINGS.stats,
+        ...(settings.stats || {}),
+      },
+    });
+
+    // 1. Immediately update local storage backup so changes are never lost locally
+    const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
+    const updatedLocal: GameSaveData = {
+      ...currentLocal,
+      kounichan: cleanSettings,
+      lastSaved: Date.now(),
+    };
+    saveLocalBackup(updatedLocal);
+
+    // 2. Initialize Firestore if needed
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) {
+        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+      }
+    }
+    if (!firestoreDb) {
+      return { success: false, error: 'Firestoreが初期化されていません' };
+    }
+
+    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+    const globalPayload = removeUndefinedDeep({
+      kounichan: cleanSettings,
+      lastSaved: Date.now(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await setDoc(globalDocRef, globalPayload, { merge: true });
+    sessionDbWriteCount++;
+    incrementDailyWriteCount();
+    notifyConnectionStatusChange(true);
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to save global kounichan settings:', err);
     return { success: false, error: err?.message || String(err) };
   }
 }

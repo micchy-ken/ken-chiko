@@ -21,6 +21,8 @@ import {
   RotateCcw,
   Sparkles,
   CheckCircle2,
+  AlertCircle,
+  Save,
   Settings,
   Image as ImageIcon,
   Sliders,
@@ -33,6 +35,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { saveGlobalKounichanSettings } from '../../services/firebaseSync';
 
 interface AdminKounichanEditorProps {
   saveData: GameSaveData;
@@ -61,6 +64,10 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
 
   // Sliced previews from sheet
   const [slicedPreviews, setSlicedPreviews] = useState<Record<KounichanVehicleId, string> | null>(null);
+
+  // Firestore Cloud Sync status
+  const [isSavingToFirestore, setIsSavingToFirestore] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Transparency options for slicing
   const [autoTrans, setAutoTrans] = useState(true);
@@ -98,6 +105,38 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
         colors: ['#C8744E', '#F59E0B', '#3B82F6'],
       });
     } catch (e) {}
+  };
+
+  /**
+   * Save Kounichan settings to Firestore Global Master (ken-chiko-global-state)
+   */
+  const handleSaveToFirestore = async () => {
+    setIsSavingToFirestore(true);
+    setSaveStatus(null);
+    try {
+      const res = await saveGlobalKounichanSettings(settings);
+      if (res.success) {
+        setSaveStatus({
+          type: 'success',
+          message: '共通データベース（Firestore）に正常に保存しました！全ユーザー・全端末に反映されます。',
+        });
+        try {
+          confetti({ particleCount: 50, spread: 80, origin: { y: 0.5 } });
+        } catch (e) {}
+      } else {
+        setSaveStatus({
+          type: 'error',
+          message: res.error || 'Firestoreへの保存に失敗しました。',
+        });
+      }
+    } catch (err: any) {
+      setSaveStatus({
+        type: 'error',
+        message: err?.message || 'Firestore保存中にエラーが発生しました。',
+      });
+    } finally {
+      setIsSavingToFirestore(false);
+    }
   };
 
   /**
@@ -141,14 +180,28 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
             const startX = col * cellW;
             const startY = row * cellH;
 
+            // Downscale to web-optimized retina size (max 320x320) so all 6 vehicles fit safely in Firestore
+            const maxDim = 320;
+            let targetW = cellW;
+            let targetH = cellH;
+            if (targetW > maxDim || targetH > maxDim) {
+              if (targetW > targetH) {
+                targetH = Math.round((targetH * maxDim) / targetW);
+                targetW = maxDim;
+              } else {
+                targetW = Math.round((targetW * maxDim) / targetH);
+                targetH = maxDim;
+              }
+            }
+
             // Crop the individual vehicle
             const cropCanvas = document.createElement('canvas');
-            cropCanvas.width = cellW;
-            cropCanvas.height = cellH;
+            cropCanvas.width = targetW;
+            cropCanvas.height = targetH;
             const ctx = cropCanvas.getContext('2d');
             if (!ctx) return;
 
-            ctx.drawImage(img, startX, startY, cellW, cellH, 0, 0, cellW, cellH);
+            ctx.drawImage(img, startX, startY, cellW, cellH, 0, 0, targetW, targetH);
 
             // Apply smart transparency
             let finalCanvas = cropCanvas;
@@ -221,12 +274,25 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
 
       const img = new Image();
       img.onload = () => {
+        const maxDim = 360;
+        let targetW = img.naturalWidth;
+        let targetH = img.naturalHeight;
+        if (targetW > maxDim || targetH > maxDim) {
+          if (targetW > targetH) {
+            targetH = Math.round((targetH * maxDim) / targetW);
+            targetW = maxDim;
+          } else {
+            targetW = Math.round((targetW * maxDim) / targetH);
+            targetH = maxDim;
+          }
+        }
+
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+        canvas.width = targetW;
+        canvas.height = targetH;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, targetW, targetH);
 
         let finalCanvas = canvas;
         if (autoTrans) {
@@ -302,20 +368,56 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSaveToFirestore}
+              disabled={isSavingToFirestore}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>{isSavingToFirestore ? 'DBに保存中...' : '💾 データベース（Firestore共通）に保存'}</span>
+            </button>
             <button
               type="button"
               onClick={() => {
                 testTrackRef.current?.scrollIntoView({ behavior: 'smooth' });
                 handleTestRun();
               }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>テストコースで走らせる</span>
             </button>
           </div>
         </div>
+
+        {/* Save Status Notification Banner */}
+        {saveStatus && (
+          <div
+            className={`mt-2 mb-3 p-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-bold ${
+              saveStatus.type === 'success'
+                ? 'bg-[#EBF7F0] border-[#A8D5BA] text-[#2D5A3F]'
+                : 'bg-[#FFF2F0] border-[#F0A8A0] text-[#8C2E24]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {saveStatus.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-[#487560]" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 text-[#D4736A]" />
+              )}
+              <span>{saveStatus.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSaveStatus(null)}
+              className="text-xs opacity-70 hover:opacity-100 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Master ON/OFF Toggle Bar (Prompt: 一度無効にして！管理画面の無効をオンにして！) */}
         <div
@@ -889,17 +991,31 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
       {/* ========================================================================= */}
       {/* SECTION 3: Global Appearance & Spawn Frequency Settings                   */}
       {/* ========================================================================= */}
-      <div className="bg-[#FFFDF9] p-4 sm:p-5 rounded-2xl border-2 border-[#DDD7C8] shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="bg-[#FFFDF9] p-4 sm:p-5 rounded-2xl border-2 border-[#DDD7C8] shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EAE5D9] pb-3">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-[#C8744E]" />
-            <h4 className="text-xs sm:text-sm font-black text-[#2E2824] font-handwriting">
-              全体動作・出現頻度設定
-            </h4>
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-[#2E2824] font-handwriting">
+                全体動作・走行方向・出現頻度設定
+              </h4>
+              <p className="text-[11px] text-[#7A6B63]">
+                設定を変更した後は「💾 データベース（Firestore共通）に保存」を押すと全端末・全ユーザーに即時反映されます。
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={handleSaveToFirestore}
+            disabled={isSavingToFirestore}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
+          >
+            <Save className="w-4 h-4" />
+            <span>{isSavingToFirestore ? 'DB保存中...' : '💾 データベースに保存'}</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
           <div>
             <label className="font-bold text-[#5C544D] block mb-1">
               こうにちゃんの登場設定
@@ -914,7 +1030,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
                   className="text-red-600 focus:ring-red-600"
                 />
                 <span className={!settings.enabled ? 'text-red-700 font-black' : ''}>
-                  🛑 無効にする（登場させない）
+                  🛑 無効にする
                 </span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-[#3E3833]">
@@ -932,6 +1048,26 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
             </div>
             <p className="text-[11px] text-[#7A6B63] mt-1">
               ※無効時でもステージ上のトリプルタップ（素早く3回タップ）で検証走行が可能です。
+            </p>
+          </div>
+
+          <div>
+            <label className="font-bold text-[#5C544D] block mb-1">
+              走行方向（画面を横切る向き）
+            </label>
+            <select
+              value={settings.direction || 'rtl'}
+              onChange={(e) => {
+                const val = e.target.value as 'rtl' | 'ltr';
+                updateSettings((prev) => ({ ...prev, direction: val }));
+              }}
+              className="w-full text-xs font-bold px-3 py-1.5 rounded-xl border border-[#DDD7C8] bg-white text-[#3E3833] focus:outline-none focus:border-[#C8744E]"
+            >
+              <option value="rtl">➡️ 右から左へ走行（固定・デフォルト推奨）</option>
+              <option value="ltr">⬅️ 左から右へ走行</option>
+            </select>
+            <p className="text-[11px] text-[#7A6B63] mt-1">
+              ご指定の「右から左に固定」設定をデータベースに保存・保持します。
             </p>
           </div>
 

@@ -62,8 +62,8 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
   // Track state
   const [isRunning, setIsRunning] = useState(false);
   const [isDashing, setIsDashing] = useState(false);
-  const [progress, setProgress] = useState(0); // 0 to 100%
-  const [direction, setDirection] = useState<'ltr' | 'rtl'>('ltr');
+  const [progress, setProgress] = useState(108); // 108 down to -12% (Right to Left)
+  const [direction, setDirection] = useState<'ltr' | 'rtl'>('rtl');
   const [bubbles, setBubbles] = useState<TestBubble[]>([]);
   const [droppedGift, setDroppedGift] = useState<{
     id: number;
@@ -79,7 +79,7 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
 
   // Fullscreen top-layer overlay mode
   const [isScreenOverlayRunning, setIsScreenOverlayRunning] = useState(false);
-  const [overlayProgress, setOverlayProgress] = useState(-10);
+  const [overlayProgress, setOverlayProgress] = useState(112);
   const [overlayDashing, setOverlayDashing] = useState(false);
   const [overlayBubbles, setOverlayBubbles] = useState<TestBubble[]>([]);
   const [overlayGift, setOverlayGift] = useState<{ id: number; xPercent: number } | null>(null);
@@ -93,10 +93,10 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
   const overlayBubbleTimerRef = useRef<number>(0);
 
   // --- Start / Stop In-Track Test ---
-  const handleStartTest = (forcedDir?: 'ltr' | 'rtl') => {
-    const dir = forcedDir || direction;
+  const handleStartTest = () => {
+    const dir = settings?.direction || 'rtl';
     setDirection(dir);
-    setProgress(dir === 'ltr' ? -8 : 108);
+    setProgress(dir === 'ltr' ? -12 : 108);
     setIsDashing(false);
     setBubbles([]);
     setDroppedGift(null);
@@ -106,9 +106,10 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
   };
 
   const handleResetTest = () => {
+    const dir = settings?.direction || 'rtl';
     setIsRunning(false);
     setIsDashing(false);
-    setProgress(direction === 'ltr' ? -8 : 108);
+    setProgress(dir === 'ltr' ? -12 : 108);
     setBubbles([]);
     setDroppedGift(null);
   };
@@ -119,13 +120,13 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
       if (e.detail?.vehicleId) {
         onSelectVehicle(e.detail.vehicleId);
       }
-      handleStartTest('ltr');
+      handleStartTest();
     };
     window.addEventListener('kounichan:test_run' as any, onTestEvent);
     return () => {
       window.removeEventListener('kounichan:test_run' as any, onTestEvent);
     };
-  }, [direction, onSelectVehicle]);
+  }, [onSelectVehicle]);
 
   // --- Tap on vehicle to dash ---
   const handleTapVehicle = (e?: React.MouseEvent) => {
@@ -276,7 +277,7 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
   // --- Top-Level Screen Overlay Test Mode (z-[99999]) ---
   const handleStartScreenOverlay = () => {
     setIsScreenOverlayRunning(true);
-    setOverlayProgress(-12);
+    setOverlayProgress(112);
     setOverlayDashing(false);
     setOverlayBubbles([]);
     setOverlayGift(null);
@@ -306,10 +307,10 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
       overlayLastTimeRef.current = now;
 
       setOverlayProgress((prev) => {
-        const next = prev + speedPerSec * dt;
-        if (next >= 115) {
+        const next = prev - speedPerSec * dt;
+        if (next <= -15) {
           setIsScreenOverlayRunning(false);
-          return 115;
+          return -15;
         }
         return next;
       });
@@ -328,7 +329,7 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
           id: Date.now() + Math.random(),
           text,
           imgUrl: vehicle.customOnomatopoeiaImageUrl,
-          xPercent: overlayProgress - 5,
+          xPercent: overlayProgress + 6,
           yPx: Math.random() * 14 - 7,
         };
         setOverlayBubbles((prev) => [...prev.slice(-3), newBubble]);
@@ -459,14 +460,14 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
           <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1 border-t-2 border-dashed border-[#FFFDF9]/60" />
 
           {/* Distance Track Markers */}
-          <div className="absolute top-1.5 left-4 text-[9px] font-mono font-bold text-[#DDD7C8]/70">
-            🏁 START
+          <div className="absolute top-1.5 right-4 text-[9px] font-mono font-bold text-[#DDD7C8]/70">
+            🏁 START（右）
           </div>
           <div className="absolute top-1.5 left-1/2 -translate-x-1/2 text-[9px] font-mono font-bold text-[#DDD7C8]/70">
             50m
           </div>
-          <div className="absolute top-1.5 right-4 text-[9px] font-mono font-bold text-[#DDD7C8]/70">
-            GOAL 🏁
+          <div className="absolute top-1.5 left-4 text-[9px] font-mono font-bold text-[#DDD7C8]/70">
+            （左）GOAL 🏁
           </div>
         </div>
 
@@ -551,23 +552,14 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
           {!isRunning ? (
-            <>
-              <button
-                type="button"
-                onClick={() => handleStartTest('ltr')}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-black rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>▶️ 走行スタート（左→右）</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStartTest('rtl')}
-                className="flex items-center gap-1 px-3 py-2 bg-[#FAF8F5] hover:bg-[#EAE5D9] text-[#5C544D] text-xs font-bold rounded-xl border border-[#DDD7C8] transition active:scale-95 cursor-pointer"
-              >
-                <span>（右→左）</span>
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => handleStartTest()}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#C8744E] hover:bg-[#B3623D] text-white text-xs font-black rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>▶️ 走行スタート（{(settings.direction || 'rtl') === 'rtl' ? '右から左へ' : '左から右へ'}）</span>
+            </button>
           ) : (
             <>
               <button
@@ -594,6 +586,9 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
         <div className="flex items-center gap-2 text-[11px] font-handwriting text-[#7A6B63]">
           <span className="bg-[#FAF8F5] px-2.5 py-1 rounded-lg border border-[#EAE5D9]">
             選択中: <strong>{vehicle.name.split('（')[0]}</strong>
+          </span>
+          <span className="bg-[#FAF8F5] px-2.5 py-1 rounded-lg border border-[#EAE5D9]">
+            方向: <strong className="text-[#C8744E]">{(settings.direction || 'rtl') === 'rtl' ? '右→左（DB設定）' : '左→右（DB設定）'}</strong>
           </span>
           <span className="bg-[#FAF8F5] px-2.5 py-1 rounded-lg border border-[#EAE5D9]">
             状態:{' '}
@@ -735,7 +730,7 @@ export const AdminKounichanTestTrack: React.FC<AdminKounichanTestTrackProps> = (
                 vehicle={vehicle}
                 size={135}
                 isDashing={overlayDashing}
-                direction="ltr"
+                direction="rtl"
               />
             </div>
           </div>,

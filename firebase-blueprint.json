@@ -37,6 +37,10 @@
           "type": "array",
           "description": "Custom ouen cheer messages"
         },
+        "kounichan": {
+          "type": "object",
+          "description": "Kounichan settings including master switch, running direction (rtl/ltr), frequency, vehicle configs, and appearance"
+        },
         "kihonNyanCustomImageUrl": {
           "type": "string",
           "description": "Custom image URL for Kihon Nyan"
@@ -173,6 +177,10 @@
     "/kenchiko_world/{docId}": {
       "schema": "UserProgress",
       "description": "User game state and progress document in the kenchiko_world collection"
+    },
+    "/kenchiko_world/ken-chiko-global-state": {
+      "schema": "UserProgress",
+      "description": "Global shared master state including shared asobiList, ouenList, ouenCategories, kounichan settings (direction, master switch, vehicles), and global appearance"
     },
     "/kenchiko_world/ken-chiko-master-meta": {
       "schema": "MasterMeta",
