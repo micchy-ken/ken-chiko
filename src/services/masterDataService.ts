@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { NyanCharacter } from '../types';
+import { NyanCharacter, GameMasterData } from '../types';
+import { DEFAULT_MASTER_DATA } from './storage';
 import { getFirestoreDbInstance, initFirebase } from './firebaseSync';
 
 export interface KenchikoMasterMeta {
@@ -17,10 +18,12 @@ export interface KenchikoMasterNyansDoc {
 
 export const MASTER_META_DOC_ID = 'ken-chiko-master-meta';
 export const MASTER_NYANS_DOC_ID = 'ken-chiko-master-nyans';
+export const GLOBAL_MASTER_DOC_ID = 'ken-chiko-global-master';
 export const FIRESTORE_COLLECTION = 'kenchiko_world';
 
 const CACHED_MASTER_VERSION_KEY = 'kenchiko_cached_master_version_v1';
 const CACHED_MASTER_NYANS_KEY = 'kenchiko_cached_master_nyans_v1';
+const LOCAL_GLOBAL_MASTER_KEY = 'kenchiko_global_master_data_v1';
 
 /**
  * Remove undefined properties deeply for Firestore compatibility
@@ -38,6 +41,39 @@ function sanitizeForFirestore(obj: any): any {
     }
   }
   return result;
+}
+
+/**
+ * Load local master data (draft or cached)
+ */
+export function loadLocalMasterData(): GameMasterData {
+  try {
+    const raw = localStorage.getItem(LOCAL_GLOBAL_MASTER_KEY);
+    if (!raw) return DEFAULT_MASTER_DATA;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_MASTER_DATA,
+      ...parsed,
+      characters: Array.isArray(parsed.characters) && parsed.characters.length > 0 ? parsed.characters : DEFAULT_MASTER_DATA.characters,
+      asobiList: Array.isArray(parsed.asobiList) ? parsed.asobiList : DEFAULT_MASTER_DATA.asobiList,
+      ouenCategories: Array.isArray(parsed.ouenCategories) ? parsed.ouenCategories : DEFAULT_MASTER_DATA.ouenCategories,
+      ouenList: Array.isArray(parsed.ouenList) ? parsed.ouenList : DEFAULT_MASTER_DATA.ouenList,
+      kounichan: parsed.kounichan || DEFAULT_MASTER_DATA.kounichan,
+    };
+  } catch {
+    return DEFAULT_MASTER_DATA;
+  }
+}
+
+/**
+ * Save local master data (pure local draft; 0 network calls)
+ */
+export function saveLocalMasterData(master: GameMasterData): void {
+  try {
+    localStorage.setItem(LOCAL_GLOBAL_MASTER_KEY, JSON.stringify(master));
+  } catch (err) {
+    console.warn('saveLocalMasterData error:', err);
+  }
 }
 
 /**
@@ -106,6 +142,153 @@ export function setCachedMasterNyans(nyans: NyanCharacter[]): void {
 }
 
 /**
+ * Fetches the complete global master data from Firestore (1 Read operation).
+ */
+export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
+  try {
+    initFirebase();
+    const db = getFirestoreDbInstance();
+    if (!db) return null;
+
+    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    const snap = await getDoc(masterDocRef);
+    if (!snap.exists()) {
+      // Fallback: try fetching legacy master nyans doc
+      const legacyNyans = await fetchMasterNyans();
+      if (legacyNyans) {
+        return {
+          ...DEFAULT_MASTER_DATA,
+          version: legacyNyans.version,
+          characters: legacyNyans.nyans,
+          lastUpdated: Date.now(),
+        };
+      }
+      return null;
+    }
+
+    const data = snap.data();
+    return {
+      version: data.version || 1,
+      characters: Array.isArray(data.characters) ? data.characters : DEFAULT_MASTER_DATA.characters,
+      asobiList: Array.isArray(data.asobiList) ? data.asobiList : DEFAULT_MASTER_DATA.asobiList,
+      ouenCategories: Array.isArray(data.ouenCategories) ? data.ouenCategories : DEFAULT_MASTER_DATA.ouenCategories,
+      ouenList: Array.isArray(data.ouenList) ? data.ouenList : DEFAULT_MASTER_DATA.ouenList,
+      kounichan: data.kounichan || DEFAULT_MASTER_DATA.kounichan,
+      kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl,
+      googleDriveFolderUrl: data.googleDriveFolderUrl,
+      lastUpdated: data.lastUpdated || Date.now(),
+    };
+  } catch (err) {
+    console.warn('fetchGlobalMasterData warning:', err);
+    return null;
+  }
+}
+
+/**
+ * Administrator action: Publish the entire GameMasterData to Firestore in a single atomic batch.
+ * Exactly 2-3 document writes. 0 background intervals.
+ */
+export async function publishGlobalMasterData(
+  master: GameMasterData,
+  note?: string
+): Promise<{ success: boolean; version?: number; error?: string }> {
+  try {
+    initFirebase();
+    const db = getFirestoreDbInstance();
+    if (!db) {
+      return { success: false, error: 'Firebaseデータベースに接続できません' };
+    }
+
+    const currentMeta = await fetchMasterMeta();
+    const nextVersion = (currentMeta?.version || master.version || 0) + 1;
+    const now = Date.now();
+
+    const cleanCharacters: NyanCharacter[] = master.characters.map((n) => ({
+      no: n.no,
+      name: n.name || `にゃんこ #${n.no}`,
+      reading: n.reading || '',
+      motif: n.motif || '',
+      firstAppeared: n.firstAppeared || '',
+      episode: n.episode || '',
+      promptJa: n.promptJa || '',
+      promptEn: n.promptEn || '',
+      dialogue: n.dialogue,
+      dialogueMeaning: n.dialogueMeaning,
+      discovered: false,
+      discoveryDate: undefined,
+      friendshipLevel: 1,
+      playCount: 0,
+      lastMetAt: 0,
+      customImageUrl: n.customImageUrl || undefined,
+      rawImageUrl: n.rawImageUrl || undefined,
+      transparency: n.transparency || undefined,
+      favoriteItems: n.favoriteItems,
+      favoriteLocations: n.favoriteLocations,
+    }));
+
+    const globalMasterPayload = {
+      version: nextVersion,
+      characters: cleanCharacters,
+      asobiList: master.asobiList || [],
+      ouenCategories: master.ouenCategories || [],
+      ouenList: master.ouenList || [],
+      kounichan: master.kounichan,
+      kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
+      googleDriveFolderUrl: master.googleDriveFolderUrl || null,
+      lastUpdated: now,
+      note: note || `管理画面より一括マスター公開 (${cleanCharacters.length}体)`,
+    };
+
+    // 1. Write consolidated global master document
+    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    await setDoc(masterDocRef, sanitizeForFirestore(globalMasterPayload));
+
+    // 2. Write master nyans doc (for backward compatibility)
+    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
+    await setDoc(
+      nyansRef,
+      sanitizeForFirestore({
+        version: nextVersion,
+        updatedAt: now,
+        nyans: cleanCharacters,
+      })
+    );
+
+    // 3. Write metadata document
+    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
+    const metaPayload: KenchikoMasterMeta = {
+      version: nextVersion,
+      updatedAt: now,
+      nyanCount: cleanCharacters.length,
+      lastUpdatedNote: note || `管理画面より公開 (${cleanCharacters.length}匹)`,
+    };
+    await setDoc(metaRef, sanitizeForFirestore(metaPayload));
+
+    // Update local caches
+    const updatedMaster: GameMasterData = {
+      ...master,
+      version: nextVersion,
+      characters: cleanCharacters,
+      lastUpdated: now,
+    };
+    saveLocalMasterData(updatedMaster);
+    setCachedMasterVersion(nextVersion);
+    setCachedMasterNyans(cleanCharacters);
+
+    return {
+      success: true,
+      version: nextVersion,
+    };
+  } catch (err: any) {
+    console.error('publishGlobalMasterData error:', err);
+    return {
+      success: false,
+      error: err.message || 'マスターデータの公開中にエラーが発生しました',
+    };
+  }
+}
+
+/**
  * Fetches the lightweight master metadata document from Firestore (1 Read operation).
  */
 export async function fetchMasterMeta(): Promise<KenchikoMasterMeta | null> {
@@ -157,90 +340,23 @@ export async function fetchMasterNyans(): Promise<{ version: number; nyans: Nyan
 }
 
 /**
- * Administrator action: Publish the current characters list to Firestore as the new official master.
- * Automatically increments version and writes both meta and full character records.
+ * Administrator action: Publish characters list to Firestore (compat wrapper around publishGlobalMasterData).
  */
 export async function publishMasterData(
   nyans: NyanCharacter[],
   note?: string
 ): Promise<{ success: boolean; version?: number; count?: number; error?: string }> {
-  try {
-    if (!nyans || nyans.length === 0) {
-      return { success: false, error: '公開するにゃんこデータが空です' };
-    }
-
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
-    // Get current version
-    const currentMeta = await fetchMasterMeta();
-    const nextVersion = (currentMeta?.version || 0) + 1;
-    const now = Date.now();
-
-    // Prepare master characters array with clean fields (defaulting discovered=false for clean distribution)
-    const masterNyansList: NyanCharacter[] = nyans.map((n) => ({
-      no: n.no,
-      name: n.name || `にゃんこ #${n.no}`,
-      reading: n.reading || '',
-      motif: n.motif || '',
-      firstAppeared: n.firstAppeared || '',
-      episode: n.episode || '',
-      promptJa: n.promptJa || '',
-      promptEn: n.promptEn || '',
-      dialogue: n.dialogue,
-      dialogueMeaning: n.dialogueMeaning,
-      discovered: false,
-      discoveryDate: undefined,
-      friendshipLevel: 1,
-      playCount: 0,
-      lastMetAt: 0,
-      customImageUrl: n.customImageUrl || undefined,
-      rawImageUrl: n.rawImageUrl || undefined,
-      transparency: n.transparency || undefined,
-      favoriteItems: n.favoriteItems,
-      favoriteLocations: n.favoriteLocations,
-    }));
-
-    // 1. Write characters document
-    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
-    await setDoc(
-      nyansRef,
-      sanitizeForFirestore({
-        version: nextVersion,
-        updatedAt: now,
-        nyans: masterNyansList,
-      })
-    );
-
-    // 2. Write metadata document
-    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
-    const metaPayload: KenchikoMasterMeta = {
-      version: nextVersion,
-      updatedAt: now,
-      nyanCount: masterNyansList.length,
-      lastUpdatedNote: note || `管理画面より公開 (${masterNyansList.length}匹)`,
-    };
-    await setDoc(metaRef, sanitizeForFirestore(metaPayload));
-
-    // Update local cache
-    setCachedMasterVersion(nextVersion);
-    setCachedMasterNyans(masterNyansList);
-
-    return {
-      success: true,
-      version: nextVersion,
-      count: masterNyansList.length,
-    };
-  } catch (err: any) {
-    console.error('publishMasterData error:', err);
-    return {
-      success: false,
-      error: err.message || 'マスターデータの公開中にエラーが発生しました',
-    };
-  }
+  const currentMaster = loadLocalMasterData();
+  const res = await publishGlobalMasterData({
+    ...currentMaster,
+    characters: nyans,
+  }, note);
+  return {
+    success: res.success,
+    version: res.version,
+    count: nyans.length,
+    error: res.error,
+  };
 }
 
 /**

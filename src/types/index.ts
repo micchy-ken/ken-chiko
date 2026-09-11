@@ -187,6 +187,43 @@ export interface OuenItem {
   updatedAt?: number;
 }
 
+export interface GameMasterData {
+  version: number;
+  characters: NyanCharacter[]; // 図鑑マスター
+  asobiList: KenchikoAsobi[]; // あそびマスター
+  ouenCategories: OuenCategory[]; // 応援カテゴリー
+  ouenList: OuenItem[]; // 応援セリフ
+  kounichan: import('./kounichan').KounichanSettings; // こうにちゃん・乗り物マスター
+  kihonNyanCustomImageUrl?: string;
+  googleDriveFolderUrl?: string;
+  lastUpdated: number;
+}
+
+export interface UserProgressData {
+  version: number;
+  userId?: string;
+  kenchiko: KenchikoState;
+  discoveredNyanNos: number[];
+  nyanProgress: Record<number, {
+    discovered: boolean;
+    discoveryDate?: string;
+    friendshipLevel: number;
+    playCount: number;
+    lastMetAt?: number;
+    customImageUrl?: string;
+  }>;
+  inventory: GiftItem[];
+  diary: DiaryEntry[];
+  stats: {
+    totalEncounters: number;
+    totalSnacksEaten: number;
+    totalNapMinutes: number;
+    totalTrips: number;
+  };
+  rewards?: import('./rewards').UserRewardState;
+  lastSaved: number;
+}
+
 export interface GameSaveData {
   version: number;
   kenchiko: KenchikoState;

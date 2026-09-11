@@ -125,7 +125,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
   const sheetViewerRef = useRef<HTMLDivElement | null>(null);
   const loadedImageRef = useRef<HTMLImageElement | null>(null);
 
-  // Helper to update settings
+  // Helper to update settings (pure local draft)
   const updateSettings = (updater: (prev: KounichanSettings) => KounichanSettings) => {
     onUpdateSaveData((prev) => {
       const current = prev.kounichan || DEFAULT_KOUNICHAN_SETTINGS;
@@ -133,7 +133,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
         ...prev,
         kounichan: updater(current),
       };
-    }, true);
+    }, false);
   };
 
   // Trigger test run on stage

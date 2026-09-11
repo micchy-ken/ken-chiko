@@ -364,26 +364,14 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormNotice('☁️ Firestoreマスターと端末データを同期中...');
 
     try {
-      // 1. Update save data
+      // 1. Update save data locally (0 network calls)
       onUpdateSaveData((prev) => ({
         ...prev,
         characters: updatedCharacters,
         lastSaved: Date.now(),
-      }), true);
+      }), false);
 
-      // 2. Publish to official Firestore master so ALL environments and users receive it immediately!
-      const pubRes = await publishMasterData(
-        updatedCharacters,
-        `No.${formNo} ${formName} ${formCustomImageUrl ? '画像・情報更新' : 'デフォルト画像へ復帰'}`
-      );
-
-      if (pubRes.success) {
-        setNotice(`🎉 「No.${formNo} ${formName}」の保存と公式マスター（Firestore v${pubRes.version}）への配信が完了しました！他環境でも即時反映されます。`);
-        fetchMasterMeta().then(setMasterMeta).catch(() => {});
-      } else {
-        setNotice(`✅ 「No.${formNo} ${formName}」をローカルに保存しました（※マスター更新: ${pubRes.error || '保留'}）`);
-      }
-
+      setNotice(`✅ 「No.${formNo} ${formName}」を作業ドラフトに保存しました。「Firestoreマスター公開」ボタンで全ユーザーへ配信できます。`);
       handleCloseModal();
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
     } catch (err: any) {
@@ -478,7 +466,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         characters: updated,
         lastSaved: Date.now(),
       };
-    }, true);
+    }, false);
     setNotice(`No.${no} の発見状態を「${!current ? '発見済み' : '未発見'}」に変更しました。`);
   };
 
@@ -486,7 +474,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const handleDeleteCharacter = (no: number, name: string) => {
     openConfirm(
       'にゃんこキャラクターの削除',
-      `「No.${no} ${name}」を図鑑およびFirebaseから完全に削除しますか？\n（この操作は取り消せません）`,
+      `「No.${no} ${name}」を図鑑から削除しますか？\n※確定するには「マスターデータを公開」を押してください。`,
       () => {
         onUpdateSaveData((prev) => {
           const updated = prev.characters.filter((c) => c.no !== no);
@@ -495,11 +483,11 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             characters: updated,
             lastSaved: Date.now(),
           };
-        }, true);
+        }, false);
         if (editingNyan && editingNyan.no === no) {
           handleCloseModal();
         }
-        setNotice(`🗑️ 「No.${no} ${name}」を削除しました。`);
+        setNotice(`🗑️ 「No.${no} ${name}」をドラフトから削除しました。`);
       }
     );
   };
@@ -521,7 +509,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             characters: updated,
             lastSaved: Date.now(),
           };
-        }, true);
+        }, false);
         setNotice('🎉 全ての◯◯にゃんを発見済みに更新しました！');
         confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
       }
@@ -545,7 +533,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             characters: updated,
             lastSaved: Date.now(),
           };
-        }, true);
+        }, false);
         setNotice('🔄 発見状態を初期状態（No.1〜8発見済み）にリセットしました。');
       }
     );

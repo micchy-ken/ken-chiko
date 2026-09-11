@@ -1,11 +1,22 @@
-import { GameSaveData, DEFAULT_KOUNICHAN_SETTINGS } from '../types';
+import { GameSaveData, GameMasterData, UserProgressData, DEFAULT_KOUNICHAN_SETTINGS } from '../types';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
 import { DEFAULT_GOOGLE_DRIVE_FOLDER_URL } from './googleDriveFolderSync';
 
-export const DEFAULT_INITIAL_STATE: GameSaveData = {
+export const DEFAULT_MASTER_DATA: GameMasterData = {
+  version: 1,
+  characters: INITIAL_NYANS,
+  asobiList: INITIAL_ASOBI_LIST,
+  ouenCategories: INITIAL_OUEN_CATEGORIES,
+  ouenList: INITIAL_OUEN_LIST,
+  kounichan: DEFAULT_KOUNICHAN_SETTINGS,
+  googleDriveFolderUrl: DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
+  lastUpdated: Date.now(),
+};
+
+export const DEFAULT_USER_PROGRESS: UserProgressData = {
   version: 1,
   kenchiko: {
     currentLocation: 'living',
@@ -25,12 +36,9 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     equippedItem: null,
     totalPlayTimeSec: 0,
   },
-  characters: INITIAL_NYANS,
-  googleDriveFolderUrl: DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
+  discoveredNyanNos: [],
+  nyanProgress: {},
   inventory: INITIAL_ITEMS,
-  asobiList: INITIAL_ASOBI_LIST,
-  ouenCategories: INITIAL_OUEN_CATEGORIES,
-  ouenList: INITIAL_OUEN_LIST,
   diary: [],
   stats: {
     totalEncounters: 0,
@@ -47,6 +55,26 @@ export const DEFAULT_INITIAL_STATE: GameSaveData = {
     tickets: [],
     history: [],
   },
+  lastSaved: Date.now(),
+};
+
+export const DEFAULT_INITIAL_STATE: GameSaveData = {
+  version: 1,
+  kenchiko: DEFAULT_USER_PROGRESS.kenchiko,
+  characters: INITIAL_NYANS,
+  googleDriveFolderUrl: DEFAULT_GOOGLE_DRIVE_FOLDER_URL,
+  inventory: INITIAL_ITEMS,
+  asobiList: INITIAL_ASOBI_LIST,
+  ouenCategories: INITIAL_OUEN_CATEGORIES,
+  ouenList: INITIAL_OUEN_LIST,
+  diary: [],
+  stats: {
+    totalEncounters: 0,
+    totalSnacksEaten: 0,
+    totalNapMinutes: 0,
+    totalTrips: 0,
+  },
+  rewards: DEFAULT_USER_PROGRESS.rewards,
   kounichan: DEFAULT_KOUNICHAN_SETTINGS,
   lastSaved: Date.now(),
   githubRepo: 'ken-chiko',

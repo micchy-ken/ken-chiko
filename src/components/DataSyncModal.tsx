@@ -42,8 +42,10 @@ import {
 import {
   fetchMasterMeta,
   publishMasterData,
+  publishGlobalMasterData,
   KenchikoMasterMeta,
 } from '../services/masterDataService';
+import { GameMasterData } from '../types';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
 import { KihonNyanCat } from './KihonNyanCat';
@@ -245,12 +247,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const handlePublishMaster = async (customNote?: string) => {
     setIsPublishingMaster(true);
-    setMasterPublishStatus('🚀 Firestoreへ全ユーザー向け公式マスターを公開・配信中...');
-    const res = await publishMasterData(characters, customNote);
+    setMasterPublishStatus('🚀 全マスターデータ（図鑑・あそび・応援・こうにちゃん・画像）をFirestoreへ一括公開中...');
+    
+    const masterPayload: GameMasterData = {
+      version: masterMeta?.version || 1,
+      characters: characters,
+      asobiList: asobiList,
+      ouenCategories: saveData.ouenCategories || [],
+      ouenList: saveData.ouenList || [],
+      kounichan: saveData.kounichan,
+      kihonNyanCustomImageUrl: saveData.kihonNyanCustomImageUrl,
+      googleDriveFolderUrl: saveData.googleDriveFolderUrl,
+      lastUpdated: Date.now(),
+    };
+
+    const res = await publishGlobalMasterData(masterPayload, customNote || '管理画面より一括マスター公開');
     setIsPublishingMaster(false);
     if (res.success) {
       setMasterPublishStatus(
-        `🎉 公開完了！ バージョン v${res.version} (全 ${res.count} 体) をFirestoreに配信しました。全ユーザーの次回アクセス時に自動配信されます。`
+        `🎉 公開完了！ 公式マスター v${res.version} をFirestoreに単一トランザクションで安全配信しました。全端末で即時同期されます。`
       );
       loadCurrentMasterMeta();
       confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
@@ -1309,6 +1324,64 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Tab Content Body */}
         <div className={isStandalone ? 'p-4 sm:p-6 overflow-y-auto space-y-4 flex-1' : 'p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]'}>
+          {/* Global Master Publication & Isolation Control Banner */}
+          <div className="bg-[#FFFDF9] p-3.5 sm:p-4 rounded-2xl border-2 border-[#487560]/30 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[#E8F3ED] text-[#487560] shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black text-[#2E2824] font-handwriting">
+                    マスターデータ完全分離モード（ドラフト作業中）
+                  </span>
+                  <span className="bg-[#E8F3ED] text-[#34654D] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#BDE0CE]">
+                    編集中書き込み: 0回
+                  </span>
+                  {masterMeta?.version && (
+                    <span className="bg-[#FAF2EB] text-[#874A2E] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#F0D5C3]">
+                      公式マスター v{masterMeta.version}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#7A726A] mt-0.5">
+                  編集作業は端末の作業ドラフトに保持されます。全作業完了後に「Firestoreマスターへ一括公開」を押すことで、1回の通信で全ユーザーへ配信されます。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handlePublishMaster()}
+                disabled={isPublishingMaster}
+                className="w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting"
+              >
+                <Rocket className={`w-4 h-4 ${isPublishingMaster ? 'animate-spin' : ''}`} />
+                <span>{isPublishingMaster ? 'クラウドへ配信中...' : 'Firestoreマスターへ一括公開 (1回)'}</span>
+              </button>
+            </div>
+          </div>
+
+          {masterPublishStatus && (
+            <div
+              className={`p-3 rounded-xl text-xs font-bold border flex items-center justify-between animate-fadeIn ${
+                masterPublishStatus.startsWith('🎉')
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : masterPublishStatus.startsWith('🚀')
+                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                  : 'bg-red-50 text-red-800 border-red-200'
+              }`}
+            >
+              <span>{masterPublishStatus}</span>
+              <button
+                onClick={() => setMasterPublishStatus(null)}
+                className="text-gray-400 hover:text-gray-600 ml-2"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {/* ========================================================= */}
           {/* TAB 0: NYANKO ZUKAN & CHARACTER MASTER EDITOR */}
           {/* ========================================================= */}
