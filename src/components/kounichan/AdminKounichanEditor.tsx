@@ -43,7 +43,7 @@ import {
   Minimize2,
   RefreshCw,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../../utils/confetti';
 import { saveGlobalKounichanSettings } from '../../services/firebaseSync';
 
 interface AdminKounichanEditorProps {

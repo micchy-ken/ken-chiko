@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, Gift, Ticket, ArrowRight, Check, X } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import { GARAPON_COST } from '../types/rewards';
 
 interface InitialBonusModalProps {

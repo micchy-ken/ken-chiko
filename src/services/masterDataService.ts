@@ -382,7 +382,7 @@ export function mergeMasterWithCurrentProgress(
       // Master image is authoritative for official character art; prevent resurrecting removed/reset images
       customImageUrl: master.customImageUrl || undefined,
       rawImageUrl: master.rawImageUrl || undefined,
-      transparency: master.transparency ?? cur.transparency,
+      transparency: master.transparency || undefined,
     };
   });
 }

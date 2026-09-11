@@ -22,7 +22,7 @@ import {
   MessageCircleHeart,
   Layers,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 
 interface AdminOuenEditorProps {
   saveData: GameSaveData;

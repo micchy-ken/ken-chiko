@@ -3,7 +3,7 @@ import { LocationId, TransportMethod, KenchikoState } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
 import { LocationIllustration } from './LocationIllustration';
 import { X, Compass, Footprints, Bike, Car, CloudSun, Train, RefreshCw, Sparkles, MapPin } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 
 interface TravelModalProps {
   kenchiko: KenchikoState;

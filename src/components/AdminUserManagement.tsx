@@ -50,7 +50,7 @@ import {
 } from '../services/userService';
 import { NyanIllustration } from './NyanIllustration';
 import { getAssetUrl } from '../utils/assetPath';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 
 interface AdminUserManagementProps {
   characters: NyanCharacter[];

@@ -263,25 +263,7 @@ export function findMatchingDriveFile(
     }
   }
 
-  // Check 4: No + Name match (e.g. "01_ほむらにゃん", "No.1 ほむらにゃん", "088_ほむらにゃん")
-  for (const file of files) {
-    const raw = file.name.toLowerCase();
-    const noMatch = raw.match(/^(?:no\.?|#)?0*(\d+)[\s._\-ー]/i);
-    if (noMatch && noMatch[1] === nyanNoStr) {
-      return file;
-    }
-  }
-
-  // Check 5: Partial containment
-  if (normNyanName.length >= 3) {
-    for (const file of files) {
-      const normFileName = normalizeNameForMatch(file.name);
-      if (normFileName.includes(normNyanName) || normNyanName.includes(normFileName)) {
-        return file;
-      }
-    }
-  }
-
+  // Strictly require exact name/reading matches; do NOT guess by loose numbers or partial words
   return null;
 }
 

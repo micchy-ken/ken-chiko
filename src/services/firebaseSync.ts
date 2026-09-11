@@ -50,9 +50,6 @@ export interface NyanProgressEntry {
   lastMetAt?: number;
   friendshipLevel?: number;
   playCount?: number;
-  customImageUrl?: string;
-  rawImageUrl?: string;
-  transparency?: NyanTransparencyOptions;
 }
 
 /**
@@ -133,32 +130,20 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
 
   if (Array.isArray(data.characters)) {
     for (const char of data.characters) {
-      const hasCustomization =
+      const hasProgress =
         char.discovered ||
-        (char.friendshipLevel !== undefined && char.friendshipLevel > 0) ||
+        Boolean(char.discoveryDate) ||
+        (char.friendshipLevel !== undefined && char.friendshipLevel > 1) ||
         (char.playCount !== undefined && char.playCount > 0) ||
-        Boolean(char.customImageUrl) ||
-        Boolean(char.rawImageUrl) ||
-        Boolean(char.transparency);
+        Boolean(char.lastMetAt);
 
-      if (hasCustomization) {
+      if (hasProgress) {
         const entry: NyanProgressEntry = {};
         if (char.discovered !== undefined) entry.discovered = char.discovered;
         if (char.discoveryDate) entry.discoveryDate = char.discoveryDate;
         if (char.lastMetAt) entry.lastMetAt = char.lastMetAt;
         if (char.friendshipLevel !== undefined) entry.friendshipLevel = char.friendshipLevel;
         if (char.playCount !== undefined) entry.playCount = char.playCount;
-        if (char.rawImageUrl) entry.rawImageUrl = char.rawImageUrl;
-        if (char.transparency) entry.transparency = char.transparency;
-
-        // Custom image persistence:
-        // Allow external URLs (Google Drive / web) or compact data URLs (<= 60KB)
-        if (char.customImageUrl) {
-          const isTooLarge = char.customImageUrl.startsWith('data:image') && char.customImageUrl.length > 65000;
-          if (!isTooLarge) {
-            entry.customImageUrl = char.customImageUrl;
-          }
-        }
 
         nyanProgress[char.no] = entry;
       }
@@ -311,23 +296,25 @@ export function reconstructGameSaveData(
     charMap.set(master.no, { ...master });
   }
 
-  // 1. Legacy doc support: If remote doc has full `characters` array
+  // 1. Legacy doc support: If remote doc has full `characters` array (only adopt individual progress)
   if (Array.isArray(remoteDoc.characters) && remoteDoc.characters.length > 0) {
     for (const remoteChar of remoteDoc.characters) {
-      const base = charMap.get(remoteChar.no) || remoteChar;
-      charMap.set(remoteChar.no, {
-        ...base,
-        ...remoteChar,
-        name: base.name || remoteChar.name,
-        reading: base.reading || remoteChar.reading,
-        motif: base.motif || remoteChar.motif,
-        dialogue: base.dialogue || remoteChar.dialogue,
-        dialogueMeaning: base.dialogueMeaning || remoteChar.dialogueMeaning,
-      });
+      const base = charMap.get(remoteChar.no);
+      if (base) {
+        charMap.set(remoteChar.no, {
+          ...base,
+          discovered: remoteChar.discovered !== undefined ? remoteChar.discovered : base.discovered,
+          discoveryDate: remoteChar.discoveryDate || base.discoveryDate,
+          lastMetAt: remoteChar.lastMetAt || base.lastMetAt,
+          friendshipLevel: remoteChar.friendshipLevel !== undefined ? remoteChar.friendshipLevel : base.friendshipLevel,
+          playCount: remoteChar.playCount !== undefined ? remoteChar.playCount : base.playCount,
+          // Images and visual definitions strictly remain base (master data)
+        });
+      }
     }
   }
 
-  // 2. Modern compact schema: `nyanProgress` dictionary
+  // 2. Modern compact schema: `nyanProgress` dictionary (PROGRESS ONLY)
   if (remoteDoc.nyanProgress && typeof remoteDoc.nyanProgress === 'object') {
     for (const [key, prog] of Object.entries(remoteDoc.nyanProgress as Record<string, NyanProgressEntry>)) {
       const no = parseInt(key, 10);
@@ -341,9 +328,7 @@ export function reconstructGameSaveData(
           lastMetAt: prog.lastMetAt || base.lastMetAt,
           friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
           playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,
-          customImageUrl: prog.customImageUrl !== undefined ? (prog.customImageUrl || undefined) : (prog.rawImageUrl ? prog.rawImageUrl : base.customImageUrl),
-          rawImageUrl: prog.rawImageUrl !== undefined ? (prog.rawImageUrl || undefined) : base.rawImageUrl,
-          transparency: prog.transparency || base.transparency,
+          // Master image is authoritative; user progress NEVER carries or overrides character images
         });
       }
     }
@@ -1205,19 +1190,39 @@ export async function fetchInitialFirebaseState(
         : (localBackup?.kounichan || DEFAULT_KOUNICHAN_SETTINGS);
 
     // --- STEP 4: Assemble User-specific Progress Data ---
+    // 1. 公式マスターから最新キャラクターリストを取得
+    const masterNyans: NyanCharacter[] =
+      Array.isArray(globalRaw?.characters) && globalRaw.characters.length > 0
+        ? globalRaw.characters
+        : INITIAL_NYANS;
+
     let userBaseData: GameSaveData;
     if (userRaw && userRaw.kenchiko) {
-      userBaseData = reconstructGameSaveData(userRaw, INITIAL_NYANS);
+      userBaseData = reconstructGameSaveData(userRaw, masterNyans);
     } else if (localBackup) {
       userBaseData = localBackup;
     } else {
       userBaseData = DEFAULT_INITIAL_STATE;
     }
 
-    const mergedCharacters = mergeCharactersWithDefaults(
-      userBaseData.characters,
-      localBackup?.characters
-    );
+    // 2. 公式マスターの定義・画像を厳格な正本とし、ユーザーの進行度（発見・親密度など）のみをマージ
+    const progressMap = new Map((userBaseData.characters || []).map((c) => [c.no, c]));
+    const mergedCharacters: NyanCharacter[] = masterNyans.map((master) => {
+      const cur = progressMap.get(master.no);
+      if (!cur) return master;
+      return {
+        ...master,
+        discovered: Boolean(cur.discovered),
+        discoveryDate: cur.discoveryDate,
+        lastMetAt: cur.lastMetAt || 0,
+        friendshipLevel: Math.max(cur.friendshipLevel || 1, 1),
+        playCount: cur.playCount || 0,
+        // 画像と透過設定は公式マスターのみが唯一の正本
+        customImageUrl: master.customImageUrl || undefined,
+        rawImageUrl: master.rawImageUrl || undefined,
+        transparency: master.transparency,
+      };
+    });
 
     const mergedData: GameSaveData = {
       ...userBaseData,
@@ -1313,7 +1318,7 @@ export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
   const nyanStr = nyanKeys
     .map((k) => {
       const entry = doc.nyanProgress[Number(k)];
-      return `${k}:${entry.discovered ? 1 : 0}:${entry.friendshipLevel || 0}:${entry.playCount || 0}:${entry.customImageUrl || ''}:${entry.rawImageUrl || ''}`;
+      return `${k}:${entry.discovered ? 1 : 0}:${entry.friendshipLevel || 0}:${entry.playCount || 0}`;
     })
     .join(';');
 

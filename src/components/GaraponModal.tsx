@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 import {
   X,
   Sparkles,

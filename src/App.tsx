@@ -92,7 +92,7 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from './utils/confetti';
 
 /**
  * Safely parse date string or numeric timestamp into milliseconds

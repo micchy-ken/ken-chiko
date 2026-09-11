@@ -9,7 +9,7 @@ import {
 import { NyanCharacter } from '../../types';
 import { KounichanVehicleIllustration } from './KounichanVehicleIllustration';
 import { getAssetUrl } from '../../utils/assetPath';
-import confetti from 'canvas-confetti';
+import confetti from '../../utils/confetti';
 import {
   Play,
   RotateCcw,

@@ -31,7 +31,7 @@ import {
   Cloud,
   Rocket,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 import {
   compressAndResizeImage,
   TransparencyOptions,
@@ -361,22 +361,34 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     }
 
     setIsSavingCharacter(true);
-    setFormNotice('☁️ Firestoreマスターと端末データを同期中...');
+    setFormNotice('☁️ Firestoreマスターに直接保存・反映中...');
 
     try {
-      // 1. Update save data locally (0 network calls)
+      // 1. Update save data locally
       onUpdateSaveData((prev) => ({
         ...prev,
         characters: updatedCharacters,
         lastSaved: Date.now(),
       }), false);
 
-      setNotice(`✅ 「No.${formNo} ${formName}」を作業ドラフトに保存しました。「Firestoreマスター公開」ボタンで全ユーザーへ配信できます。`);
+      // 2. Direct authoritative write to Firestore Global Master
+      const masterRes = await publishMasterData(
+        updatedCharacters,
+        `キャラクター編集: No.${formNo} ${formName}`
+      );
+
+      if (masterRes.success) {
+        setNotice(`✅ 「No.${formNo} ${formName}」をFirestore公式マスターに保存・反映しました！（v${masterRes.version}）`);
+        fetchMasterMeta().then(setMasterMeta).catch(() => {});
+      } else {
+        setNotice(`⚠️ ローカル保存完了（マスター同期注意: ${masterRes.error || '不明なエラー'}）`);
+      }
+
       handleCloseModal();
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
     } catch (err: any) {
-      console.error('Failed to save character:', err);
-      setNotice(`⚠️ 保存中に注意: ${err?.message || String(err)}`);
+      console.error('Failed to save character to master:', err);
+      setNotice(`⚠️ 保存中にエラー: ${err?.message || String(err)}`);
       handleCloseModal();
     } finally {
       setIsSavingCharacter(false);
@@ -474,20 +486,25 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const handleDeleteCharacter = (no: number, name: string) => {
     openConfirm(
       'にゃんこキャラクターの削除',
-      `「No.${no} ${name}」を図鑑から削除しますか？\n※確定するには「マスターデータを公開」を押してください。`,
-      () => {
-        onUpdateSaveData((prev) => {
-          const updated = prev.characters.filter((c) => c.no !== no);
-          return {
-            ...prev,
-            characters: updated,
-            lastSaved: Date.now(),
-          };
-        }, false);
+      `「No.${no} ${name}」を図鑑およびFirestoreマスターから削除しますか？`,
+      async () => {
+        const updated = characters.filter((c) => c.no !== no);
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          characters: updated,
+          lastSaved: Date.now(),
+        }), false);
         if (editingNyan && editingNyan.no === no) {
           handleCloseModal();
         }
-        setNotice(`🗑️ 「No.${no} ${name}」をドラフトから削除しました。`);
+        setNotice(`🗑️ 「No.${no} ${name}」をマスターから削除中...`);
+        const res = await publishMasterData(updated, `キャラクター削除: No.${no} ${name}`);
+        if (res.success) {
+          setNotice(`🗑️ 「No.${no} ${name}」を図鑑およびFirestoreマスターから完全に削除しました。(v${res.version})`);
+          fetchMasterMeta().then(setMasterMeta).catch(() => {});
+        } else {
+          setNotice(`⚠️ ローカル削除完了（マスター同期エラー: ${res.error || '不明'}）`);
+        }
       }
     );
   };
@@ -1522,7 +1539,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   ) : (
                     <Save className="w-4 h-4" />
                   )}
-                  <span>{isSavingCharacter ? '同期中...' : '保存してFirebaseに反映'}</span>
+                  <span>{isSavingCharacter ? '公式マスターへ同期中...' : '保存してFirestoreマスターに即時反映'}</span>
                 </button>
               </div>
             </div>

@@ -16,7 +16,7 @@ import {
   BookMarked,
   CheckCircle2,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../utils/confetti';
 
 interface TutorialModalProps {
   isOpen: boolean;

@@ -3,7 +3,7 @@ import { KounichanSettings, KounichanVehicleConfig, KounichanVehicleId } from '.
 import { NyanCharacter } from '../../types';
 import { KounichanVehicleIllustration } from './KounichanVehicleIllustration';
 import { Gift, Sparkles, Heart, Zap, Star } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import confetti from '../../utils/confetti';
 import { getAssetUrl } from '../../utils/assetPath';
 
 interface KounichanCrossStageProps {

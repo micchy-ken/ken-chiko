@@ -210,7 +210,6 @@ export interface UserProgressData {
     friendshipLevel: number;
     playCount: number;
     lastMetAt?: number;
-    customImageUrl?: string;
   }>;
   inventory: GiftItem[];
   diary: DiaryEntry[];
