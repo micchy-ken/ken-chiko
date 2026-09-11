@@ -40,6 +40,7 @@ import {
   endInitialConnectionPhase,
   FirebaseConnectionStatus,
   deduplicateDiary,
+  isCloudAutoSyncEnabled,
 } from './services/firebaseSync';
 import {
   getSavedGoogleDocUrl,
@@ -863,7 +864,7 @@ export default function App() {
           };
 
           saveLocalBackup(nextData);
-          if (isNewlyDiscoveredNyan) {
+          if (isNewlyDiscoveredNyan && isCloudAutoSyncEnabled()) {
             syncSaveDataToFirebase(nextData, true).catch((err) => {
               console.warn('Discovered nyan cloud sync note:', err);
             });

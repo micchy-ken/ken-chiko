@@ -679,9 +679,10 @@ export function incrementDailyWriteCount(): number {
 export function isCloudAutoSyncEnabled(): boolean {
   try {
     const val = localStorage.getItem(AUTO_SYNC_ENABLED_KEY);
-    return val === null ? true : val === 'true';
+    // Explicit opt-in only: default to false to strictly prevent unauthorized Firestore writes
+    return val === 'true';
   } catch {
-    return true;
+    return false;
   }
 }
 

@@ -239,30 +239,9 @@ export async function publishGlobalMasterData(
       note: note || `管理画面より一括マスター公開 (${cleanCharacters.length}体)`,
     };
 
-    // 1. Write consolidated global master document
+    // 1. Write consolidated global master document (EXACTLY 1 single document write in Firestore!)
     const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
     await setDoc(masterDocRef, sanitizeForFirestore(globalMasterPayload));
-
-    // 2. Write master nyans doc (for backward compatibility)
-    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
-    await setDoc(
-      nyansRef,
-      sanitizeForFirestore({
-        version: nextVersion,
-        updatedAt: now,
-        nyans: cleanCharacters,
-      })
-    );
-
-    // 3. Write metadata document
-    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
-    const metaPayload: KenchikoMasterMeta = {
-      version: nextVersion,
-      updatedAt: now,
-      nyanCount: cleanCharacters.length,
-      lastUpdatedNote: note || `管理画面より公開 (${cleanCharacters.length}匹)`,
-    };
-    await setDoc(metaRef, sanitizeForFirestore(metaPayload));
 
     // Update local caches
     const updatedMaster: GameMasterData = {
@@ -274,6 +253,8 @@ export async function publishGlobalMasterData(
     saveLocalMasterData(updatedMaster);
     setCachedMasterVersion(nextVersion);
     setCachedMasterNyans(cleanCharacters);
+
+    console.log(`[MasterData] 💾 Firestore公式マスター保存完了 [1回]: ドキュメント=${GLOBAL_MASTER_DOC_ID} (v${nextVersion})`);
 
     return {
       success: true,
@@ -289,7 +270,8 @@ export async function publishGlobalMasterData(
 }
 
 /**
- * Fetches the lightweight master metadata document from Firestore (1 Read operation).
+ * Fetches the lightweight master metadata from Firestore (1 Read operation).
+ * Reads directly from the consolidated GLOBAL_MASTER_DOC_ID.
  */
 export async function fetchMasterMeta(): Promise<KenchikoMasterMeta | null> {
   try {
@@ -297,16 +279,30 @@ export async function fetchMasterMeta(): Promise<KenchikoMasterMeta | null> {
     const db = getFirestoreDbInstance();
     if (!db) return null;
 
-    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
-    const snap = await getDoc(metaRef);
-    if (!snap.exists()) return null;
+    // 1. Try consolidated global master document first
+    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    const snap = await getDoc(masterDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        version: data.version || 1,
+        updatedAt: data.lastUpdated || Date.now(),
+        nyanCount: Array.isArray(data.characters) ? data.characters.length : 0,
+        lastUpdatedNote: data.note || '',
+      };
+    }
 
-    const data = snap.data();
+    // 2. Fallback to legacy metadata document if global doc does not exist yet
+    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
+    const legacySnap = await getDoc(metaRef);
+    if (!legacySnap.exists()) return null;
+
+    const legacyData = legacySnap.data();
     return {
-      version: data.version || 1,
-      updatedAt: data.updatedAt || Date.now(),
-      nyanCount: data.nyanCount || 0,
-      lastUpdatedNote: data.lastUpdatedNote || '',
+      version: legacyData.version || 1,
+      updatedAt: legacyData.updatedAt || Date.now(),
+      nyanCount: legacyData.nyanCount || 0,
+      lastUpdatedNote: legacyData.lastUpdatedNote || '',
     };
   } catch (err) {
     console.warn('fetchMasterMeta warning:', err);
@@ -316,6 +312,7 @@ export async function fetchMasterMeta(): Promise<KenchikoMasterMeta | null> {
 
 /**
  * Fetches the consolidated master character list from Firestore.
+ * Reads directly from the consolidated GLOBAL_MASTER_DOC_ID.
  */
 export async function fetchMasterNyans(): Promise<{ version: number; nyans: NyanCharacter[] } | null> {
   try {
@@ -323,14 +320,27 @@ export async function fetchMasterNyans(): Promise<{ version: number; nyans: Nyan
     const db = getFirestoreDbInstance();
     if (!db) return null;
 
-    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
-    const snap = await getDoc(nyansRef);
-    if (!snap.exists()) return null;
+    // 1. Try consolidated global master document first
+    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    const snap = await getDoc(masterDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const nyans = Array.isArray(data.characters) ? (data.characters as NyanCharacter[]) : [];
+      return {
+        version: data.version || 1,
+        nyans,
+      };
+    }
 
-    const data = snap.data();
-    const nyans = Array.isArray(data.nyans) ? (data.nyans as NyanCharacter[]) : [];
+    // 2. Fallback to legacy master nyans doc
+    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
+    const legacySnap = await getDoc(nyansRef);
+    if (!legacySnap.exists()) return null;
+
+    const legacyData = legacySnap.data();
+    const nyans = Array.isArray(legacyData.nyans) ? (legacyData.nyans as NyanCharacter[]) : [];
     return {
-      version: data.version || 1,
+      version: legacyData.version || 1,
       nyans,
     };
   } catch (err) {
