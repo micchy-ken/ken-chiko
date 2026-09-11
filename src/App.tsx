@@ -1708,10 +1708,9 @@ export default function App() {
           onUpdateSaveData={(updater, isImmediate = false) => {
             setSaveData((prev) => {
               const next = updater(prev);
+              saveLocalBackup(next);
               if (isImmediate) {
-                syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
-              } else {
-                saveOnUserAction(next, undefined, true).catch(() => {});
+                syncSaveDataToFirebase(next, false).catch(() => {});
               }
               return next;
             });
@@ -2123,10 +2122,9 @@ export default function App() {
               onUpdateSaveData={(updater, isImmediate = false) => {
                 setSaveData((prev) => {
                   const next = updater(prev);
+                  saveLocalBackup(next);
                   if (isImmediate) {
-                    syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
-                  } else {
-                    saveOnUserAction(next, undefined, true).catch(() => {});
+                    syncSaveDataToFirebase(next, false).catch(() => {});
                   }
                   return next;
                 });
@@ -2217,10 +2215,9 @@ export default function App() {
           onUpdateSaveData={(updater, isImmediate = false) => {
             setSaveData((prev) => {
               const next = updater(prev);
+              saveLocalBackup(next);
               if (isImmediate) {
-                syncSaveDataToFirebase(next, true, undefined, true).catch(() => {});
-              } else {
-                saveOnUserAction(next, undefined, true).catch(() => {});
+                syncSaveDataToFirebase(next, false).catch(() => {});
               }
               return next;
             });

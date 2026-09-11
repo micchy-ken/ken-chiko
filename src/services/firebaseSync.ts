@@ -1376,16 +1376,16 @@ export async function executeFirestoreWrite(
   const compactProgressDoc = extractUserProgress(data);
   const currentMeaningfulHash = getMeaningfulUserProgressHash(compactProgressDoc);
 
-  // Skip write completely if meaningful game progress has not changed (ALWAYS check this, even for admin, unless forceManual)
-  if (!forceManual && lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
+  // Skip write completely if meaningful game progress has not changed (ALWAYS check this to prevent runaway writes)
+  if (lastWrittenContentString && lastWrittenContentString === currentMeaningfulHash) {
     console.log('[CloudSync] ⏭️ クラウド書き込みスキップ: 有意な進行度（新発見・アイテム等）の変化なし（Firestore通信: 0回）');
     return { success: true };
   }
 
   const now = Date.now();
-  // 4. Enforce rate-limit throttle: Minimum 120s for auto-sync, 2.5s for admin/immediate writes
-  const minInterval = isAdmin ? 2500 : MIN_AUTO_SYNC_INTERVAL_MS;
-  if (!forceManual && now - lastSuccessfulWriteTime < minInterval) {
+  // 4. Enforce rate-limit throttle: Minimum 120s for auto-sync, 10s for manual/admin writes
+  const minInterval = isAdmin ? 10000 : MIN_AUTO_SYNC_INTERVAL_MS;
+  if (now - lastSuccessfulWriteTime < minInterval) {
     const waitSec = Math.round((minInterval - (now - lastSuccessfulWriteTime)) / 1000);
     console.log(`[CloudSync] ⏳ スロットル待機中: 最低間隔のため待機 (${waitSec}秒後に保留分を書き込み)`);
     if (!pendingWriteTimeout) {
