@@ -7,6 +7,7 @@ import {
   initializeFirestore,
   memoryLocalCache,
   getFirestore,
+  setLogLevel,
   doc,
   setDoc,
   getDoc,
@@ -867,7 +868,12 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
       });
     }
 
-    // Connect to database with in-memory cache to prevent IndexedDB mutation burst
+    // Suppress internal connection retry warning logs from polluting console
+    try {
+      setLogLevel('silent');
+    } catch {}
+
+    // Connect to database with in-memory cache and robust HTTP long-polling (prevents iframe WebChannel drops)
     if (!firestoreDb) {
       const dbId =
         activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
@@ -879,6 +885,7 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
           firebaseApp,
           {
             localCache: memoryLocalCache(),
+            experimentalForceLongPolling: true,
           },
           dbId
         );
