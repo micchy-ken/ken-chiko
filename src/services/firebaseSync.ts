@@ -1473,7 +1473,8 @@ export async function syncSaveDataToFirebase(
 
   const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
 
-  if (isImmediate || isAdmin) {
+  // ONLY explicit manual button clicks bypass debouncing (isImmediate = true)
+  if (isImmediate) {
     if (pendingWriteTimeout) {
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
@@ -1482,15 +1483,15 @@ export async function syncSaveDataToFirebase(
       queuedImmediateData = data;
       return { success: true };
     }
-    return executeFirestoreWrite(data, config, true, true);
+    return executeFirestoreWrite(data, config, true, bypassDailyLimit);
   }
 
   if (!isAdmin && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
   }
 
-  // If user disabled auto-sync and it's not a direct manual trigger or admin
-  if (!isAdmin && !isCloudAutoSyncEnabled()) {
+  // If user disabled auto-sync and it's not a direct manual trigger
+  if (!isCloudAutoSyncEnabled()) {
     return { success: true };
   }
 
@@ -1504,7 +1505,7 @@ export async function syncSaveDataToFirebase(
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config, false, isAdmin).catch(() => {});
+      executeFirestoreWrite(latestPendingData, config, false, bypassDailyLimit).catch(() => {});
     }
   }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
@@ -1520,17 +1521,6 @@ export async function saveOnUserAction(
   // Always update local storage first (instant, 0 latency, 0 data loss, 0 quota)
   saveLocalBackup(data);
   latestPendingData = data;
-
-  const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
-
-  // If user in admin mode or limit bypassed, save immediately with 0 throttle and 0 150-write restriction
-  if (isAdmin) {
-    if (pendingWriteTimeout) {
-      clearTimeout(pendingWriteTimeout);
-      pendingWriteTimeout = null;
-    }
-    return executeFirestoreWrite(data, config, true, true);
-  }
 
   // If user disabled cloud auto-sync, keep 100% local
   if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) {
@@ -1553,7 +1543,7 @@ export async function saveOnUserAction(
       clearTimeout(pendingWriteTimeout);
       pendingWriteTimeout = null;
     }
-    return executeFirestoreWrite(data, config, false, false);
+    return executeFirestoreWrite(data, config, false, bypassDailyLimit);
   }
 
   if (pendingWriteTimeout) {
@@ -1563,7 +1553,7 @@ export async function saveOnUserAction(
   pendingWriteTimeout = setTimeout(() => {
     pendingWriteTimeout = null;
     if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config, false, false).catch(() => {});
+      executeFirestoreWrite(latestPendingData, config, false, bypassDailyLimit).catch(() => {});
     }
   }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
@@ -1579,17 +1569,16 @@ export async function saveOnAppExit(
   // Always synchronously protect in local storage (0 latency, 0 network quota)
   saveLocalBackup(dataToSave);
 
-  const isAdmin = isAdminSessionActive() || isDailyLimitDisabled();
-  if (!isAdmin && (!isCloudAutoSyncEnabled() || getIsQuotaExhausted())) return;
+  if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) return;
 
   // Only perform a cloud write if genuine milestone progress changed!
   const compact = extractUserProgress(dataToSave);
   const hash = getMeaningfulUserProgressHash(compact);
-  if (!isAdmin && lastWrittenContentString && hash === lastWrittenContentString) {
+  if (lastWrittenContentString && hash === lastWrittenContentString) {
     return; // Completely skip cloud write!
   }
 
-  executeFirestoreWrite(dataToSave, config, isAdmin, isAdmin).catch(() => {});
+  executeFirestoreWrite(dataToSave, config, false, false).catch(() => {});
 }
 
 /**

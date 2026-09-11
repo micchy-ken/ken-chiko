@@ -1705,13 +1705,10 @@ export default function App() {
           onClose={handleCloseAdmin}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater, isImmediate = false) => {
+          onUpdateSaveData={(updater) => {
             setSaveData((prev) => {
               const next = updater(prev);
               saveLocalBackup(next);
-              if (isImmediate) {
-                syncSaveDataToFirebase(next, false).catch(() => {});
-              }
               return next;
             });
           }}
@@ -2119,13 +2116,10 @@ export default function App() {
               onClose={() => setActiveTab('stage')}
               onImportNyans={handleImportNyans}
               onSaveFirebaseConfig={(_cfg) => {}}
-              onUpdateSaveData={(updater, isImmediate = false) => {
+              onUpdateSaveData={(updater) => {
                 setSaveData((prev) => {
                   const next = updater(prev);
                   saveLocalBackup(next);
-                  if (isImmediate) {
-                    syncSaveDataToFirebase(next, false).catch(() => {});
-                  }
                   return next;
                 });
               }}
@@ -2212,13 +2206,10 @@ export default function App() {
           onClose={handleCloseAdmin}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater, isImmediate = false) => {
+          onUpdateSaveData={(updater) => {
             setSaveData((prev) => {
               const next = updater(prev);
               saveLocalBackup(next);
-              if (isImmediate) {
-                syncSaveDataToFirebase(next, false).catch(() => {});
-              }
               return next;
             });
           }}
