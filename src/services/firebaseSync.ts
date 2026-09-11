@@ -1343,6 +1343,11 @@ export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
   return `${nyanStr}#${invStr}#${diaryStr}#${statsStr}#${assetsStr}#${rewardsStr}`;
 }
 
+// Burst write tracker: strictly prevents runaway loops from generating dozens or hundreds of writes in seconds
+const recentWriteTimestamps: number[] = [];
+const BURST_WINDOW_MS = 60000; // 1 minute
+const MAX_BURST_WRITES_PER_WINDOW = 6; // Max 6 writes per minute (plenty for normal human actions, hard stops abnormal spikes)
+
 export async function executeFirestoreWrite(
   data: GameSaveData,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
@@ -1354,6 +1359,20 @@ export async function executeFirestoreWrite(
 
   const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
   const dailyStats = getDailyWriteStats();
+
+  // Burst Circuit Breaker: strictly prevent abnormal spikes (hard-stops runaway writes exceeding 6 writes/min)
+  const nowForBurst = Date.now();
+  const burstWindowStart = nowForBurst - BURST_WINDOW_MS;
+  while (recentWriteTimestamps.length > 0 && recentWriteTimestamps[0] < burstWindowStart) {
+    recentWriteTimestamps.shift();
+  }
+  if (recentWriteTimestamps.length >= MAX_BURST_WRITES_PER_WINDOW) {
+    console.warn(`[CircuitBreaker] 🛑 短時間の書き込みスパイクを検知 (${recentWriteTimestamps.length}回/分)。異常書き込み防止のためFirestore書き込みを遮断し、ローカルに安全保存しました。`);
+    return {
+      success: true,
+      error: '短時間の過剰書き込みを検知したため、ローカル保存で安全に保護しています。',
+    };
+  }
 
   // Absolute hard emergency ceiling for ANY session (including admin) to prevent 20,000 quota exhaustion
   const ABSOLUTE_DAILY_EMERGENCY_LIMIT = 500;
@@ -1444,6 +1463,7 @@ export async function executeFirestoreWrite(
     await setDoc(userDocRef, payload);
     sessionDbWriteCount++;
     incrementDailyWriteCount();
+    recentWriteTimestamps.push(Date.now());
     lastWrittenContentString = currentMeaningfulHash;
 
     const limitInfo = isAdmin ? ' [管理画面: 150回制限解除済み・無制限]' : `/${MAX_DAILY_WRITES}`;

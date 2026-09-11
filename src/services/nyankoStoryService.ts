@@ -28,6 +28,8 @@ const SESSION_CACHE_KEY_PREFIX = 'kenchiko_story_cache_v2_';
 const LOCAL_STORIES_META_KEY = 'kenchiko_stories_meta_v1';
 const FIRESTORE_COLLECTION = 'kenchiko_world';
 const STORIES_META_DOC_ID = 'nyanko_stories_meta';
+export const GLOBAL_STORIES_DOC_ID = 'ken-chiko-global-stories';
+export const GLOBAL_UNMAPPED_DOC_ID = 'ken-chiko-global-unmapped-stories';
 
 /**
  * Retrieves cached story from memory or sessionStorage
@@ -334,8 +336,30 @@ export async function fetchNyankoStory(nyanId: number): Promise<{
       return { story: null, fromCache: false, error: 'Firebaseデータベースに接続できません' };
     }
 
-    const docRef = doc(db, 'nyanko_stories', String(nyanId));
-    const snap = await getDoc(docRef);
+    // A. Check consolidated global stories document first (1 single read loads all stories into memory)
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    const globalSnap = await getDoc(globalStoriesRef);
+    if (globalSnap.exists()) {
+      const gData = globalSnap.data();
+      const storiesMap = gData.stories || {};
+      // Populate memory cache for all loaded stories to eliminate future Firestore reads
+      for (const [key, val] of Object.entries(storiesMap)) {
+        const idNum = Number(key);
+        if (!isNaN(idNum) && val) {
+          saveToLocalCache(idNum, val as NyankoStory);
+        }
+      }
+
+      if (storiesMap[String(nyanId)]) {
+        const story = storiesMap[String(nyanId)] as NyankoStory;
+        saveToLocalCache(nyanId, story);
+        return { story, fromCache: false };
+      }
+    }
+
+    // B. Fallback to legacy single document if not found in consolidated master
+    const legacyDocRef = doc(db, 'nyanko_stories', String(nyanId));
+    const snap = await getDoc(legacyDocRef);
 
     if (!snap.exists()) {
       return { story: null, fromCache: false, error: 'このにゃんこの物語はまだ登録されていません' };
@@ -363,8 +387,8 @@ export function preloadNyankoStory(nyanId: number): void {
 }
 
 /**
- * Uploads or updates stories from a raw JSON object to Firestore in batches.
- * Automatically synchronizes the nyanko_stories_meta index document.
+ * Uploads or updates stories from a raw JSON object to Firestore in a SINGLE atomic write operation.
+ * Consolidates all stories into the global master document (exactly 1 Write, preventing hundreds of writes).
  */
 export async function uploadStoriesJsonToFirestore(
   jsonData: Record<string, any> | any[] | string,
@@ -383,8 +407,6 @@ export async function uploadStoriesJsonToFirestore(
 
     const stories = parseRes.stories;
     const total = stories.length;
-    const BATCH_SIZE = 40;
-    let uploaded = 0;
 
     // Fetch or prepare current metadata
     const currentMeta = (await fetchStoriesMeta(true)) || {
@@ -394,57 +416,60 @@ export async function uploadStoriesJsonToFirestore(
       stories: {},
     };
 
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      const chunk = stories.slice(i, i + BATCH_SIZE);
-      const batch = writeBatch(db);
+    // Prepare dictionary map of all stories
+    const storiesMap: Record<string, NyankoStory> = {};
+    for (let i = 0; i < total; i++) {
+      const item = stories[i];
+      const cleanPayload: NyankoStory = JSON.parse(JSON.stringify({
+        ...item,
+        updatedAt: new Date().toISOString(),
+      }));
+      storiesMap[String(item.id)] = cleanPayload;
 
-      for (const item of chunk) {
-        const docRef = doc(db, 'nyanko_stories', String(item.id));
-        const cleanPayload = JSON.parse(JSON.stringify({
-          ...item,
-          updatedAt: new Date().toISOString(),
-        }));
-        batch.set(docRef, cleanPayload);
+      // Update meta map
+      currentMeta.stories[String(item.id)] = {
+        id: item.id,
+        name: item.name,
+        kana: item.kana,
+        motif: item.motif,
+        week_title: item.week_info?.week_title,
+        daysCount: item.week_info?.days?.length || 0,
+        updatedAt: new Date().toISOString(),
+      };
 
-        // Update meta map
-        currentMeta.stories[String(item.id)] = {
-          id: item.id,
-          name: item.name,
-          kana: item.kana,
-          motif: item.motif,
-          week_title: item.week_info?.week_title,
-          daysCount: item.week_info?.days?.length || 0,
-          updatedAt: new Date().toISOString(),
-        };
-      }
+      // Update local memory cache immediately
+      saveToLocalCache(item.id, cleanPayload);
 
-      await batch.commit();
-      uploaded += chunk.length;
-
-      // Update in-memory cache
-      for (const item of chunk) {
-        saveToLocalCache(item.id, item);
-      }
-
-      if (onProgress) {
+      if (onProgress && (i % 10 === 0 || i === total - 1)) {
         onProgress({
-          current: Math.min(uploaded, total),
+          current: i + 1,
           total,
-          percent: Math.round((Math.min(uploaded, total) / total) * 100),
+          percent: Math.round(((i + 1) / total) * 100),
         });
       }
     }
 
-    // Update metadata document in Firestore
     currentMeta.storyCount = Object.keys(currentMeta.stories).length;
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
+    // 1. Write consolidated stories document (EXACTLY 1 single document write in Firestore for all stories!)
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    await setDoc(globalStoriesRef, {
+      version: currentMeta.version,
+      updatedAt: new Date().toISOString(),
+      storyCount: currentMeta.storyCount,
+      stories: storiesMap,
+    }, { merge: true });
+
+    // 2. Write metadata document (1 Write)
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
     await setDoc(metaRef, currentMeta);
     setLocalStoriesMeta(currentMeta);
 
-    return { success: true, totalUploaded: uploaded };
+    console.log(`[NyankoStory] 💾 全物語を一括保存完了 [わずか1回書き込み]: ${total}件の物語を ${GLOBAL_STORIES_DOC_ID} に統合`);
+
+    return { success: true, totalUploaded: total };
   } catch (err: any) {
     console.error('Failed to upload stories JSON:', err);
     return { success: false, totalUploaded: 0, error: err?.message || 'アップロードに失敗しました' };
@@ -453,6 +478,7 @@ export async function uploadStoriesJsonToFirestore(
 
 /**
  * Saves a single story to Firestore and updates the metadata index.
+ * Writes to consolidated global document (1 Write).
  */
 export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
   success: boolean;
@@ -464,12 +490,19 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
       return { success: false, error: 'Firebaseデータベースに接続できません' };
     }
 
-    const docRef = doc(db, 'nyanko_stories', String(story.id));
     const cleanPayload = JSON.parse(JSON.stringify({
       ...story,
       updatedAt: new Date().toISOString(),
     }));
-    await setDoc(docRef, cleanPayload);
+
+    // Write to consolidated global document in Firestore (1 Write)
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    await setDoc(globalStoriesRef, {
+      updatedAt: new Date().toISOString(),
+      stories: {
+        [String(story.id)]: cleanPayload,
+      },
+    }, { merge: true });
 
     // Save to memory cache
     saveToLocalCache(story.id, story);
@@ -495,8 +528,6 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    await setDoc(metaRef, currentMeta);
     setLocalStoriesMeta(currentMeta);
 
     return { success: true };
@@ -667,9 +698,27 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
       return { success: false, stories: [], error: 'Firebaseデータベースに接続できません' };
     }
 
+    // Check consolidated unmapped document first (1 single Read)
+    const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const storiesMap = data.stories || {};
+      const list = Object.entries(storiesMap).map(([idKey, raw]: [string, any]) => ({
+        oldId: idKey,
+        name: raw.name || '',
+        motif: raw.motif || '',
+        title: raw.week_info?.week_title || raw.title || '',
+        daysCount: Array.isArray(raw.week_info?.days) ? raw.week_info.days.length : 0,
+      }));
+      list.sort((a, b) => (Number(a.oldId) || 0) - (Number(b.oldId) || 0));
+      return { success: true, stories: list };
+    }
+
+    // Fallback to legacy collection if consolidated doc does not exist yet
     const colRef = collection(db, 'nyanko_stories_unmapped');
-    const snap = await getDocs(colRef);
-    const list = snap.docs.map((d) => {
+    const legacySnap = await getDocs(colRef);
+    const list = legacySnap.docs.map((d) => {
       const data = d.data();
       return {
         oldId: d.id,
@@ -823,7 +872,8 @@ export async function assignUnmappedStoryToNyan(
 }
 
 /**
- * Saves one or multiple stories directly into the unmapped archive (`nyanko_stories_unmapped`).
+ * Saves one or multiple stories directly into the consolidated unmapped archive document in Firestore.
+ * EXACTLY 1 Write operation regardless of how many stories are included.
  */
 export async function saveStoriesToUnmappedArchive(
   stories: (NyankoStory | any)[]
@@ -835,7 +885,7 @@ export async function saveStoriesToUnmappedArchive(
     }
 
     const savedIds: string[] = [];
-    const batch = writeBatch(db);
+    const storiesMap: Record<string, any> = {};
 
     for (let i = 0; i < stories.length; i++) {
       const story = stories[i];
@@ -843,8 +893,6 @@ export async function saveStoriesToUnmappedArchive(
       if (!validItem) continue;
 
       const docId = String(story.oldId || (story.id && story.id !== 9999 ? story.id : `unmapped_${story.name || i}_${Date.now()}`));
-      const docRef = doc(db, 'nyanko_stories_unmapped', docId);
-
       const payload = {
         ...validItem,
         oldDocId: docId,
@@ -852,12 +900,20 @@ export async function saveStoriesToUnmappedArchive(
         updatedAt: new Date().toISOString(),
       };
 
-      batch.set(docRef, payload);
+      storiesMap[docId] = payload;
       savedIds.push(docId);
     }
 
     if (savedIds.length > 0) {
-      await batch.commit();
+      // Consolidated write to single global unmapped document (1 Write)
+      const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
+      await setDoc(docRef, {
+        updatedAt: new Date().toISOString(),
+        count: savedIds.length,
+        stories: storiesMap,
+      }, { merge: true });
+
+      console.log(`[NyankoStory] 💾 未紐づけ保管庫への一括保存完了 [わずか1回書き込み]: ${savedIds.length}件を ${GLOBAL_UNMAPPED_DOC_ID} に統合`);
     }
 
     return { success: true, count: savedIds.length, savedIds };

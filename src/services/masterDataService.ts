@@ -188,10 +188,20 @@ export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
  * Administrator action: Publish the entire GameMasterData to Firestore in a single atomic batch.
  * Exactly 2-3 document writes. 0 background intervals.
  */
+let lastMasterPublishTime = 0;
+const MASTER_PUBLISH_COOLDOWN_MS = 3000;
+
 export async function publishGlobalMasterData(
   master: GameMasterData,
   note?: string
 ): Promise<{ success: boolean; version?: number; error?: string }> {
+  const now = Date.now();
+  if (now - lastMasterPublishTime < MASTER_PUBLISH_COOLDOWN_MS) {
+    console.log('[MasterData] ⏳ マスター保存が短時間に連続で要求されたため、重複書き込みを防止しました');
+    const cachedVer = getCachedMasterVersion() || master.version || 1;
+    return { success: true, version: cachedVer };
+  }
+
   try {
     initFirebase();
     const db = getFirestoreDbInstance();
@@ -199,9 +209,10 @@ export async function publishGlobalMasterData(
       return { success: false, error: 'Firebaseデータベースに接続できません' };
     }
 
+    lastMasterPublishTime = now;
+
     const currentMeta = await fetchMasterMeta();
     const nextVersion = (currentMeta?.version || master.version || 0) + 1;
-    const now = Date.now();
 
     const cleanCharacters: NyanCharacter[] = master.characters.map((n) => ({
       no: n.no,
