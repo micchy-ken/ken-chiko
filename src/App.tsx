@@ -161,7 +161,7 @@ export default function App() {
     saveDataRef.current = saveData;
   }, [saveData]);
 
-  const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(true);
+  const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(false);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState<boolean>(false);
   const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<FirebaseConnectionStatus>(getFirebaseConnectionStatus());
@@ -387,6 +387,15 @@ export default function App() {
 
     // B. Immediate cloud connection & master synchronization pipeline
     const runInitialBootSync = async () => {
+      // If default user, skip any remote Firestore fetch completely
+      if (isDefaultUser) {
+        console.log('[CloudSync] 🛡️ デフォルト画面（未ログイン）のため、Firestore接続・読み込みは完全にスキップされました（リード数: 0回）');
+        setIsLoadingFirebase(false);
+        isInitialSyncCompletedRef.current = true;
+        setIsInitialSyncCompleted(true);
+        return;
+      }
+
       let activeData = saveDataRef.current;
 
       try {
@@ -1679,50 +1688,6 @@ export default function App() {
     }
   };
 
-  // Loading Screen while connecting to Firestore
-  if (isLoadingFirebase) {
-    return (
-      <div className="min-h-screen bg-[#F5F2EA] flex flex-col items-center justify-center p-4 font-['M_PLUS_Rounded_1c',sans-serif]">
-        <div className="text-center space-y-4 max-w-sm">
-          <KenchikoAvatar size={72} className="mx-auto animate-bounce shadow-md" />
-          <div className="space-y-1">
-            <h2 className="text-base font-black text-[#3A342F]">けんちこの世界とクラウド同期中...</h2>
-            <p className="text-xs text-[#7D756D]">Firebase Firestoreから最新データを取得しています</p>
-          </div>
-          <div className="w-36 h-2 bg-[#DDD7C8] rounded-full mx-auto overflow-hidden">
-            <div className="w-full h-full bg-[#728C7E] animate-pulse rounded-full" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Standalone Admin Screen (When accessed via ?admin= or ?dev=, or opened from in-app)
-  // No game screen or stage is rendered in the background! Nothing progresses!
-  if (isStandaloneAdmin || showSyncModal) {
-    return (
-      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
-        <PencilSketchFilters />
-        <DataSyncModal
-          isStandalone={true}
-          characters={saveData.characters}
-          saveData={saveData}
-          initialTab={adminInitialTab}
-          onClose={handleCloseAdmin}
-          onImportNyans={handleImportNyans}
-          onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater) => {
-            setSaveData((prev) => {
-              const next = updater(prev);
-              saveLocalBackup(next);
-              return next;
-            });
-          }}
-        />
-      </div>
-    );
-  }
-
   // Default User Screen: ONLY Centered Kenchiko Illustration (Game completely stopped)
   // No game screen or stage is rendered in the background!
   if (isDefaultUser) {
@@ -1767,6 +1732,32 @@ export default function App() {
           initialStep={tutorialInitialStep}
           isNewFeatureOnly={isNewFeatureTutorialOnly}
           onClose={() => setShowTutorialModal(false)}
+        />
+      </div>
+    );
+  }
+
+  // Standalone Admin Screen (When accessed via ?admin= or ?dev=, or opened from in-app)
+  // No game screen or stage is rendered in the background! Nothing progresses!
+  if (isStandaloneAdmin || showSyncModal) {
+    return (
+      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <DataSyncModal
+          isStandalone={true}
+          characters={saveData.characters}
+          saveData={saveData}
+          initialTab={adminInitialTab}
+          onClose={handleCloseAdmin}
+          onImportNyans={handleImportNyans}
+          onSaveFirebaseConfig={(_cfg) => {}}
+          onUpdateSaveData={(updater) => {
+            setSaveData((prev) => {
+              const next = updater(prev);
+              saveLocalBackup(next);
+              return next;
+            });
+          }}
         />
       </div>
     );
@@ -1867,31 +1858,18 @@ export default function App() {
               </div>
             )}
 
-            {/* Connection Status Lamp Indicator */}
-            {connectionStatus.isOffline ? (
+            {/* Connection Status Lamp Indicator (Only shown when offline) */}
+            {connectionStatus.isOffline && (
               <button
                 onClick={() => setShowUserSettingsModal(true)}
-                className="flex-shrink-0 flex items-center gap-2 bg-[#FDECE8] hover:bg-[#FCDFD8] border border-[#F5A898] text-[#B92B1B] px-3 py-1.5 sketch-tag shadow-sm transition"
-                title="Firebaseと接続できていません（オフラインモード動作中）。タップして設定を確認"
+                className="flex-shrink-0 flex items-center gap-1.5 bg-[#FDECE8] hover:bg-[#FCDFD8] border border-[#F5A898] text-[#B92B1B] px-2.5 py-1 sketch-tag shadow-xs transition cursor-pointer"
+                title="オフライン動作中。タップして設定を確認"
               >
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.9)] ring-2 ring-red-200"></span>
-                </span>
-                <span className="font-handwriting text-xs sm:text-sm font-black text-[#9A2214]">
-                  オフラインモード
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+                <span className="font-handwriting text-xs font-bold text-[#9A2214]">
+                  オフライン
                 </span>
               </button>
-            ) : (
-              <div
-                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sketch-tag bg-[#FAF8F4] text-[#487560] text-xs font-bold"
-                title="Firebase Firestore 自動クラウド同期中"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#487560]"></span>
-                </span>
-                <span className="font-handwriting text-[11px] text-[#487560]">接続中</span>
-              </div>
             )}
 
             {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
@@ -1922,30 +1900,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* Mode Alert Bar (Offline or Local Protection Mode) */}
-      {!connectionStatus.isAutoSyncEnabled ? (
-        <div className="bg-[#F4F9F5] border-b border-[#C6D8CD] px-4 py-2.5 shadow-inner">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <span className="relative flex h-3 w-3 flex-shrink-0">
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-[#487560]"></span>
-              </span>
-              <div>
-                <span className="font-handwriting font-bold text-xs text-[#2A4839] mr-2">
-                  【クラウド自動書き込み停止中・ローカル完全保護】
-                </span>
-                <span className="text-xs text-[#3E6350]">
-                  意図しないクラウド書き込みは行われません。ゲームの進行はローカルに安全保存され、必要な時に「設定」から手動保存できます。
-                </span>
-              </div>
-            </div>
-            <div className="text-[11px] font-mono font-bold text-[#487560] self-end sm:self-auto bg-white px-2.5 py-1 rounded-lg border border-[#C6D8CD]">
-              本日書き込み: {connectionStatus.dailyWriteCount || 0} / {connectionStatus.maxDailyWrites || 60} 回
-            </div>
-          </div>
-        </div>
-      ) : connectionStatus.isOffline ? (
-        <div className="bg-[#FFF4F2] border-b-2 border-[#E74C3C]/40 px-4 py-3 shadow-inner">
+      {/* Alert Bar (Only shown when genuinely offline) */}
+      {connectionStatus.isOffline && (
+        <div className="bg-[#FFF4F2] border-b-2 border-[#E74C3C]/40 px-4 py-2.5 shadow-inner">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3">
               <span className="relative flex h-3.5 w-3.5 mt-0.5 sm:mt-0 flex-shrink-0">
@@ -1986,7 +1943,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* Discovery Toast Notification */}
       {newEncounterToast && (

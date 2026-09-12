@@ -1,7 +1,7 @@
 // User management and persistence service for Multi-user support via query parameters (?user=yumi etc.)
 
 import { collection, getDocs } from 'firebase/firestore';
-import { GameSaveData, NyanCharacter, KenchikoAsobi } from '../types';
+import { GameSaveData, NyanCharacter, KenchikoAsobi, OuenItem, OuenCategory } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -596,7 +596,9 @@ export async function deleteUserAccount(
 export async function resetUserAccount(
   userId: string,
   masterNyans: NyanCharacter[] = INITIAL_NYANS,
-  masterAsobi: KenchikoAsobi[] = INITIAL_ASOBI_LIST
+  masterAsobi: KenchikoAsobi[] = INITIAL_ASOBI_LIST,
+  masterOuenList?: OuenItem[],
+  masterOuenCategories?: OuenCategory[]
 ): Promise<{ success: boolean; error?: string; freshData?: GameSaveData }> {
   if (!userId || isSystemUserId(userId)) {
     return { success: false, error: 'システム管理ドキュメントは初期化できません' };
@@ -614,6 +616,8 @@ export async function resetUserAccount(
       })),
       inventory: INITIAL_ITEMS.map((item) => ({ ...item })),
       asobiList: masterAsobi.map((a) => ({ ...a })),
+      ouenList: masterOuenList && masterOuenList.length > 0 ? masterOuenList : DEFAULT_INITIAL_STATE.ouenList,
+      ouenCategories: masterOuenCategories && masterOuenCategories.length > 0 ? masterOuenCategories : DEFAULT_INITIAL_STATE.ouenCategories,
       diary: [],
       stats: {
         totalEncounters: 0,

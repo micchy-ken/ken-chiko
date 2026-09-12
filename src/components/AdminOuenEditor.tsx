@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import { OuenCategory, OuenItem, GameSaveData } from '../types';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
-import { saveGlobalOuenList } from '../services/firebaseSync';
+import { saveGlobalOuenList, fetchGlobalOuenList } from '../services/firebaseSync';
 import {
   Heart,
   Plus,
@@ -21,6 +21,7 @@ import {
   X,
   MessageCircleHeart,
   Layers,
+  CloudDownload,
 } from 'lucide-react';
 import confetti from '../utils/confetti';
 
@@ -193,6 +194,45 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
     );
   };
 
+  const [isFetchingRemote, setIsFetchingRemote] = useState(false);
+
+  const handleFetchFromFirebase = async () => {
+    setIsFetchingRemote(true);
+    setSaveStatus(null);
+    try {
+      const res = await fetchGlobalOuenList();
+      if (res.success && res.ouenList && res.ouenList.length > 0) {
+        const fetchedList = res.ouenList;
+        const fetchedCats = res.ouenCategories || currentCategories;
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          ouenList: fetchedList,
+          ouenCategories: fetchedCats,
+          lastSaved: Date.now(),
+        }));
+        setSaveStatus({
+          type: 'success',
+          message: `Firestoreから最新の応援メッセージ（${fetchedList.length} 件）を正常に復元・読み込みました！`,
+        });
+        try {
+          confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+        } catch {}
+      } else {
+        setSaveStatus({
+          type: 'error',
+          message: `データの取得に失敗しました: ${res.error || 'データが見つかりませんでした'}`,
+        });
+      }
+    } catch (err: any) {
+      setSaveStatus({
+        type: 'error',
+        message: `読み込みエラー: ${err?.message || String(err)}`,
+      });
+    } finally {
+      setIsFetchingRemote(false);
+    }
+  };
+
   const handleSaveToFirebase = async () => {
     setIsSaving(true);
     setSaveStatus(null);
@@ -255,10 +295,19 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center flex-wrap gap-2 w-full sm:w-auto">
+          <button
+            onClick={handleFetchFromFirebase}
+            disabled={isFetchingRemote || isSaving}
+            title="Firestore共通DBからメッセージを再読み込み・復元します"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#F0EBE1] hover:bg-[#E2DDD2] text-[#3E3833] font-bold text-xs shadow-xs transition disabled:opacity-50"
+          >
+            <CloudDownload className="w-4 h-4 text-[#487560]" />
+            <span>{isFetchingRemote ? '読込中...' : 'DBから復元/読込'}</span>
+          </button>
           <button
             onClick={handleSaveToFirebase}
-            disabled={isSaving}
+            disabled={isSaving || isFetchingRemote}
             className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#487560] hover:bg-[#3B614F] text-white font-bold text-xs shadow-sm transition disabled:opacity-50"
           >
             <Save className="w-4 h-4" />

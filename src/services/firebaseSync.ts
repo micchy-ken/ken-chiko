@@ -1743,6 +1743,67 @@ export async function saveGlobalOuenList(
 }
 
 /**
+ * Fetches the global cheer message list (ouenList) and categories from Firestore (ken-chiko-global-state or ken-chiko-global-master).
+ * Useful for restoring cheer messages if local state was reset or deleted.
+ */
+export async function fetchGlobalOuenList(
+  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+): Promise<{ success: boolean; ouenList?: OuenItem[]; ouenCategories?: OuenCategory[]; error?: string }> {
+  try {
+    if (!firestoreDb) {
+      const initRes = initFirebase(config);
+      if (!initRes.success) {
+        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+      }
+    }
+    if (!firestoreDb) {
+      return { success: false, error: 'Firestoreが初期化されていません' };
+    }
+
+    // Check ken-chiko-global-state first
+    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+    const snap = await getDoc(globalDocRef);
+    sessionDbReadCount++;
+
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.ouenList) && data.ouenList.length > 0) {
+        return {
+          success: true,
+          ouenList: data.ouenList,
+          ouenCategories: Array.isArray(data.ouenCategories) && data.ouenCategories.length > 0 ? data.ouenCategories : INITIAL_OUEN_CATEGORIES,
+        };
+      }
+    }
+
+    // Fallback: check ken-chiko-global-master
+    const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
+    const masterSnap = await getDoc(masterDocRef);
+    sessionDbReadCount++;
+
+    if (masterSnap.exists()) {
+      const mData = masterSnap.data();
+      if (Array.isArray(mData.ouenList) && mData.ouenList.length > 0) {
+        return {
+          success: true,
+          ouenList: mData.ouenList,
+          ouenCategories: Array.isArray(mData.ouenCategories) && mData.ouenCategories.length > 0 ? mData.ouenCategories : INITIAL_OUEN_CATEGORIES,
+        };
+      }
+    }
+
+    return {
+      success: true,
+      ouenList: INITIAL_OUEN_LIST,
+      ouenCategories: INITIAL_OUEN_CATEGORIES,
+    };
+  } catch (err: any) {
+    console.error('Failed to fetch global ouenList:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
  * Saves kounichan settings EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
  * This ensures that vehicles, illustrations, speed, direction, and master switch are shared across all users and devices.
  */

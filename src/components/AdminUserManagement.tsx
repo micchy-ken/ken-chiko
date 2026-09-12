@@ -226,7 +226,9 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
           const res = await resetUserAccount(
             userToReset.userId,
             characters,
-            saveData?.asobiList
+            saveData?.asobiList,
+            saveData?.ouenList,
+            saveData?.ouenCategories
           );
           if (res.success && res.freshData) {
             confetti({ particleCount: 40, spread: 60, origin: { y: 0.8 } });
