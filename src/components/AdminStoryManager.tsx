@@ -28,8 +28,6 @@ import {
   Zap,
   AlertTriangle,
 } from 'lucide-react';
-import { doc, deleteDoc } from 'firebase/firestore';
-import { getFirestoreDbInstance } from '../services/firebaseSync';
 import { NyanCharacter, NyankoStory } from '../types';
 import {
   NyankoStoriesMeta,
@@ -45,6 +43,7 @@ import {
   assignUnmappedStoryToNyan,
   saveStoriesMetaDoc,
   saveStoriesToUnmappedArchive,
+  deleteFromUnmappedArchive,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
 
@@ -658,13 +657,10 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
         // If loaded from unmapped archive and deletion is enabled
         if (loadedArchiveOldId && deleteArchiveOnSave) {
           try {
-            const db = getFirestoreDbInstance();
-            if (db) {
-              await deleteDoc(doc(db, 'nyanko_stories_unmapped', loadedArchiveOldId));
-              setUnmappedList((prev) =>
-                prev ? prev.filter((x) => x.oldId !== loadedArchiveOldId) : null
-              );
-            }
+            await deleteFromUnmappedArchive(loadedArchiveOldId);
+            setUnmappedList((prev) =>
+              prev ? prev.filter((x) => x.oldId !== loadedArchiveOldId) : null
+            );
           } catch (delErr) {
             console.warn('Failed to delete from unmapped after single save:', delErr);
           }

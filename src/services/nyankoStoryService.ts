@@ -552,13 +552,31 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
       return { success: false, error: 'Firebaseデータベースに接続できません' };
     }
 
-    const docRef = doc(db, 'nyanko_stories', String(nyanId));
-    await deleteDoc(docRef);
+    const batch = writeBatch(db);
+
+    // 1. Remove from global stories consolidated document
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    const globalSnap = await getDoc(globalStoriesRef);
+    if (globalSnap.exists()) {
+      const gData = globalSnap.data();
+      const storiesMap = { ...(gData.stories || {}) };
+      delete storiesMap[String(nyanId)];
+      batch.set(globalStoriesRef, {
+        updatedAt: new Date().toISOString(),
+        storyCount: Object.keys(storiesMap).length,
+        stories: storiesMap,
+      });
+    }
 
     removeFromLocalCache(nyanId);
 
-    // Update metadata
-    const currentMeta = await fetchStoriesMeta(true);
+    // 2. Update metadata document in the same batch
+    const currentMeta = (await fetchStoriesMeta(true)) || {
+      version: 1,
+      updatedAt: Date.now(),
+      storyCount: 0,
+      stories: {},
+    };
     if (currentMeta && currentMeta.stories) {
       delete currentMeta.stories[String(nyanId)];
       currentMeta.storyCount = Object.keys(currentMeta.stories).length;
@@ -566,9 +584,11 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
       currentMeta.version = (currentMeta.version || 1) + 1;
 
       const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-      await setDoc(metaRef, currentMeta);
+      batch.set(metaRef, currentMeta);
       setLocalStoriesMeta(currentMeta);
     }
+
+    await batch.commit();
 
     return { success: true };
   } catch (err: any) {
@@ -962,6 +982,41 @@ export async function saveStoriesToUnmappedArchive(
     return { success: false, count: 0, savedIds: [], error: err?.message || '未紐づけ保管庫への一括投入に失敗しました' };
   }
 }
+
+/**
+ * Deletes a story from the unmapped archive consolidated document.
+ */
+export async function deleteFromUnmappedArchive(oldId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = getFirestoreDbInstance();
+    if (!db) return { success: false, error: 'Firebaseデータベースに接続できません' };
+
+    const batch = writeBatch(db);
+    const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const storiesMap = { ...(data.stories || {}) };
+      delete storiesMap[oldId];
+      batch.set(docRef, {
+        updatedAt: new Date().toISOString(),
+        count: Object.keys(storiesMap).length,
+        stories: storiesMap,
+      });
+    }
+
+    // Also remove from legacy collection if it exists
+    const legacyRef = doc(db, 'nyanko_stories_unmapped', oldId);
+    batch.delete(legacyRef);
+
+    await batch.commit();
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to delete from unmapped archive:', err);
+    return { success: false, error: err?.message || '削除に失敗しました' };
+  }
+}
+
 
 
 
