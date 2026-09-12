@@ -572,7 +572,7 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseCustomConfig = {
   firestoreDatabaseId: 'ai-studio-fae23163-8cc8-4b97-bd81-37d5070e358a',
   storageBucket: 'gen-lang-client-0027333270.firebasestorage.app',
   messagingSenderId: '589716285990',
-  syncDocId: 'ken-chiko-global-state',
+  syncDocId: 'ken-chiko-global-master',
 };
 
 export function getEnvFirebaseConfig(): FirebaseCustomConfig {
@@ -971,7 +971,7 @@ export async function testFirebaseConnection(
       return { success: false, error: 'Firestore is not initialized' };
     }
 
-    const docId = config.syncDocId || 'ken-chiko-global-state';
+    const docId = config.syncDocId || GLOBAL_SHARED_DOC_ID;
     const docRef = doc(firestoreDb, 'kenchiko_world', docId);
     await getDoc(docRef);
     sessionDbReadCount++;

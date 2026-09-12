@@ -14,6 +14,7 @@ import {
   Layers,
   Wand2,
   CheckCircle2,
+  Check,
   AlertCircle,
   X,
   Save,
@@ -360,36 +361,20 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       updatedCharacters = characters.map((c) => (c.no === formNo ? nyanData : c));
     }
 
-    setIsSavingCharacter(true);
-    setFormNotice('☁️ Firestoreマスターに直接保存・反映中...');
-
     try {
-      // 1. Update save data locally
+      // Update save data locally (in memory & localStorage) - ZERO Firestore writes during draft editing!
       onUpdateSaveData((prev) => ({
         ...prev,
         characters: updatedCharacters,
         lastSaved: Date.now(),
       }), false);
 
-      // 2. Direct authoritative write to Firestore Global Master
-      const masterRes = await publishMasterData(
-        updatedCharacters,
-        `キャラクター編集: No.${formNo} ${formName}`
-      );
-
-      if (masterRes.success) {
-        setNotice(`✅ 「No.${formNo} ${formName}」をFirestore公式マスターに保存・反映しました！（v${masterRes.version}）`);
-        fetchMasterMeta().then(setMasterMeta).catch(() => {});
-      } else {
-        setNotice(`⚠️ ローカル保存完了（マスター同期注意: ${masterRes.error || '不明なエラー'}）`);
-      }
-
+      setNotice(`✅ 「No.${formNo} ${formName}」の下書きを反映しました！（管理画面上部ヘッダーの「Firebaseに一括保存」でクラウドに反映されます）`);
       handleCloseModal();
-      confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+      confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
     } catch (err: any) {
-      console.error('Failed to save character to master:', err);
-      setNotice(`⚠️ 保存中にエラー: ${err?.message || String(err)}`);
-      handleCloseModal();
+      console.error('Failed to update local character:', err);
+      setNotice(`⚠️ 反映中にエラー: ${err?.message || String(err)}`);
     } finally {
       setIsSavingCharacter(false);
     }
@@ -432,20 +417,10 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             lastSaved: Date.now(),
           }), true);
 
-          // Auto-publish to Firestore master so all devices get the synced images
-          publishMasterData(
-            result.updatedNyans,
-            `Google Drive一括画像同期 (${result.matchedCount}体)`
-          ).then((pub) => {
-            if (pub.success) {
-              fetchMasterMeta().then(setMasterMeta).catch(() => {});
-            }
-          }).catch(() => {});
-
           setDriveSyncStatus(
-            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込み・公式マスターへ反映しました！`
+            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込みました！上部ヘッダーの「Firebaseに一括保存」でクラウドに確定反映されます。`
           );
-          setNotice(`🎉 Google Driveから ${result.matchedCount} 体のにゃんこ画像を同期・保存しました！`);
+          setNotice(`🎉 Google Driveから ${result.matchedCount} 体の画像を読み込みました！（上部の「Firebaseに一括保存」で確定保存）`);
           confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
         } else {
           setDriveSyncStatus(
@@ -486,8 +461,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const handleDeleteCharacter = (no: number, name: string) => {
     openConfirm(
       'にゃんこキャラクターの削除',
-      `「No.${no} ${name}」を図鑑およびFirestoreマスターから削除しますか？`,
-      async () => {
+      `「No.${no} ${name}」を図鑑から削除しますか？\n（※ 上部ヘッダーの「Firebaseに一括保存」を押すことでクラウドに確定反映されます）`,
+      () => {
         const updated = characters.filter((c) => c.no !== no);
         onUpdateSaveData((prev) => ({
           ...prev,
@@ -497,14 +472,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         if (editingNyan && editingNyan.no === no) {
           handleCloseModal();
         }
-        setNotice(`🗑️ 「No.${no} ${name}」をマスターから削除中...`);
-        const res = await publishMasterData(updated, `キャラクター削除: No.${no} ${name}`);
-        if (res.success) {
-          setNotice(`🗑️ 「No.${no} ${name}」を図鑑およびFirestoreマスターから完全に削除しました。(v${res.version})`);
-          fetchMasterMeta().then(setMasterMeta).catch(() => {});
-        } else {
-          setNotice(`⚠️ ローカル削除完了（マスター同期エラー: ${res.error || '不明'}）`);
-        }
+        setNotice(`🗑️ 「No.${no} ${name}」を下書きから削除しました（上部の「Firebaseに一括保存」でクラウドに確定反映されます）`);
       }
     );
   };
@@ -1522,25 +1490,27 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCloseModal}
-                  className="px-4 py-2 bg-white text-[#5A524A] hover:bg-[#FAF8F4] text-xs font-bold rounded-xl border border-[#DDD7C8] transition"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={handleSaveCharacter}
-                  disabled={isSavingCharacter}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-[#C8744E] hover:bg-[#B3633E] disabled:bg-[#C8744E]/60 text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 disabled:cursor-not-allowed"
-                >
-                  {isSavingCharacter ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  <span>{isSavingCharacter ? '公式マスターへ同期中...' : '保存してFirestoreマスターに即時反映'}</span>
-                </button>
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCloseModal}
+                    className="px-4 py-2 bg-white text-[#5A524A] hover:bg-[#FAF8F4] text-xs font-bold rounded-xl border border-[#DDD7C8] transition cursor-pointer"
+                  >
+                    閉じる
+                  </button>
+                  <button
+                    onClick={handleSaveCharacter}
+                    disabled={isSavingCharacter}
+                    className="flex items-center gap-1.5 px-5 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
+                    title="編集内容をこの端末の下書きに反映します（クラウドへの通信は0回です）"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>下書きを反映（ブラウザ内・通信0回）</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-[#7A726A] font-medium">
+                  ※ クラウド（Firestore）への永続反映は、管理画面上部ヘッダーの「Firebaseに一括保存 (1回)」で行います
+                </p>
               </div>
             </div>
           </div>

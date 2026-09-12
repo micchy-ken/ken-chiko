@@ -228,6 +228,38 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [isPublishingMaster, setIsPublishingMaster] = useState<boolean>(false);
   const [masterPublishStatus, setMasterPublishStatus] = useState<string | null>(null);
 
+  // Global pending changes tracking across all tabs
+  const [unsavedChangesCount, setUnsavedChangesCount] = useState<number>(0);
+  const [modifiedTabs, setModifiedTabs] = useState<Set<AdminTab>>(new Set());
+  const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
+
+  const markTabChanged = (tab?: AdminTab) => {
+    const target = tab || activeTab;
+    setModifiedTabs((prev) => {
+      const next = new Set(prev);
+      next.add(target);
+      return next;
+    });
+    setUnsavedChangesCount((prev) => prev + 1);
+  };
+
+  const handleAdminUpdateSaveData = (updater: (prev: GameSaveData) => GameSaveData, isImmediate?: boolean) => {
+    markTabChanged();
+    onUpdateSaveData(updater, isImmediate);
+  };
+
+  // Prevent accidental browser navigation/refresh when changes are unsaved
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (unsavedChangesCount > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [unsavedChangesCount]);
+
   const loadCurrentMasterMeta = async () => {
     setIsLoadingMasterMeta(true);
     try {
@@ -240,18 +272,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   };
 
   useEffect(() => {
-    if (activeTab === 'googledoc' || activeTab === 'zukan') {
-      loadCurrentMasterMeta();
-    }
-  }, [activeTab]);
+    loadCurrentMasterMeta();
+  }, []);
 
-  const handlePublishMaster = async (customNote?: string) => {
+  const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
     setIsPublishingMaster(true);
-    setMasterPublishStatus('🚀 全マスターデータ（図鑑・あそび・応援・こうにちゃん・画像）をFirestoreへ一括公開中...');
+    setMasterPublishStatus('🚀 全マスターデータ（図鑑・あそび・応援・こうにちゃん・画像）をFirestoreへ一括保存中...');
     
     const masterPayload: GameMasterData = {
       version: masterMeta?.version || 1,
-      characters: characters,
+      characters: saveData.characters || characters,
       asobiList: asobiList,
       ouenCategories: saveData.ouenCategories || [],
       ouenList: saveData.ouenList || [],
@@ -261,16 +291,29 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       lastUpdated: Date.now(),
     };
 
-    const res = await publishGlobalMasterData(masterPayload, customNote || '管理画面より一括マスター公開');
+    const res = await publishGlobalMasterData(masterPayload, customNote || '管理画面より一括マスター保存');
     setIsPublishingMaster(false);
     if (res.success) {
+      setUnsavedChangesCount(0);
+      setModifiedTabs(new Set());
+      setHasUnsavedAsobi(false);
       setMasterPublishStatus(
-        `🎉 公開完了！ 公式マスター v${res.version} をFirestoreに単一トランザクションで安全配信しました。全端末で即時同期されます。`
+        `🎉 保存完了！公式マスター v${res.version} をFirestoreに1回で安全に保存しました。（全端末で同期されます）`
       );
       loadCurrentMasterMeta();
       confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
+      return true;
     } else {
-      setMasterPublishStatus(`❌ 公開失敗: ${res.error}`);
+      setMasterPublishStatus(`❌ 保存失敗: ${res.error}`);
+      return false;
+    }
+  };
+
+  const handleRequestClose = () => {
+    if (unsavedChangesCount > 0) {
+      setShowExitConfirmModal(true);
+    } else {
+      onClose();
     }
   };
 
@@ -294,15 +337,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       saveLocalKenchikoImage(processedDataUrl, rawToSave);
       setCurrentAvatarPreview(processedDataUrl);
 
-      // Save to GameState & Firebase
-      onUpdateSaveData((prev) => ({
+      // Save to GameState & Local Draft
+      handleAdminUpdateSaveData((prev) => ({
         ...prev,
         lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
           customImageUrl: processedDataUrl,
         },
-      }));
+      }), false);
 
       setIsProcessingAvatar(false);
       setAvatarStatus(
@@ -370,12 +413,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       saveLocalKihonNyanImage(processedDataUrl, rawToSave);
       setCurrentKihonNyanPreview(processedDataUrl);
 
-      // Save to GameState & Firebase
-      onUpdateSaveData((prev) => ({
+      // Save to GameState & Local Draft
+      handleAdminUpdateSaveData((prev) => ({
         ...prev,
         lastSaved: Date.now(),
         kihonNyanCustomImageUrl: processedDataUrl,
-      }));
+      }), false);
 
       setIsProcessingKihonNyan(false);
       setKihonNyanStatus(
@@ -437,11 +480,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         saveLocalKihonNyanImage('');
         setRawKihonNyanSource('');
         setCurrentKihonNyanPreview('');
-        onUpdateSaveData((prev) => ({
+        handleAdminUpdateSaveData((prev) => ({
           ...prev,
           lastSaved: Date.now(),
           kihonNyanCustomImageUrl: undefined,
-        }));
+        }), false);
         setKihonNyanStatus('🔄 初期のきほんのにゃんこ原画に戻しました。');
       }
     );
@@ -683,7 +726,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setNewFrequency('normal');
 
     // Update local save state only (ZERO cloud writes while editing)
-    onUpdateSaveData((prev) => ({
+    handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
@@ -722,7 +765,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         }
         setAsobiNotice(`🗑️ イベント「${title}」を削除しました（未保存）。`);
 
-        onUpdateSaveData((prev) => ({
+        handleAdminUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
@@ -761,7 +804,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
     setHasUnsavedAsobi(true);
-    onUpdateSaveData((prev) => ({
+    handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
@@ -783,7 +826,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setAsobiList(updatedList);
     setHasUnsavedAsobi(true);
     // CRITICAL: Pure in-memory update with local persistence only. Exactly ZERO Firestore write requests!
-    onUpdateSaveData((prev) => ({
+    handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
@@ -803,7 +846,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
     setHasUnsavedAsobi(true);
-    onUpdateSaveData((prev) => ({
+    handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
@@ -882,7 +925,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setAsobiList(updatedList);
     setHasUnsavedAsobi(true);
     setBatchRawText('');
-    onUpdateSaveData((prev) => ({
+    handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
@@ -920,7 +963,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         setAsobiList(updatedList);
         setHasUnsavedAsobi(true);
         setSelectedAsobiIds(new Set());
-        onUpdateSaveData((prev) => ({
+        handleAdminUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
@@ -932,7 +975,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // --- Firebase CRUD for Characters & Items ---
   const handleToggleNyanDiscovery = (no: number) => {
-    onUpdateSaveData((prev) => {
+    handleAdminUpdateSaveData((prev) => {
       const updatedChars = prev.characters.map((c) =>
         c.no === no
           ? {
@@ -947,7 +990,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         characters: updatedChars,
         lastSaved: Date.now(),
       };
-    });
+    }, false);
     setDbNotice(`No.${no} の発見ステータスを更新しました。Firebaseへ保存しました。`);
   };
 
@@ -956,21 +999,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       'にゃんこの削除',
       `本当に「No.${no} ${name}」を削除しますか？\n（Firebaseおよび図鑑から完全に削除されます）`,
       () => {
-        onUpdateSaveData((prev) => {
+        handleAdminUpdateSaveData((prev) => {
           const updatedChars = prev.characters.filter((c) => c.no !== no);
           return {
             ...prev,
             characters: updatedChars,
             lastSaved: Date.now(),
           };
-        });
+        }, false);
         setDbNotice(`🗑️ No.${no} ${name} を削除しました。Firebaseを更新しました。`);
       }
     );
   };
 
   const handleUpdateItemCount = (id: string, delta: number) => {
-    onUpdateSaveData((prev) => {
+    handleAdminUpdateSaveData((prev) => {
       const updatedInv = prev.inventory.map((item) =>
         item.id === id ? { ...item, count: Math.max(0, item.count + delta) } : item
       );
@@ -979,7 +1022,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         inventory: updatedInv,
         lastSaved: Date.now(),
       };
-    });
+    }, false);
   };
 
   // Helper condition label
@@ -1151,20 +1194,61 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Unsaved Changes Warning Badge */}
+            {unsavedChangesCount > 0 ? (
+              <div
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF3CD] text-[#856404] border border-[#FFEBAA] rounded-xl text-xs font-bold shadow-xs animate-pulse"
+                title="未保存の変更があります。上部の「Firebaseに一括保存」ボタンを押すことで、全データを1回の書き込みで安全にクラウドへ反映します。"
+              >
+                <AlertTriangle className="w-4 h-4 text-[#D97706] shrink-0" />
+                <span className="whitespace-nowrap">⚠️ 変更あり ({unsavedChangesCount}件)</span>
+              </div>
+            ) : (
+              <div className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 bg-[#FAF8F4] text-[#7A726A] border border-[#DDD7C8] rounded-xl text-[11px] font-bold">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#487560]" />
+                <span>クラウド同期済み (v{masterMeta?.version || 1})</span>
+              </div>
+            )}
+
+            {/* Global Master Save Button in Header */}
+            <button
+              onClick={() => handlePublishMaster()}
+              disabled={isPublishingMaster}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting ${
+                unsavedChangesCount > 0
+                  ? 'bg-[#C8744E] hover:bg-[#B3633E] text-white ring-2 ring-[#C8744E]/40 animate-pulse'
+                  : 'bg-[#487560] hover:bg-[#3B614F] text-white'
+              }`}
+              title="図鑑・あそび・応援・こうにちゃんなど全タブの編集内容を、Firestore公式マスター（ken-chiko-global-master）へ1回でまとめて保存します"
+            >
+              {isPublishingMaster ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              <span className="whitespace-nowrap">
+                {isPublishingMaster
+                  ? '保存中...'
+                  : unsavedChangesCount > 0
+                  ? 'Firebaseに一括保存 (1回)'
+                  : 'マスター一括保存 (1回)'}
+              </span>
+            </button>
+
             <button
               onClick={handleLogout}
-              className="text-[11px] font-bold text-[#5A524A] hover:text-[#2E2824] bg-[#FAF8F4] hover:bg-white px-2.5 py-1.5 sketch-tag transition flex items-center gap-1 font-handwriting"
+              className="text-[11px] font-bold text-[#5A524A] hover:text-[#2E2824] bg-[#FAF8F4] hover:bg-white px-2.5 py-1.5 sketch-tag transition flex items-center gap-1 font-handwriting cursor-pointer"
               title="ロックする"
             >
               <Lock className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">再ロック</span>
             </button>
             <button
-              onClick={onClose}
+              onClick={handleRequestClose}
               className={
                 isStandalone
-                  ? 'px-3.5 py-1.5 sketch-tag bg-[#487560] hover:bg-[#3B614F] text-white font-black text-xs transition flex items-center gap-1.5 shadow-sm font-handwriting'
-                  : 'p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition'
+                  ? 'px-3.5 py-1.5 sketch-tag bg-[#487560] hover:bg-[#3B614F] text-white font-black text-xs transition flex items-center gap-1.5 shadow-sm font-handwriting cursor-pointer'
+                  : 'p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer'
               }
               title={isStandalone ? 'ゲーム画面へ移動' : '閉じる'}
             >
@@ -1185,7 +1269,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* TAB 0: Nyanko Zukan Master Editor (にゃんこ図鑑修正) */}
           <button
             onClick={() => setActiveTab('zukan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'zukan'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1193,12 +1277,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <BookOpen className="w-4 h-4 text-[#C8744E]" />
             <span>にゃんこ図鑑修正・画像設定 ({characters.length}体)</span>
+            {modifiedTabs.has('zukan') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB 1: Kenchiko Avatar (けんちこ画像設定) */}
           <button
             onClick={() => setActiveTab('avatar')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'avatar'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1206,12 +1293,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Camera className="w-4 h-4 text-[#C8744E]" />
             <span>けんちこ画像登録</span>
+            {modifiedTabs.has('avatar') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB 2: Kihon Nyan Base Avatar (きほんのにゃんこ画像登録) */}
           <button
             onClick={() => setActiveTab('kihon_nyan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'kihon_nyan'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#438363] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1219,12 +1309,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Sparkles className="w-4 h-4 text-[#438363]" />
             <span>きほんのにゃんこ画像登録</span>
+            {modifiedTabs.has('kihon_nyan') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB: Kouni-chan & Vehicles (こうにちゃん＆のりもの設定) */}
           <button
             onClick={() => setActiveTab('kounichan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'kounichan'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1232,6 +1325,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <span className="text-sm">🛵</span>
             <span>こうにちゃん設定</span>
+            {modifiedTabs.has('kounichan') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
             {!saveData.kounichan?.enabled ? (
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-red-100 text-red-700 font-bold border border-red-300">
                 🛑 無効
@@ -1246,7 +1342,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* TAB 3: Events & Asobi Editor (全イベント編集) */}
           <button
             onClick={() => setActiveTab('asobi')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'asobi'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1254,12 +1350,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Smile className="w-4 h-4 text-[#C8744E]" />
             <span>全イベント・あそび編集 ({asobiList.length}件)</span>
+            {modifiedTabs.has('asobi') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB: Ouen Messages Editor (おうえん設定) */}
           <button
             onClick={() => setActiveTab('ouen')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'ouen'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#D4736A] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1267,12 +1366,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Sparkles className="w-4 h-4 text-[#D4736A]" />
             <span>おうえん設定 ({(saveData.ouenList?.length || 1)}件)</span>
+            {modifiedTabs.has('ouen') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB: User Management (ユーザー管理画面) */}
           <button
             onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'users'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#3E7B68] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1280,12 +1382,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <Users className="w-4 h-4 text-[#3E7B68]" />
             <span>ユーザー管理・データ分析</span>
+            {modifiedTabs.has('users') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB 4: Story Management */}
           <button
             onClick={() => setActiveTab('story')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'story'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#487560] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1293,12 +1398,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           >
             <BookOpen className="w-4 h-4 text-[#487560]" />
             <span>📜 物語（会話劇）管理</span>
+            {modifiedTabs.has('story') && (
+              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+            )}
           </button>
 
           {/* TAB 5: Google Doc Sync */}
           <button
             onClick={() => setActiveTab('googledoc')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'googledoc'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1311,7 +1419,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {/* TAB 6: Firebase Config */}
           <button
             onClick={() => setActiveTab('firebase')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
               activeTab === 'firebase'
                 ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
                 : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
@@ -1321,6 +1429,29 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <span>Firebase設定</span>
           </button>
         </div>
+
+        {/* Global Master Publish Feedback Message */}
+        {masterPublishStatus && (
+          <div
+            className={`px-4 sm:px-6 py-2.5 text-xs font-bold border-b flex items-center justify-between animate-fadeIn ${
+              masterPublishStatus.startsWith('🎉')
+                ? 'bg-[#EBF5EE] text-[#1E5631] border-[#C8E6C9]'
+                : masterPublishStatus.startsWith('🚀')
+                ? 'bg-[#EBF2FA] text-[#1E429F] border-[#C3D9FF]'
+                : 'bg-[#FDF2F2] text-[#9B1C1C] border-[#FBD5D5]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span>{masterPublishStatus}</span>
+            </div>
+            <button
+              onClick={() => setMasterPublishStatus(null)}
+              className="text-[#7A726A] hover:text-[#2E2824] ml-2 p-1 rounded hover:bg-black/5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Tab Content Body */}
         <div className={isStandalone ? 'p-4 sm:p-6 overflow-y-auto space-y-4 flex-1' : 'p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]'}>
@@ -1338,14 +1469,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   <span className="bg-[#E8F3ED] text-[#34654D] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#BDE0CE]">
                     編集中書き込み: 0回
                   </span>
-                  {masterMeta?.version && (
-                    <span className="bg-[#FAF2EB] text-[#874A2E] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#F0D5C3]">
-                      公式マスター v{masterMeta.version}
+                  {unsavedChangesCount > 0 ? (
+                    <span className="bg-[#FFF3CD] text-[#856404] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#FFEBAA] animate-pulse">
+                      ⚠️ 未保存の変更: {unsavedChangesCount}件
                     </span>
+                  ) : (
+                    masterMeta?.version && (
+                      <span className="bg-[#FAF2EB] text-[#874A2E] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#F0D5C3]">
+                        公式マスター v{masterMeta.version}
+                      </span>
+                    )
                   )}
                 </div>
                 <p className="text-[11px] text-[#7A726A] mt-0.5">
-                  編集作業は端末の作業ドラフトに保持されます。全作業完了後に「Firestoreマスターへ一括公開」を押すことで、1回の通信で全ユーザーへ配信されます。
+                  全タブの編集内容はブラウザ内ドラフトに安全に蓄積されます。作業完了後に「Firebaseに一括保存」を押すことで、1回の通信でクラウド公式マスターへ確定反映されます。
                 </p>
               </div>
             </div>
@@ -1355,33 +1492,26 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 type="button"
                 onClick={() => handlePublishMaster()}
                 disabled={isPublishingMaster}
-                className="w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting"
+                className={`w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting ${
+                  unsavedChangesCount > 0 ? 'bg-[#C8744E] hover:bg-[#B3633E] ring-2 ring-[#C8744E]/30' : 'bg-[#487560] hover:bg-[#3B614F]'
+                }`}
               >
-                <Rocket className={`w-4 h-4 ${isPublishingMaster ? 'animate-spin' : ''}`} />
-                <span>{isPublishingMaster ? 'クラウドへ配信中...' : 'Firestoreマスターへ一括公開 (1回)'}</span>
+                {isPublishingMaster ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>
+                  {isPublishingMaster
+                    ? 'クラウドへ保存中...'
+                    : unsavedChangesCount > 0
+                    ? 'Firebaseに一括保存 (1回)'
+                    : 'マスター一括保存 (1回)'}
+                </span>
               </button>
             </div>
           </div>
 
-          {masterPublishStatus && (
-            <div
-              className={`p-3 rounded-xl text-xs font-bold border flex items-center justify-between animate-fadeIn ${
-                masterPublishStatus.startsWith('🎉')
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : masterPublishStatus.startsWith('🚀')
-                  ? 'bg-blue-50 text-blue-800 border-blue-200'
-                  : 'bg-red-50 text-red-800 border-red-200'
-              }`}
-            >
-              <span>{masterPublishStatus}</span>
-              <button
-                onClick={() => setMasterPublishStatus(null)}
-                className="text-gray-400 hover:text-gray-600 ml-2"
-              >
-                ✕
-              </button>
-            </div>
-          )}
           {/* ========================================================= */}
           {/* TAB 0: NYANKO ZUKAN & CHARACTER MASTER EDITOR */}
           {/* ========================================================= */}
@@ -1389,7 +1519,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <AdminZukanEditor
               characters={characters}
               saveData={saveData}
-              onUpdateSaveData={onUpdateSaveData}
+              onUpdateSaveData={handleAdminUpdateSaveData}
               openConfirm={openConfirm}
             />
           )}
@@ -1819,7 +1949,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {activeTab === 'kounichan' && (
             <AdminKounichanEditor
               saveData={saveData}
-              onUpdateSaveData={onUpdateSaveData}
+              onUpdateSaveData={handleAdminUpdateSaveData}
             />
           )}
 
@@ -1928,7 +2058,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
 
                   <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
-                    マスターDB保存先: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-state</code>
+                    マスターDB保存先: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-master</code>
                   </div>
 
                   <span className="text-[11px] font-bold text-[#4A443F] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
@@ -2535,7 +2665,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <AdminUserManagement
                 characters={characters}
                 saveData={saveData}
-                onUpdateSaveData={onUpdateSaveData}
+                onUpdateSaveData={handleAdminUpdateSaveData}
                 openConfirm={openConfirm}
                 onSwitchUser={(newUid) => {
                   if (typeof window !== 'undefined') {
@@ -2561,7 +2691,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {activeTab === 'ouen' && (
             <AdminOuenEditor
               saveData={saveData}
-              onUpdateSaveData={onUpdateSaveData}
+              onUpdateSaveData={handleAdminUpdateSaveData}
               openConfirm={openConfirm}
             />
           )}
@@ -2573,6 +2703,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <AdminStoryManager
               characters={characters}
               onUpdateCharacters={(updatedChars) => {
+                markTabChanged('story');
                 onImportNyans(updatedChars, 0, 0);
               }}
             />
@@ -3041,11 +3172,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         <div className="bg-[#EFECE4] px-6 py-3 border-t border-[#DDD7C8] flex items-center justify-between text-xs text-[#7D756D]">
           <span>パスワード保護コンソール (ログイン中)</span>
           <button
-            onClick={onClose}
+            onClick={handleRequestClose}
             className={
               isStandalone
-                ? 'px-4 py-1.5 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl font-bold transition shadow-sm flex items-center gap-1.5 font-handwriting'
-                : 'px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm font-handwriting'
+                ? 'px-4 py-1.5 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl font-bold transition shadow-sm flex items-center gap-1.5 font-handwriting cursor-pointer'
+                : 'px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm font-handwriting cursor-pointer'
             }
           >
             {isStandalone && <Gamepad2 className="w-3.5 h-3.5" />}
@@ -3053,6 +3184,64 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Unsaved Changes Confirmation Modal on Exit */}
+      {showExitConfirmModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fadeIn">
+          <div className="relative w-full max-w-md bg-[#FAF8F4] border-2 border-[#2E2824] rounded-2xl p-6 shadow-2xl text-[#2E2824]">
+            <div className="flex items-center gap-3 mb-3 pb-3 border-b border-[#E8E2D8]">
+              <div className="w-10 h-10 rounded-full bg-[#FFF3CD] text-[#D97706] border border-[#FFEBAA] flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base font-handwriting">未保存のマスター変更があります</h3>
+                <p className="text-xs text-[#7A726A]">未保存の変更が {unsavedChangesCount} 件あります</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-[#5A524A] leading-relaxed mb-6 font-medium">
+              Firestore（クラウド）に一括保存せずに管理画面を閉じると、ブラウザをリロードした際に編集内容が元に戻る可能性があります。
+              <br /><br />
+              一括保存してから画面を閉じますか？（<strong>書き込みはたった1回のみ</strong>です）
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowExitConfirmModal(false)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-[#D5CFBF] bg-[#F2EDE4] text-[#5A524A] text-xs font-bold hover:bg-[#E8E2D8] transition cursor-pointer"
+              >
+                編集を続ける
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExitConfirmModal(false);
+                  onClose();
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 transition cursor-pointer"
+              >
+                保存せずに閉じる
+              </button>
+              <button
+                type="button"
+                disabled={isPublishingMaster}
+                onClick={async () => {
+                  const ok = await handlePublishMaster('終了時の一括保存');
+                  if (ok) {
+                    setShowExitConfirmModal(false);
+                    onClose();
+                  }
+                }}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-bold shadow-md transition cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isPublishingMaster ? '保存中...' : 'Firebaseに保存して閉じる (1回)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Custom App-side Confirmation Modal */}
       <ConfirmModal

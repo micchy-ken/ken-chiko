@@ -13,7 +13,7 @@ import {
   deleteUserDocExplicit,
 } from './firebaseSync';
 
-export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-state';
+export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-master';
 export const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
 const ACTIVE_USER_STORAGE_KEY = 'kenchiko_active_user_id';
 const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
@@ -22,7 +22,8 @@ const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
  * System and master data document IDs that must NEVER be treated as user accounts.
  */
 export const SYSTEM_DOC_IDS = [
-  DEFAULT_GLOBAL_DOC_ID, // 'ken-chiko-global-state'
+  DEFAULT_GLOBAL_DOC_ID, // 'ken-chiko-global-master'
+  'ken-chiko-global-state', // legacy master doc
   'ken-chiko-master-meta',
   'ken-chiko-master-nyans',
   'nyanko_stories_meta',
