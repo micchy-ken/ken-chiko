@@ -1,10 +1,15 @@
 import React from 'react';
-import { BookOpen, Settings, ShieldCheck } from 'lucide-react';
+import { BookOpen, Settings, ShieldCheck, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
+import { MasterFetchStatus } from '../services/firebaseSync';
 
 interface DefaultUserPlaceholderProps {
   customImageUrl?: string;
+  masterStatus?: MasterFetchStatus | null;
+  masterFetchError?: string | null;
+  isRetryingMasterSync?: boolean;
+  onRetryMasterSync?: () => void;
   onOpenTutorial: () => void;
   onSelectUser?: () => void;
   onOpenAdmin?: () => void;
@@ -17,6 +22,10 @@ interface DefaultUserPlaceholderProps {
  */
 export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
   customImageUrl,
+  masterStatus,
+  masterFetchError,
+  isRetryingMasterSync,
+  onRetryMasterSync,
   onOpenTutorial,
   onSelectUser,
   onOpenAdmin,
@@ -29,6 +38,38 @@ export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
 
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col items-center justify-center p-6 select-none relative font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+      {/* Explicit Master Data Load Status Banner (Top Notice) */}
+      {masterFetchError ? (
+        <div className="absolute top-4 left-4 right-4 max-w-2xl mx-auto z-20 bg-[#FEE2E2] border-2 border-[#EF4444] rounded-lg p-3 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+          <div className="flex items-start gap-2.5 text-[#991B1B]">
+            <AlertTriangle className="w-5 h-5 shrink-0 text-[#DC2626] mt-0.5 sm:mt-0" />
+            <div>
+              <div className="font-bold text-xs sm:text-sm">
+                ⚠️ クラウドマスター（{masterStatus?.docId || 'ken-chiko-global-master'}）の読み込みに失敗しました
+              </div>
+              <div className="text-[11px] text-[#B91C1C] mt-0.5">
+                {masterFetchError}
+              </div>
+            </div>
+          </div>
+          {onRetryMasterSync && (
+            <button
+              onClick={onRetryMasterSync}
+              disabled={isRetryingMasterSync}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold rounded shadow-sm transition shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetryingMasterSync ? 'animate-spin' : ''}`} />
+              <span>{isRetryingMasterSync ? '再接続中...' : 'マスター再取得'}</span>
+            </button>
+          )}
+        </div>
+      ) : masterStatus?.fetchedFromCloud ? (
+        <div className="absolute top-4 left-4 z-10 hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#ECFDF5] border border-[#A7F3D0] rounded text-[#065F46] text-[11px] font-bold shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5 text-[#059669]" />
+          <span>公式マスター同期中 (遊び:{masterStatus.asobiCount ?? 0} / 応援:{masterStatus.ouenCount ?? 0})</span>
+        </div>
+      ) : null}
+
       {/* Top Bar with subtle admin / settings buttons */}
       <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
         {onOpenAdmin && (

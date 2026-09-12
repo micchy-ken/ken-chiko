@@ -32,6 +32,7 @@ import {
   resetDailyWriteCount,
   MAX_DAILY_WRITES,
   fetchInitialFirebaseState,
+  MasterFetchStatus,
 } from '../services/firebaseSync';
 import { getActiveUserId, getFirestoreDocIdForUser } from '../services/userService';
 import {
@@ -43,6 +44,7 @@ import {
   fetchMasterMeta,
   publishMasterData,
   publishGlobalMasterData,
+  fetchGlobalMasterDataWithStatus,
   KenchikoMasterMeta,
 } from '../services/masterDataService';
 import { GameMasterData } from '../types';
@@ -122,6 +124,10 @@ interface DataSyncModalProps {
   initialTab?: AdminTab;
   initialPass?: string;
   isStandalone?: boolean;
+  masterStatus?: MasterFetchStatus | null;
+  masterFetchError?: string | null;
+  isRetryingMasterSync?: boolean;
+  onRetryMasterSync?: () => Promise<void>;
 }
 
 const DEFAULT_AUTH_PASSWORD = 'wakaro';
@@ -137,6 +143,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   initialTab,
   initialPass,
   isStandalone = false,
+  masterStatus,
+  masterFetchError: initialMasterFetchError,
+  isRetryingMasterSync = false,
+  onRetryMasterSync,
 }) => {
   // Password protection state - supports session storage, initialPass prop, or query params (?pass=wakaro or ?admin=wakaro)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -248,6 +258,26 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     onUpdateSaveData(updater, isImmediate);
   };
 
+  // Master health & fetch diagnosis state
+  const [internalMasterError, setInternalMasterError] = useState<string | null>(initialMasterFetchError || null);
+  const [cloudMasterDetail, setCloudMasterDetail] = useState<{
+    checked: boolean;
+    existsInCloud: boolean;
+    cloudAsobiCount: number;
+    cloudOuenCount: number;
+    cloudNyanCount: number;
+    cloudVersion: number;
+    error?: string;
+  }>({
+    checked: false,
+    existsInCloud: false,
+    cloudAsobiCount: 0,
+    cloudOuenCount: 0,
+    cloudNyanCount: 0,
+    cloudVersion: 0,
+  });
+  const [isDiagnosingMaster, setIsDiagnosingMaster] = useState(false);
+
   // Prevent accidental browser navigation/refresh when changes are unsaved
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -259,6 +289,60 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [unsavedChangesCount]);
+
+  const diagnoseAndFetchCloudMaster = async (applyToDraft: boolean = false) => {
+    setIsDiagnosingMaster(true);
+    try {
+      const res = await fetchGlobalMasterDataWithStatus();
+      if (res.success && res.data) {
+        setCloudMasterDetail({
+          checked: true,
+          existsInCloud: true,
+          cloudAsobiCount: res.data.asobiList?.length || 0,
+          cloudOuenCount: res.data.ouenList?.length || 0,
+          cloudNyanCount: res.data.characters?.length || 0,
+          cloudVersion: res.data.version || 1,
+        });
+        setInternalMasterError(null);
+        if (applyToDraft) {
+          if (res.data.asobiList) setAsobiList(res.data.asobiList);
+          handleAdminUpdateSaveData(() => ({
+            ...saveData,
+            ...res.data,
+            lastSaved: Date.now(),
+          }), false);
+          setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに全件読み込みました！');
+          confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
+        }
+      } else {
+        const errMsg = res.error || 'クラウドマスターが存在しません';
+        setInternalMasterError(errMsg);
+        setCloudMasterDetail({
+          checked: true,
+          existsInCloud: false,
+          cloudAsobiCount: 0,
+          cloudOuenCount: 0,
+          cloudNyanCount: 0,
+          cloudVersion: 0,
+          error: errMsg,
+        });
+      }
+    } catch (e: any) {
+      const errMsg = e?.message || String(e);
+      setInternalMasterError(errMsg);
+      setCloudMasterDetail({
+        checked: true,
+        existsInCloud: false,
+        cloudAsobiCount: 0,
+        cloudOuenCount: 0,
+        cloudNyanCount: 0,
+        cloudVersion: 0,
+        error: errMsg,
+      });
+    } finally {
+      setIsDiagnosingMaster(false);
+    }
+  };
 
   const loadCurrentMasterMeta = async () => {
     setIsLoadingMasterMeta(true);
@@ -273,9 +357,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   useEffect(() => {
     loadCurrentMasterMeta();
+    diagnoseAndFetchCloudMaster(false);
   }, []);
 
   const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
+    // Safety check: if master data seems incomplete (e.g. initial 15 events), confirm with user
+    if ((asobiList.length <= 15 || saveData.ouenList?.length <= 1) && !cloudMasterDetail.existsInCloud) {
+      // Proceed with caution
+    }
+
     setIsPublishingMaster(true);
     setMasterPublishStatus('🚀 全マスターデータ（図鑑・あそび・応援・こうにちゃん・画像）をFirestoreへ一括保存中...');
     
@@ -297,10 +387,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setUnsavedChangesCount(0);
       setModifiedTabs(new Set());
       setHasUnsavedAsobi(false);
+      setInternalMasterError(null);
       setMasterPublishStatus(
         `🎉 保存完了！公式マスター v${res.version} をFirestoreに1回で安全に保存しました。（全端末で同期されます）`
       );
       loadCurrentMasterMeta();
+      diagnoseAndFetchCloudMaster(false);
       confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
       return true;
     } else {
@@ -1453,6 +1545,62 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </div>
         )}
 
+        {/* Master Fetch Error / Health Warning Banner */}
+        {(initialMasterFetchError || internalMasterError || (cloudMasterDetail.checked && !cloudMasterDetail.existsInCloud)) && (
+          <div className="bg-[#FEF2F2] border-b-2 border-[#EF4444] px-4 sm:px-6 py-3 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 text-[#991B1B]">
+                <AlertTriangle className="w-5 h-5 shrink-0 text-[#DC2626] mt-0.5" />
+                <div>
+                  <div className="font-bold text-xs sm:text-sm">
+                    ⚠️ クラウド公式マスター（ken-chiko-global-master）の取得に失敗しています
+                  </div>
+                  <div className="text-[11px] text-[#B91C1C] mt-0.5">
+                    {initialMasterFetchError || internalMasterError || cloudMasterDetail.error || 'Firestore上にドキュメントが見つかりません'}
+                  </div>
+                  <div className="text-[10px] text-[#7F1D1D] mt-1 font-bold">
+                    ※ 現在表示されているのはブラウザ内初期値（あそび: {asobiList.length}件 / 応援: {saveData.ouenList?.length || 1}件）です。この状態で「マスター一括保存」を実行するとクラウドデータが上書きされます。
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                <button
+                  onClick={() => diagnoseAndFetchCloudMaster(true)}
+                  disabled={isDiagnosingMaster || isRetryingMasterSync}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer disabled:opacity-50"
+                  title="クラウド上の公式マスターを再度読み込みます"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isDiagnosingMaster || isRetryingMasterSync ? 'animate-spin' : ''}`} />
+                  <span>{isDiagnosingMaster || isRetryingMasterSync ? '取得中...' : 'クラウドから再取得'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Master Discrepancy Helper: Cloud has data but local draft is minimal */}
+        {!initialMasterFetchError && !internalMasterError && cloudMasterDetail.checked && cloudMasterDetail.existsInCloud && (cloudMasterDetail.cloudAsobiCount > asobiList.length || cloudMasterDetail.cloudOuenCount > (saveData.ouenList?.length || 1)) && (
+          <div className="bg-[#EFF6FF] border-b border-[#BFDBFE] px-4 sm:px-6 py-2.5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[#1E40AF] text-xs font-bold">
+                <Sparkles className="w-4 h-4 text-[#3B82F6] shrink-0" />
+                <span>
+                  💡 クラウド上に完全なマスター（あそび: {cloudMasterDetail.cloudAsobiCount}件 / 応援: {cloudMasterDetail.cloudOuenCount}件 / 図鑑: {cloudMasterDetail.cloudNyanCount}体 / v{cloudMasterDetail.cloudVersion}）が存在します。
+                </span>
+              </div>
+              <button
+                onClick={() => diagnoseAndFetchCloudMaster(true)}
+                disabled={isDiagnosingMaster}
+                className="flex items-center gap-1 px-3 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold rounded-lg shadow-xs transition shrink-0 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>クラウドのマスターを今すぐ読込</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tab Content Body */}
         <div className={isStandalone ? 'p-4 sm:p-6 overflow-y-auto space-y-4 flex-1' : 'p-4 sm:p-6 overflow-y-auto space-y-4 max-h-[64vh]'}>
           {/* Global Master Publication & Isolation Control Banner */}
@@ -1975,6 +2123,27 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     文字入力や行追加では<strong>Firestore書き込みは一切消費されません</strong>。編集完了後に「クラウドへ今すぐ保存」を押すと、<strong>たった1回の書き込み</strong>でマスターDBに一括保存されます。
                   </p>
                 </div>
+
+                {/* In-tab warning if local asobi count is minimal */}
+                {asobiList.length <= 15 && (
+                  <div className="w-full bg-[#FFFBEB] border border-[#FDE68A] p-2.5 rounded-xl flex items-center justify-between text-xs text-[#92400E]">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <span>⚠️ 現在はローカル初期プリセット（15件）が表示されています。</span>
+                      {cloudMasterDetail.existsInCloud && (
+                        <span>クラウドマスター（{cloudMasterDetail.cloudAsobiCount}件）から読み込むことができます。</span>
+                      )}
+                    </div>
+                    {cloudMasterDetail.existsInCloud && (
+                      <button
+                        onClick={() => diagnoseAndFetchCloudMaster(true)}
+                        disabled={isDiagnosingMaster}
+                        className="px-2.5 py-1 bg-[#D97706] hover:bg-[#B45309] text-white text-[11px] font-bold rounded-lg shadow-xs transition shrink-0 cursor-pointer"
+                      >
+                        クラウドから読込 ({cloudMasterDetail.cloudAsobiCount}件)
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* View Mode Tabs */}
                 <div className="flex items-center bg-[#EFECE4] p-1 rounded-xl border border-[#DDD7C8] shrink-0 self-start md:self-center">

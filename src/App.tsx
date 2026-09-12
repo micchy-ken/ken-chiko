@@ -31,6 +31,7 @@ import {
   saveOnUserAction,
   saveOnAppExit,
   fetchInitialFirebaseState,
+  MasterFetchStatus,
   saveLocalBackup,
   setQuotaStatusCallback,
   getIsQuotaExhausted,
@@ -167,6 +168,9 @@ export default function App() {
   const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<FirebaseConnectionStatus>(getFirebaseConnectionStatus());
   const [isRetryingConnection, setIsRetryingConnection] = useState<boolean>(false);
+  const [masterStatus, setMasterStatus] = useState<MasterFetchStatus | null>(null);
+  const [masterFetchError, setMasterFetchError] = useState<string | null>(null);
+  const [isRetryingMasterSync, setIsRetryingMasterSync] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'stage' | 'zukan' | 'inventory' | 'diary' | 'sync'>('stage');
 
   // User Management State (Multi-user support via ?user=yumi etc.)
@@ -387,22 +391,23 @@ export default function App() {
     }
 
     // B. Immediate cloud connection & master synchronization pipeline
-    const runInitialBootSync = async () => {
-      // If default user, skip any remote Firestore fetch completely
-      if (isDefaultUser) {
-        console.log('[CloudSync] 🛡️ デフォルト画面（未ログイン）のため、Firestore接続・読み込みは完全にスキップされました（リード数: 0回）');
-        setIsLoadingFirebase(false);
-        isInitialSyncCompletedRef.current = true;
-        setIsInitialSyncCompleted(true);
-        return;
-      }
-
+    const runInitialBootSync = async (isManualRetry: boolean = false) => {
       let activeData = saveDataRef.current;
 
       try {
-        const res = await fetchInitialFirebaseState();
+        const res = await fetchInitialFirebaseState(undefined, isManualRetry);
         if (!isMounted) return;
-        if (res.success && res.data) {
+
+        if (res.masterStatus) {
+          setMasterStatus(res.masterStatus);
+          if (!res.masterStatus.fetchedFromCloud || res.masterStatus.errorDetail) {
+            setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
+          } else {
+            setMasterFetchError(null);
+          }
+        }
+
+        if (res.data) {
           isRemoteUpdateRef.current = true;
           const mergedData = { ...res.data };
           if (!mergedData.kenchiko.customImageUrl && localImg) {
@@ -426,10 +431,13 @@ export default function App() {
 
           activeData = mergedData;
           setSaveData(mergedData);
-          setIsFirebaseSynced(true);
+          if (res.success && res.masterStatus?.fetchedFromCloud) {
+            setIsFirebaseSynced(true);
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Firebase initial load note:', err);
+        setMasterFetchError(err?.message || 'Firestoreマスター読込中に例外が発生しました');
       }
 
       if (!isMounted) return;
@@ -530,6 +538,32 @@ export default function App() {
       unsubStatus();
     };
   }, []);
+
+  const handleRetryMasterSync = async () => {
+    setIsRetryingMasterSync(true);
+    setMasterFetchError(null);
+    try {
+      const res = await fetchInitialFirebaseState(undefined, true);
+      if (res.masterStatus) {
+        setMasterStatus(res.masterStatus);
+        if (!res.masterStatus.fetchedFromCloud || res.masterStatus.errorDetail) {
+          setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
+          setIsFirebaseSynced(false);
+        } else {
+          setMasterFetchError(null);
+          setIsFirebaseSynced(true);
+        }
+      }
+      if (res.data) {
+        setSaveData(res.data);
+      }
+    } catch (err: any) {
+      setMasterFetchError(err?.message || '再試行中にエラーが発生しました');
+      setIsFirebaseSynced(false);
+    } finally {
+      setIsRetryingMasterSync(false);
+    }
+  };
 
   // Master Data Refresh key
   const LAST_MASTER_CHECK_KEY = 'kenchiko_last_master_check_time_v2';
@@ -879,11 +913,7 @@ export default function App() {
           };
 
           saveLocalBackup(nextData);
-          if (isNewlyDiscoveredNyan && isCloudAutoSyncEnabled()) {
-            syncSaveDataToFirebase(nextData, true).catch((err) => {
-              console.warn('Discovered nyan cloud sync note:', err);
-            });
-          }
+          // Encounter discoveries are preserved in local storage; zero automatic cloud writes
           return nextData;
         } else {
           // MISS (70%): No cat appeared yet. Schedule next check in 15-60 seconds.
@@ -1700,6 +1730,10 @@ export default function App() {
           characters={saveData.characters}
           saveData={saveData}
           initialTab={adminInitialTab}
+          masterStatus={masterStatus}
+          masterFetchError={masterFetchError}
+          isRetryingMasterSync={isRetryingMasterSync}
+          onRetryMasterSync={handleRetryMasterSync}
           onClose={handleCloseAdmin}
           onImportNyans={handleImportNyans}
           onSaveFirebaseConfig={(_cfg) => {}}
@@ -1723,6 +1757,10 @@ export default function App() {
         <PencilSketchFilters />
         <DefaultUserPlaceholder
           customImageUrl={saveData.kenchiko.customImageUrl}
+          masterStatus={masterStatus}
+          masterFetchError={masterFetchError}
+          isRetryingMasterSync={isRetryingMasterSync}
+          onRetryMasterSync={handleRetryMasterSync}
           onOpenTutorial={() => {
             setTutorialInitialStep(0);
             setIsNewFeatureTutorialOnly(false);
@@ -1898,6 +1936,33 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Explicit Master Data Load Failure Warning Banner */}
+      {masterFetchError && (
+        <div className="bg-[#FEF2F2] border-b-2 border-[#EF4444] px-4 py-2.5 shadow-sm">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-start gap-2.5 text-[#991B1B]">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-[#DC2626] mt-0.5 sm:mt-0" />
+              <div>
+                <div className="font-bold text-xs sm:text-sm">
+                  ⚠️ クラウドマスター（{masterStatus?.docId || 'ken-chiko-global-master'}）の読み込みに失敗しました
+                </div>
+                <div className="text-[11px] text-[#B91C1C] mt-0.5">
+                  {masterFetchError} （※現在は一時的なローカルデータを表示しています。マスターの不具合やネットワーク状態をご確認ください）
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleRetryMasterSync}
+              disabled={isRetryingMasterSync}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold rounded shadow-sm transition shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetryingMasterSync ? 'animate-spin' : ''}`} />
+              <span>{isRetryingMasterSync ? '再接続中...' : 'マスター再読み込み'}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Alert Bar (Only shown when genuinely offline) */}
       {connectionStatus.isOffline && (
@@ -2127,6 +2192,10 @@ export default function App() {
               characters={saveData.characters}
               saveData={saveData}
               initialTab={adminInitialTab}
+              masterStatus={masterStatus}
+              masterFetchError={masterFetchError}
+              isRetryingMasterSync={isRetryingMasterSync}
+              onRetryMasterSync={handleRetryMasterSync}
               onClose={() => setActiveTab('stage')}
               onImportNyans={handleImportNyans}
               onSaveFirebaseConfig={(_cfg) => {}}

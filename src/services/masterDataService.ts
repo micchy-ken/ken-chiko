@@ -141,33 +141,37 @@ export function setCachedMasterNyans(nyans: NyanCharacter[]): void {
   } catch {}
 }
 
+export interface MasterFetchDetail {
+  success: boolean;
+  data: GameMasterData | null;
+  error?: string;
+  sourceDoc: string;
+}
+
 /**
- * Fetches the complete global master data from Firestore (1 Read operation).
+ * Fetches the complete global master data with explicit success/error details.
  */
-export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
+export async function fetchGlobalMasterDataWithStatus(): Promise<MasterFetchDetail> {
   try {
     initFirebase();
     const db = getFirestoreDbInstance();
-    if (!db) return null;
+    if (!db) {
+      return { success: false, data: null, error: 'Firebaseデータベースインスタンスが見つかりません', sourceDoc: GLOBAL_MASTER_DOC_ID };
+    }
 
     const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
     const snap = await getDoc(masterDocRef);
     if (!snap.exists()) {
-      // Fallback: try fetching legacy master nyans doc
-      const legacyNyans = await fetchMasterNyans();
-      if (legacyNyans) {
-        return {
-          ...DEFAULT_MASTER_DATA,
-          version: legacyNyans.version,
-          characters: legacyNyans.nyans,
-          lastUpdated: Date.now(),
-        };
-      }
-      return null;
+      return {
+        success: false,
+        data: null,
+        error: `Firestoreコレクション「${FIRESTORE_COLLECTION}」内に「${GLOBAL_MASTER_DOC_ID}」が存在しません`,
+        sourceDoc: GLOBAL_MASTER_DOC_ID,
+      };
     }
 
     const data = snap.data();
-    return {
+    const masterData: GameMasterData = {
       version: data.version || 1,
       characters: Array.isArray(data.characters) ? data.characters : DEFAULT_MASTER_DATA.characters,
       asobiList: Array.isArray(data.asobiList) ? data.asobiList : DEFAULT_MASTER_DATA.asobiList,
@@ -178,10 +182,23 @@ export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
       googleDriveFolderUrl: data.googleDriveFolderUrl,
       lastUpdated: data.lastUpdated || Date.now(),
     };
-  } catch (err) {
-    console.warn('fetchGlobalMasterData warning:', err);
-    return null;
+    return { success: true, data: masterData, sourceDoc: GLOBAL_MASTER_DOC_ID };
+  } catch (err: any) {
+    return {
+      success: false,
+      data: null,
+      error: `マスター取得失敗: ${err?.message || String(err)}`,
+      sourceDoc: GLOBAL_MASTER_DOC_ID,
+    };
   }
+}
+
+/**
+ * Fetches the complete global master data from Firestore (1 Read operation).
+ */
+export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
+  const res = await fetchGlobalMasterDataWithStatus();
+  return res.data;
 }
 
 /**
