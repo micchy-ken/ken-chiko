@@ -31,6 +31,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   characters,
   onImportNyans,
   onOpenTutorial,
+  onOpenDevConsole,
 }) => {
   const [targetUserId, setTargetUserId] = useState(currentUserId || '');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -333,6 +334,29 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               </div>
             );
           })()}
+
+          {/* Admin / Dev Console Navigation */}
+          {onOpenDevConsole && (
+            <div className="p-3.5 bg-[#FAF8F5] rounded-2xl border border-[#DDD7C8] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-[#3E3833] flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#487560]" />
+                  <span>管理画面・全設定コンソール</span>
+                </div>
+                <p className="text-[11px] text-[#7D756D] mt-0.5">
+                  おうえん設定・ユーザーデータ分析・物語管理・図鑑編集・けんちこ画像変更
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenDevConsole}
+                className="px-3.5 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-bold rounded-xl shadow-xs transition shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>管理画面を開く</span>
+              </button>
+            </div>
+          )}
 
           {/* User Data Reset (初期化) */}
           <div className="p-4 bg-[#FFF5F2] rounded-2xl border border-[#F5C7BD] space-y-3">

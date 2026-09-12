@@ -93,6 +93,7 @@ import {
   User,
   RefreshCw,
   AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import confetti from './utils/confetti';
 
@@ -1688,6 +1689,32 @@ export default function App() {
     }
   };
 
+  // Standalone Admin Screen (When accessed via ?admin= or ?dev=, or opened from in-app)
+  // No game screen or stage is rendered in the background! Nothing progresses!
+  if (isStandaloneAdmin || showSyncModal) {
+    return (
+      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <DataSyncModal
+          isStandalone={true}
+          characters={saveData.characters}
+          saveData={saveData}
+          initialTab={adminInitialTab}
+          onClose={handleCloseAdmin}
+          onImportNyans={handleImportNyans}
+          onSaveFirebaseConfig={(_cfg) => {}}
+          onUpdateSaveData={(updater) => {
+            setSaveData((prev) => {
+              const next = updater(prev);
+              saveLocalBackup(next);
+              return next;
+            });
+          }}
+        />
+      </div>
+    );
+  }
+
   // Default User Screen: ONLY Centered Kenchiko Illustration (Game completely stopped)
   // No game screen or stage is rendered in the background!
   if (isDefaultUser) {
@@ -1732,32 +1759,6 @@ export default function App() {
           initialStep={tutorialInitialStep}
           isNewFeatureOnly={isNewFeatureTutorialOnly}
           onClose={() => setShowTutorialModal(false)}
-        />
-      </div>
-    );
-  }
-
-  // Standalone Admin Screen (When accessed via ?admin= or ?dev=, or opened from in-app)
-  // No game screen or stage is rendered in the background! Nothing progresses!
-  if (isStandaloneAdmin || showSyncModal) {
-    return (
-      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
-        <PencilSketchFilters />
-        <DataSyncModal
-          isStandalone={true}
-          characters={saveData.characters}
-          saveData={saveData}
-          initialTab={adminInitialTab}
-          onClose={handleCloseAdmin}
-          onImportNyans={handleImportNyans}
-          onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater) => {
-            setSaveData((prev) => {
-              const next = updater(prev);
-              saveLocalBackup(next);
-              return next;
-            });
-          }}
         />
       </div>
     );
@@ -1872,20 +1873,18 @@ export default function App() {
               </button>
             )}
 
-            {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
-            {showSyncModal && (
-              <button
-                onClick={() => {
-                  setIsStandaloneAdmin(true);
-                  setShowSyncModal(true);
-                }}
-                className="flex-shrink-0 flex items-center gap-1 bg-[#EAE5D9] hover:bg-[#DDD7C8] text-[#635A52] font-black text-xs px-2.5 py-1.5 sketch-card-subtle shadow-xs transition"
-                title="開発・データ連携コンソール"
-              >
-                <Code2 className="w-3.5 h-3.5 text-[#635A52]" />
-                <span className="font-handwriting text-xs">開発</span>
-              </button>
-            )}
+            {/* Admin / Dev Console Button */}
+            <button
+              onClick={() => {
+                setIsStandaloneAdmin(true);
+                setShowSyncModal(true);
+              }}
+              className="flex-shrink-0 flex items-center gap-1 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] font-black text-xs px-2.5 py-1.5 sketch-card-subtle shadow-xs transition cursor-pointer"
+              title="管理画面・データ連携コンソールを開く"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-[#487560]" />
+              <span className="font-handwriting text-xs">管理画面</span>
+            </button>
 
             {/* New User Settings Button */}
             <button
