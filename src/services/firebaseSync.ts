@@ -679,10 +679,10 @@ export function incrementDailyWriteCount(): number {
 export function isCloudAutoSyncEnabled(): boolean {
   try {
     const val = localStorage.getItem(AUTO_SYNC_ENABLED_KEY);
-    // Explicit opt-in only: default to false to strictly prevent unauthorized Firestore writes
-    return val === 'true';
+    // Default to true so game progress is seamlessly synced to cloud as expected
+    return val !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 
