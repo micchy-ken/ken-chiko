@@ -1,12 +1,13 @@
 import React from 'react';
-import { User, Settings, ShieldCheck } from 'lucide-react';
+import { BookOpen, Settings, ShieldCheck } from 'lucide-react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
 
 interface DefaultUserPlaceholderProps {
   customImageUrl?: string;
-  onSelectUser: () => void;
-  onOpenAdmin: () => void;
+  onOpenTutorial: () => void;
+  onSelectUser?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 /**
@@ -16,6 +17,7 @@ interface DefaultUserPlaceholderProps {
  */
 export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
   customImageUrl,
+  onOpenTutorial,
   onSelectUser,
   onOpenAdmin,
 }) => {
@@ -27,64 +29,64 @@ export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
 
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col items-center justify-center p-6 select-none relative font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
-      {/* Top Bar with subtle admin / switch user buttons */}
+      {/* Top Bar with subtle admin / settings buttons */}
       <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-        <button
-          onClick={onOpenAdmin}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] text-xs font-bold sketch-card-subtle transition shadow-xs"
-          title="管理・開発コンソール"
-        >
-          <ShieldCheck className="w-3.5 h-3.5 text-[#487560]" />
-          <span>管理画面</span>
-        </button>
+        {onOpenAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] text-xs font-bold sketch-card-subtle transition shadow-xs cursor-pointer"
+            title="管理・開発コンソール"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-[#487560]" />
+            <span>管理画面</span>
+          </button>
+        )}
 
-        <button
-          onClick={onSelectUser}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] text-xs font-bold sketch-card-subtle transition shadow-xs"
-          title="プレイヤーを選択"
-        >
-          <Settings className="w-3.5 h-3.5 text-[#487560]" />
-          <span>設定</span>
-        </button>
+        {onSelectUser && (
+          <button
+            onClick={onSelectUser}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] text-xs font-bold sketch-card-subtle transition shadow-xs cursor-pointer"
+            title="設定・プレイヤー選択"
+          >
+            <Settings className="w-3.5 h-3.5 text-[#487560]" />
+            <span>設定</span>
+          </button>
+        )}
       </div>
 
-      {/* Main Centered Area: ONLY Kenchiko Illustration */}
+      {/* Main Centered Area: ONLY Kenchiko Illustration + Guide Link */}
       <div className="flex flex-col items-center justify-center max-w-sm w-full animate-fade-in">
-        {/* Clickable Kenchiko Illustration */}
-        <button
-          onClick={onSelectUser}
-          className="group relative flex items-center justify-center p-4 transition-transform duration-300 hover:scale-105 active:scale-95 focus:outline-none cursor-pointer"
-          title="タップしてプレイヤーを選択してはじめる"
-        >
-          <div className="w-60 h-60 sm:w-72 sm:h-72 flex items-center justify-center">
-            <img
-              src={activeImage}
-              alt="けんちこ"
-              onError={(e) =>
-                handleImageError(e, 'images/kihon-nyan-transparent.png')
-              }
-              className="max-w-full max-h-full object-contain filter drop-shadow-[0_10px_20px_rgba(46,40,36,0.15)]"
-            />
-          </div>
-        </button>
+        {/* Kenchiko Illustration */}
+        <div className="w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center p-2">
+          <img
+            src={activeImage}
+            alt="けんちこ"
+            onError={(e) =>
+              handleImageError(e, 'images/kihon-nyan-transparent.png')
+            }
+            className="max-w-full max-h-full object-contain filter drop-shadow-[0_10px_20px_rgba(46,40,36,0.15)] pointer-events-none"
+          />
+        </div>
 
-        {/* Gentle Character Name */}
-        <h1 className="mt-3 text-xl sm:text-2xl font-black text-[#2E2824] tracking-wider font-handwriting">
+        {/* Character Title */}
+        <h1 className="mt-2 text-2xl sm:text-3xl font-black text-[#2E2824] tracking-wider font-handwriting">
           けんちこ
         </h1>
 
         <p className="mt-1 text-xs text-[#7A7269] font-medium">
-          プレイヤー未選択（待機中）
+          けんちこ観察日記
         </p>
 
-        {/* Play / Select Player Button */}
-        <div className="mt-6 flex flex-col items-center gap-2 w-full max-w-xs">
+        {/* How to Play Guide Link */}
+        <div className="mt-6 flex flex-col items-center">
           <button
-            onClick={onSelectUser}
-            className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[#3E3833] hover:bg-[#2E2824] text-[#FAF8F4] text-sm font-black sketch-border shadow-md transition-all duration-200 active:translate-y-0.5 cursor-pointer"
+            onClick={onOpenTutorial}
+            className="group inline-flex items-center gap-2 px-4 py-2 text-sm font-bold text-[#487560] hover:text-[#325645] bg-[#E8F0EA]/70 hover:bg-[#E8F0EA] rounded-full transition-all duration-200 cursor-pointer border border-[#487560]/20 hover:border-[#487560]/40 shadow-xs"
           >
-            <User className="w-4 h-4 text-[#C2B7A3]" />
-            <span className="font-handwriting">プレイヤーを選択してはじめる</span>
+            <BookOpen className="w-4 h-4 text-[#487560] transition-transform group-hover:scale-110" />
+            <span className="underline underline-offset-4 decoration-[#487560]/40 group-hover:decoration-[#487560]">
+              遊び方ガイド
+            </span>
           </button>
         </div>
       </div>
@@ -92,7 +94,7 @@ export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
       {/* Subtle Footer Note */}
       <div className="absolute bottom-4 text-center">
         <p className="text-[11px] text-[#9E968D]">
-          URLパラメータ（?user=名前）または上のボタンから遊ぶ人を選んでください
+          プレイするにはURLに「?user=お名前」を指定してください
         </p>
       </div>
     </div>

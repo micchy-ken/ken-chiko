@@ -1731,6 +1731,11 @@ export default function App() {
         <PencilSketchFilters />
         <DefaultUserPlaceholder
           customImageUrl={saveData.kenchiko.customImageUrl}
+          onOpenTutorial={() => {
+            setTutorialInitialStep(0);
+            setIsNewFeatureTutorialOnly(false);
+            setShowTutorialModal(true);
+          }}
           onSelectUser={() => setShowUserSettingsModal(true)}
           onOpenAdmin={() => {
             setIsStandaloneAdmin(true);
@@ -1757,6 +1762,12 @@ export default function App() {
             }}
           />
         )}
+        <TutorialModal
+          isOpen={showTutorialModal}
+          initialStep={tutorialInitialStep}
+          isNewFeatureOnly={isNewFeatureTutorialOnly}
+          onClose={() => setShowTutorialModal(false)}
+        />
       </div>
     );
   }
