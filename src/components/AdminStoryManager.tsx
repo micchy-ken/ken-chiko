@@ -18,6 +18,7 @@ import {
   Archive,
   UserPlus,
   ArrowRight,
+  ArrowRightLeft,
   Shuffle,
   RotateCcw,
   FolderInput,
@@ -99,18 +100,48 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
   // Registered story IDs Set & Unregistered Nyans
   const registeredStoryMap = useMemo(() => meta?.stories || {}, [meta]);
-  const registeredCount = useMemo(() => Object.keys(registeredStoryMap).length, [registeredStoryMap]);
-  const coveragePercent = useMemo(
-    () => (characters.length > 0 ? Math.round((registeredCount / characters.length) * 100) : 0),
-    [characters.length, registeredCount]
-  );
+  const totalFirestoreStoriesCount = useMemo(() => Object.keys(registeredStoryMap).length, [registeredStoryMap]);
+
+  // Number of characters in current zukan that actually have a registered story
+  const matchedRegisteredCount = useMemo(() => {
+    return characters.filter((c) => !!registeredStoryMap[String(c.no)]).length;
+  }, [characters, registeredStoryMap]);
+
+  // Unregistered characters in current zukan
   const unregisteredNyans = useMemo(() => {
     return characters.filter((c) => !registeredStoryMap[String(c.no)]);
   }, [characters, registeredStoryMap]);
+  const unregisteredCount = unregisteredNyans.length;
+
+  // Stories existing in Firestore that don't match any current zukan character No
+  const charNoSet = useMemo(() => new Set(characters.map((c) => String(c.no))), [characters]);
+  const orphanStoryKeys = useMemo(() => {
+    return Object.keys(registeredStoryMap).filter((k) => !charNoSet.has(k));
+  }, [registeredStoryMap, charNoSet]);
+  const orphanStoriesCount = orphanStoryKeys.length;
+
+  const orphanStoryList = useMemo(() => {
+    return orphanStoryKeys.map((key) => {
+      const item = registeredStoryMap[key];
+      return {
+        key,
+        id: parseInt(key, 10) || 0,
+        name: item?.name || `旧ID #${key}`,
+        motif: item?.motif || '',
+        week_title: item?.week_title || '',
+        daysCount: item?.daysCount || 0,
+      };
+    });
+  }, [orphanStoryKeys, registeredStoryMap]);
+
+  const coveragePercent = useMemo(
+    () => (characters.length > 0 ? Math.min(100, Math.round((matchedRegisteredCount / characters.length) * 100)) : 0),
+    [characters.length, matchedRegisteredCount]
+  );
 
   // Filter & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterMode, setFilterMode] = useState<'all' | 'has_story' | 'no_story'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'has_story' | 'no_story' | 'orphan'>('all');
 
   // Import panel state
   const [jsonInput, setJsonInput] = useState<string>('');
@@ -770,8 +801,13 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
             <div className="text-right">
               <div className="text-[10px] font-bold text-[#7D756D]">物語登録率</div>
               <div className="font-mono font-bold text-xs text-[#487560]">
-                {registeredCount} / {characters.length} 体 ({coveragePercent}%)
+                {matchedRegisteredCount} / {characters.length} 体 ({coveragePercent}%)
               </div>
+              {orphanStoriesCount > 0 && (
+                <div className="text-[9px] text-[#8C5A3E] font-bold">
+                  ※未紐付け物語: {orphanStoriesCount}件
+                </div>
+              )}
             </div>
             <button
               onClick={() => loadMeta(true)}
@@ -906,7 +942,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
               />
             </div>
 
-            <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0">
+            <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0 flex-wrap">
               <button
                 onClick={() => setFilterMode('all')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -926,7 +962,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 }`}
               >
                 <CheckCircle2 className="w-3 h-3 text-[#2E7D32]" />
-                <span>登録済 ({registeredCount})</span>
+                <span>登録済 ({matchedRegisteredCount})</span>
               </button>
               <button
                 onClick={() => setFilterMode('no_story')}
@@ -937,15 +973,126 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 }`}
               >
                 <XCircle className="w-3 h-3 text-[#A83226]" />
-                <span>未登録 ({characters.length - registeredCount})</span>
+                <span>未登録 ({unregisteredCount})</span>
               </button>
+              {orphanStoriesCount > 0 && (
+                <button
+                  onClick={() => setFilterMode('orphan')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    filterMode === 'orphan'
+                      ? 'bg-[#8C5A3E] text-white shadow-sm ring-1 ring-[#8C5A3E]'
+                      : 'bg-[#FFF3E0] text-[#8C5A3E] border border-[#FFE0B2] hover:bg-[#FFE0B2]'
+                  }`}
+                  title="現在の図鑑番号にまだ紐付いていないFirestore上の物語データです"
+                >
+                  <AlertCircle className="w-3 h-3 text-[#E65100]" />
+                  <span>未紐付け物語 ({orphanStoriesCount})</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Table of Nyans */}
+          {/* Table of Nyans or Orphan Stories */}
           <div className="bg-white rounded-xl border border-[#DDD7C8] overflow-hidden shadow-sm">
             <div className="max-h-[500px] overflow-y-auto divide-y divide-[#EFECE4]">
-              {filteredNyans.length === 0 ? (
+              {filterMode === 'orphan' ? (
+                orphanStoryList.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-[#A8A096]">
+                    未紐付けの物語データはありません（全て現在の図鑑に紐付いています）
+                  </div>
+                ) : (
+                  orphanStoryList.map((orphan) => (
+                    <div
+                      key={orphan.key}
+                      className="p-3 flex items-center justify-between gap-3 hover:bg-[#FFF9F2] transition text-xs bg-[#FFFDF9]"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-xl bg-[#F5EBE1] border border-[#E5D2C0] flex items-center justify-center shrink-0 text-[#8C5A3E] font-mono text-[11px] font-bold">
+                          #{orphan.id}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-[11px] text-[#8C5A3E]">
+                              旧ID #{orphan.id}
+                            </span>
+                            <span className="font-black text-[#2E2824] truncate">
+                              {orphan.name}
+                            </span>
+                            <span className="bg-[#FFF0E0] text-[#8C5A3E] border border-[#FFD9B3] text-[10px] font-bold px-1.5 py-0.2 rounded">
+                              未紐付け
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7A726A]">
+                            {orphan.week_title && (
+                              <span className="truncate">{orphan.week_title}</span>
+                            )}
+                            {orphan.daysCount > 0 && (
+                              <span className="text-[10px] text-[#8C5A3E] font-bold">
+                                （{orphan.daysCount}日分）
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Direct Assignment to Zukan Nyan button */}
+                        <button
+                          onClick={() =>
+                            handleStartAssignArchiveStory({
+                              oldId: String(orphan.id),
+                              name: orphan.name,
+                              motif: orphan.motif,
+                              title: orphan.week_title,
+                              daysCount: orphan.daysCount,
+                            })
+                          }
+                          className="px-2.5 py-1.5 bg-[#487560] hover:bg-[#3d6351] text-white font-bold rounded-lg transition flex items-center gap-1 cursor-pointer shadow-xs"
+                          title="この未紐付け物語を図鑑のにゃんこに正式割り当て・紐付け"
+                        >
+                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                          <span>図鑑に紐付け</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const mockNyan: NyanCharacter = {
+                              no: orphan.id,
+                              name: orphan.name,
+                              reading: '',
+                              motif: orphan.motif,
+                              firstAppeared: '',
+                              episode: '',
+                              promptJa: '',
+                              promptEn: '',
+                              dialogue: '',
+                              dialogueMeaning: '',
+                              hasStory: true,
+                              discovered: true,
+                              playCount: 0,
+                              friendshipLevel: 1,
+                            };
+                            setPreviewNyan(mockNyan);
+                          }}
+                          className="px-2.5 py-1.5 bg-[#F5F2EA] hover:bg-[#EAE6DC] text-[#4A443F] font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                          title="物語をプレビュー"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-[#487560]" />
+                          <span className="hidden sm:inline">閲覧</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteStory(orphan.id, orphan.name)}
+                          className="p-1.5 bg-[#FDF2F0] hover:bg-[#FBE4E1] text-[#A83226] rounded-lg transition cursor-pointer"
+                          title="この未紐付け物語を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : filteredNyans.length === 0 ? (
                 <div className="p-8 text-center text-xs text-[#A8A096]">
                   該当するにゃんこが見つかりませんでした
                 </div>

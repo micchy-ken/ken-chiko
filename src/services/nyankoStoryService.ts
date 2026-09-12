@@ -453,21 +453,23 @@ export async function uploadStoriesJsonToFirestore(
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
-    // 1. Write consolidated stories document (EXACTLY 1 single document write in Firestore for all stories!)
+    // Atomic Batch Write: commits both consolidated stories and metadata in a single atomic network operation
+    const batch = writeBatch(db);
     const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    await setDoc(globalStoriesRef, {
+    batch.set(globalStoriesRef, {
       version: currentMeta.version,
       updatedAt: new Date().toISOString(),
       storyCount: currentMeta.storyCount,
       stories: storiesMap,
     }, { merge: true });
 
-    // 2. Write metadata document (1 Write)
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    await setDoc(metaRef, currentMeta);
+    batch.set(metaRef, currentMeta);
+
+    await batch.commit();
     setLocalStoriesMeta(currentMeta);
 
-    console.log(`[NyankoStory] 💾 全物語を一括保存完了 [わずか1回書き込み]: ${total}件の物語を ${GLOBAL_STORIES_DOC_ID} に統合`);
+    console.log(`[NyankoStory] 💾 全物語を一括保存完了 [writeBatchで完全アトミック一括保存]: ${total}件の物語を ${GLOBAL_STORIES_DOC_ID} に統合`);
 
     return { success: true, totalUploaded: total };
   } catch (err: any) {
@@ -799,19 +801,44 @@ export async function assignUnmappedStoryToNyan(
       return { success: false, error: 'Firebaseデータベースに接続できません' };
     }
 
+    let rawData: any = null;
+
+    // 1. First check unmapped archive collection
     const unmappedRef = doc(db, 'nyanko_stories_unmapped', oldId);
     const unmappedSnap = await getDoc(unmappedRef);
-    if (!unmappedSnap.exists()) {
-      return { success: false, error: `保管庫にID ${oldId} の物語が見つかりません` };
+    if (unmappedSnap.exists()) {
+      rawData = unmappedSnap.data();
+    } else {
+      // 2. Check global stories document
+      const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+      const globalSnap = await getDoc(globalStoriesRef);
+      if (globalSnap.exists()) {
+        const storiesMap = globalSnap.data()?.stories || {};
+        if (storiesMap[oldId]) {
+          rawData = storiesMap[oldId];
+        }
+      }
+
+      // 3. Check legacy collection
+      if (!rawData) {
+        const legacyRef = doc(db, 'nyanko_stories', oldId);
+        const legacySnap = await getDoc(legacyRef);
+        if (legacySnap.exists()) {
+          rawData = legacySnap.data();
+        }
+      }
     }
-    const rawData = unmappedSnap.data();
+
+    if (!rawData) {
+      return { success: false, error: `ID ${oldId} の物語データが見つかりませんでした` };
+    }
 
     const finalName = options.renameToMasterName !== false ? targetNyan.name : (rawData.name || targetNyan.name);
     const updatedPayload: any = {
       ...rawData,
       id: targetNyan.no,
       name: finalName,
-      storyOriginalName: rawData.name || '',
+      storyOriginalName: rawData.name || rawData.storyOriginalName || '',
       motif: targetNyan.motif || rawData.motif || '',
       kana: targetNyan.reading || rawData.kana || '',
       updatedAt: new Date().toISOString(),
@@ -820,19 +847,14 @@ export async function assignUnmappedStoryToNyan(
     delete updatedPayload.archivedAt;
     delete updatedPayload.reason;
 
-    // Save to nyanko_stories (1 Write)
-    const targetDocRef = doc(db, 'nyanko_stories', String(targetNyan.no));
-    await setDoc(targetDocRef, updatedPayload);
+    // Update global document atomically with writeBatch
+    const batch = writeBatch(db);
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
 
-    // Optionally delete from nyanko_stories_unmapped (1 Write)
-    if (options.deleteFromArchive !== false) {
-      await deleteDoc(unmappedRef);
-    }
-
-    // Save to local cache immediately
+    // Save to local cache
     saveToLocalCache(targetNyan.no, updatedPayload);
 
-    // Update metadata index in memory & local storage
+    // Update metadata index
     const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
@@ -842,6 +864,11 @@ export async function assignUnmappedStoryToNyan(
 
     const title = updatedPayload.week_info?.week_title || updatedPayload.title || '';
     const daysCount = Array.isArray(updatedPayload.week_info?.days) ? updatedPayload.week_info.days.length : 0;
+
+    // Remove oldId key if different from targetNyan.no
+    if (String(oldId) !== String(targetNyan.no) && currentMeta.stories[oldId]) {
+      delete currentMeta.stories[oldId];
+    }
 
     currentMeta.stories[String(targetNyan.no)] = {
       id: targetNyan.no,
@@ -858,11 +885,24 @@ export async function assignUnmappedStoryToNyan(
 
     setLocalStoriesMeta(currentMeta);
 
-    // Only write to Firestore meta doc if explicitly requested (default is false to conserve quota)
-    if (options.syncMetaToFirestore) {
-      const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-      await setDoc(metaRef, currentMeta);
+    // Save consolidated story update in batch
+    batch.set(globalStoriesRef, {
+      updatedAt: new Date().toISOString(),
+      stories: {
+        [String(targetNyan.no)]: updatedPayload,
+      },
+    }, { merge: true });
+
+    // Save metadata in batch
+    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+    batch.set(metaRef, currentMeta);
+
+    // If deleting from unmapped collection
+    if (unmappedSnap.exists() && options.deleteFromArchive !== false) {
+      batch.delete(unmappedRef);
     }
+
+    await batch.commit();
 
     return { success: true, updatedMeta: currentMeta };
   } catch (err: any) {

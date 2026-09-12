@@ -1884,12 +1884,12 @@ export default function App() {
             </button>
           </div>
 
-          {/* Top-Right Status Lamp, User Indicator, Dev & Settings Button */}
-          <div className="flex items-center gap-2">
-            {/* Subtle Current Username Indicator */}
+          {/* Top-Right Status Lamps / Badges */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Subtle Current Username Indicator (Desktop only) */}
             {currentUserId && (
               <div
-                className="flex items-center gap-1 px-2 py-1 sketch-tag bg-[#FAF8F4] text-[#4A433D] text-[11px] font-bold border border-[#DDD7C8]"
+                className="hidden md:flex items-center gap-1 px-2 py-1 sketch-tag bg-[#FAF8F4] text-[#4A433D] text-[11px] font-bold border border-[#DDD7C8]"
                 title={`ログイン中のユーザー: ${currentUserId}`}
               >
                 <User className="w-3 h-3 text-[#487560]" />
@@ -1910,29 +1910,6 @@ export default function App() {
                 </span>
               </button>
             )}
-
-            {/* Admin / Dev Console Button */}
-            <button
-              onClick={() => {
-                setIsStandaloneAdmin(true);
-                setShowSyncModal(true);
-              }}
-              className="flex-shrink-0 flex items-center gap-1 bg-[#FAF8F4] hover:bg-white text-[#635A52] hover:text-[#2E2824] font-black text-xs px-2.5 py-1.5 sketch-card-subtle shadow-xs transition cursor-pointer"
-              title="管理画面・データ連携コンソールを開く"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-[#487560]" />
-              <span className="font-handwriting text-xs">管理画面</span>
-            </button>
-
-            {/* New User Settings Button */}
-            <button
-              onClick={() => setShowUserSettingsModal(true)}
-              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#3E3833] font-black text-xs px-3.5 py-2 sketch-card-subtle shadow-sm transition"
-              title="設定・ユーザーデータ管理"
-            >
-              <Settings className="w-4 h-4 text-[#487560]" />
-              <span className="font-handwriting text-sm">設定</span>
-            </button>
           </div>
         </div>
       </div>
@@ -2210,6 +2187,53 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* App Footer: Clean, dedicated footer housing Admin & Settings */}
+      <footer className="mt-auto bg-[#ECE7DC] border-t-1.5 border-[#3E3833] py-3.5 px-4 shadow-[0_-2px_6px_rgba(46,40,36,0.04)]">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          {/* Left: App Title, User & Credits */}
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 sm:gap-3 text-[#635A52]">
+            <span className="font-handwriting font-bold text-sm text-[#3E3833]">
+              🐱 けんちこワールド
+            </span>
+            {currentUserId && (
+              <span className="flex items-center gap-1 bg-[#FAF8F4] px-2.5 py-1 rounded-lg border border-[#DDD7C8] font-bold text-[11px] text-[#4A433D]">
+                <User className="w-3 h-3 text-[#487560]" />
+                <span className="font-mono">{currentUserId}</span>
+              </span>
+            )}
+            <span className="text-[11px] text-[#8C837A] hidden sm:inline">
+              © けんちこ & ◯◯にゃん
+            </span>
+          </div>
+
+          {/* Right: Admin Console & Settings Action Buttons */}
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
+            {/* Admin Console Button */}
+            <button
+              onClick={() => {
+                setIsStandaloneAdmin(true);
+                setShowSyncModal(true);
+              }}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#4A433D] hover:text-[#2E2824] font-black text-xs sm:text-sm px-3.5 py-2 sketch-card-subtle shadow-xs transition active:translate-y-0.5 cursor-pointer"
+              title="管理画面・データ連携コンソールを開く"
+            >
+              <ShieldCheck className="w-4 h-4 text-[#487560]" />
+              <span className="font-handwriting">管理画面</span>
+            </button>
+
+            {/* User Settings Button */}
+            <button
+              onClick={() => setShowUserSettingsModal(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-black text-xs sm:text-sm px-4 py-2 sketch-card-subtle shadow-sm transition active:translate-y-0.5 cursor-pointer"
+              title="設定・ユーザーデータ管理"
+            >
+              <Settings className="w-4 h-4 text-[#487560]" />
+              <span className="font-handwriting">設定</span>
+            </button>
+          </div>
+        </div>
+      </footer>
 
       {/* Modals */}
       {selectedZukanNyan && (
