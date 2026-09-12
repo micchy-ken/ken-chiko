@@ -80,6 +80,7 @@ import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
+import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
 
 import {
   Eye,
@@ -169,6 +170,7 @@ export default function App() {
 
   // User Management State (Multi-user support via ?user=yumi etc.)
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => getActiveUserId());
+  const isDefaultUser = !currentUserId || currentUserId === 'default' || currentUserId === 'global';
 
   // Time & Simulation Controls
   const [timeSpeed, setTimeSpeed] = useState<number>(1); // 1x, 5x, 30x, 60x
@@ -448,7 +450,8 @@ export default function App() {
       setRemainingTimeSec(initialRemaining);
 
       // If activity finished while user was away, trigger completion now that sync has settled!
-      if (initialRemaining <= 0) {
+      // (Strictly skipped for default user - game remains completely stopped)
+      if (!isDefaultUser && initialRemaining <= 0) {
         setTimeout(() => {
           if (isMounted) handleActivityCompletionRef.current();
         }, 150);
@@ -524,13 +527,15 @@ export default function App() {
   // Hook up exit save (beforeunload)
   useEffect(() => {
     const handleUnload = () => {
+      // NEVER save on unload if default user, or if admin modal is open
+      if (isDefaultUser || isStandaloneAdmin || showSyncModal) return;
       if (saveDataRef.current) {
         saveOnAppExit(saveDataRef.current);
       }
     };
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
-  }, []);
+  }, [isDefaultUser, isStandaloneAdmin, showSyncModal]);
 
   // Check and trigger Initial Discovery Bonus when sync is complete
   useEffect(() => {
@@ -748,7 +753,7 @@ export default function App() {
 
   // Encounter Lottery Handler (Fires after 5s has elapsed, then every 15-60s at 30% chance. Once a cat appears, no more cats in this location)
   const handleEncounterLottery = useCallback(() => {
-    if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+    if (isDefaultUser || !isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
     if (isRollingEncounterRef.current) return;
 
     isRollingEncounterRef.current = true;
@@ -881,7 +886,7 @@ export default function App() {
         isRollingEncounterRef.current = false;
       }, 500);
     }
-  }, [isStandaloneAdmin, showSyncModal]);
+  }, [isDefaultUser, isStandaloneAdmin, showSyncModal]);
 
   useEffect(() => {
     handleEncounterLotteryRef.current = handleEncounterLottery;
@@ -889,8 +894,8 @@ export default function App() {
 
   // Activity Completion Handler (Discrete Firebase push on activity change)
   const handleActivityCompletion = useCallback(() => {
-    // CRITICAL: Never advance game simulation or write to DB if initial sync is running or modal is open!
-    if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+    // CRITICAL: Never advance game simulation or write to DB if default user, or if initial sync is running or modal is open!
+    if (isDefaultUser || !isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
 
     const now = Date.now();
     // Re-entrancy guard to prevent multiple parallel or near-simultaneous triggers
@@ -1019,7 +1024,7 @@ export default function App() {
         isCompletingActivityRef.current = false;
       }, 800);
     }
-  }, []);
+  }, [isDefaultUser]);
 
   useEffect(() => {
     handleActivityCompletionRef.current = handleActivityCompletion;
@@ -1027,8 +1032,8 @@ export default function App() {
 
   // Primary Simulation Tick Loop (UI countdown display & 15-60s encounter trigger)
   useEffect(() => {
-    // Completely freeze simulation loop until initial sync is 100% complete, or if admin / sync modal / tutorial is open
-    if (!isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
+    // Completely freeze simulation loop if default user, until initial sync is 100% complete, or if admin / sync modal / tutorial is open
+    if (isDefaultUser || !isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
 
     const interval = setInterval(() => {
       let isCompleted = false;
@@ -1078,7 +1083,7 @@ export default function App() {
 
     // Reconcile remaining time when returning to the tab / window focus
     const handleVisibilityOrFocus = () => {
-      if (!isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
+      if (isDefaultUser || !isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
       if (document.visibilityState === 'visible') {
         const curK = saveDataRef.current.kenchiko;
         const startedAt = curK.activityStartedAt || Date.now();
@@ -1117,7 +1122,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isInitialSyncCompleted, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion, handleEncounterLottery]);
+  }, [isDefaultUser, timeSpeed, saveData.kenchiko.currentActivity, saveData.kenchiko.currentLocation, saveData.kenchiko.activityStartedAt, saveData.kenchiko.activityDurationSec, isInitialSyncCompleted, isLoadingFirebase, isStandaloneAdmin, showSyncModal, showTutorialModal, handleActivityCompletion, handleEncounterLottery]);
 
   // User Actions: Cheer Me Up (応援して - 15 seconds, no cats during cheer)
   const handleSelectOuenCategory = (categoryId: string) => {
@@ -1692,9 +1697,9 @@ export default function App() {
     );
   }
 
-  // Standalone Admin Screen (When accessed via ?admin= or ?dev=)
-  // No game screen or stage is rendered in the background!
-  if (isStandaloneAdmin) {
+  // Standalone Admin Screen (When accessed via ?admin= or ?dev=, or opened from in-app)
+  // No game screen or stage is rendered in the background! Nothing progresses!
+  if (isStandaloneAdmin || showSyncModal) {
     return (
       <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
         <PencilSketchFilters />
@@ -1714,6 +1719,44 @@ export default function App() {
             });
           }}
         />
+      </div>
+    );
+  }
+
+  // Default User Screen: ONLY Centered Kenchiko Illustration (Game completely stopped)
+  // No game screen or stage is rendered in the background!
+  if (isDefaultUser) {
+    return (
+      <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <DefaultUserPlaceholder
+          customImageUrl={saveData.kenchiko.customImageUrl}
+          onSelectUser={() => setShowUserSettingsModal(true)}
+          onOpenAdmin={() => {
+            setIsStandaloneAdmin(true);
+            setShowSyncModal(true);
+          }}
+        />
+        {showUserSettingsModal && (
+          <UserSettingsModal
+            currentUserId={currentUserId}
+            characters={saveData.characters}
+            onImportNyans={handleImportNyans}
+            onClose={() => setShowUserSettingsModal(false)}
+            onResetUserData={handleResetUserData}
+            onSwitchUser={handleSwitchUser}
+            onOpenTutorial={() => {
+              setTutorialInitialStep(0);
+              setIsNewFeatureTutorialOnly(false);
+              setShowTutorialModal(true);
+            }}
+            onOpenDevConsole={() => {
+              setShowUserSettingsModal(false);
+              setIsStandaloneAdmin(true);
+              setShowSyncModal(true);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1843,7 +1886,10 @@ export default function App() {
             {/* Former Settings now renamed to '開発' (Hidden unless query param ?dev or ?admin is accessed) */}
             {showSyncModal && (
               <button
-                onClick={() => setShowSyncModal(true)}
+                onClick={() => {
+                  setIsStandaloneAdmin(true);
+                  setShowSyncModal(true);
+                }}
                 className="flex-shrink-0 flex items-center gap-1 bg-[#EAE5D9] hover:bg-[#DDD7C8] text-[#635A52] font-black text-xs px-2.5 py-1.5 sketch-card-subtle shadow-xs transition"
                 title="開発・データ連携コンソール"
               >
@@ -2186,6 +2232,7 @@ export default function App() {
           }}
           onOpenDevConsole={() => {
             setShowUserSettingsModal(false);
+            setIsStandaloneAdmin(true);
             setShowSyncModal(true);
           }}
         />
@@ -2198,24 +2245,6 @@ export default function App() {
         isNewFeatureOnly={isNewFeatureTutorialOnly}
         onClose={() => setShowTutorialModal(false)}
       />
-
-      {showSyncModal && (
-        <DataSyncModal
-          characters={saveData.characters}
-          saveData={saveData}
-          initialTab={adminInitialTab}
-          onClose={handleCloseAdmin}
-          onImportNyans={handleImportNyans}
-          onSaveFirebaseConfig={(_cfg) => {}}
-          onUpdateSaveData={(updater) => {
-            setSaveData((prev) => {
-              const next = updater(prev);
-              saveLocalBackup(next);
-              return next;
-            });
-          }}
-        />
-      )}
 
       {/* Garapon Lottery Modal */}
       {showGaraponModal && (
