@@ -1256,6 +1256,12 @@ export async function fetchInitialFirebaseState(
       saveLocalKenchikoImage(globalKenchikoAvatar);
     }
 
+    // Initialize content signature from freshly loaded remote state so startup triggers 0 echo writes
+    try {
+      const compactLoaded = extractUserProgress(mergedData);
+      lastWrittenContentString = getMeaningfulUserProgressHash(compactLoaded);
+    } catch (_hashErr) {}
+
     const result = { success: true, data: mergedData, isNew: !userRaw };
     lastInitialFetchTime = Date.now();
     lastInitialFetchUid = activeUid;
@@ -1387,6 +1393,14 @@ export async function executeFirestoreWrite(
   // 1. Check quota exhaustion (skip if manual save or admin)
   if (!forceManual && !isAdmin && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };
+  }
+
+  // 1.5. If active user is default/unspecified, DO NOT perform automatic cloud writes.
+  // Anonymous / default users in preview iframe should be 100% local only unless manual save button is clicked.
+  const activeUid = getActiveUserId();
+  if (!forceManual && !isAdmin && (!activeUid || activeUid === 'default' || activeUid === 'global')) {
+    console.log('[CloudSync] 🛑 プレイヤー未指定（プレビュー/デフォルト環境）のためクラウド自動書き込みをスキップ（ローカル完全保護）');
+    return { success: true };
   }
 
   // 2. Check user auto-sync toggle (if false, only manual save or admin allowed)
@@ -1557,6 +1571,11 @@ export async function saveOnUserAction(
 
   // If user disabled cloud auto-sync, keep 100% local
   if (!isCloudAutoSyncEnabled() || getIsQuotaExhausted()) {
+    return { success: true };
+  }
+
+  // Strictly block any auto-save when admin screen is open or admin session is active
+  if (isAdminSessionActive() || (typeof window !== 'undefined' && (window.location.search.includes('admin') || window.location.search.includes('dev')))) {
     return { success: true };
   }
 
