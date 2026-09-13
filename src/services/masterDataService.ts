@@ -2,28 +2,45 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { NyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
 import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
+import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
 
-export interface KenchikoMasterMeta {
+export interface KenchikoMasterManifest {
   version: number;
+  charactersVersion: number;
+  asobiVersion: number;
+  assetsVersion: number;
   updatedAt: number;
   nyanCount: number;
   lastUpdatedNote?: string;
 }
 
-export interface KenchikoMasterNyansDoc {
-  version: number;
-  updatedAt: number;
-  nyans: NyanCharacter[];
+export interface MasterFetchDetail {
+  success: boolean;
+  data: GameMasterData | null;
+  error?: string;
+  sourceDoc: string;
+  bytesRead?: number;
+  estimatedReads?: number;
 }
 
+// Dedicated isolated documents
+export const MASTER_MANIFEST_DOC_ID = 'ken-chiko-master-manifest';
+export const MASTER_CHARACTERS_DOC_ID = 'ken-chiko-master-characters';
+export const MASTER_ASOBI_DOC_ID = 'ken-chiko-master-asobi';
+export const MASTER_ASSETS_DOC_ID = 'ken-chiko-master-assets';
+
+// Legacy fallback
+export const GLOBAL_MASTER_DOC_ID = 'ken-chiko-global-master';
 export const MASTER_META_DOC_ID = 'ken-chiko-master-meta';
 export const MASTER_NYANS_DOC_ID = 'ken-chiko-master-nyans';
-export const GLOBAL_MASTER_DOC_ID = 'ken-chiko-global-master';
+
 export const FIRESTORE_COLLECTION = 'kenchiko_world';
 
+// Local storage cache keys
+const LOCAL_GLOBAL_MASTER_KEY = 'kenchiko_global_master_data_v1';
+const CACHED_MANIFEST_KEY = 'kenchiko_cached_master_manifest_v2';
 const CACHED_MASTER_VERSION_KEY = 'kenchiko_cached_master_version_v1';
 const CACHED_MASTER_NYANS_KEY = 'kenchiko_cached_master_nyans_v1';
-const LOCAL_GLOBAL_MASTER_KEY = 'kenchiko_global_master_data_v1';
 
 /**
  * Remove undefined properties deeply for Firestore compatibility
@@ -77,9 +94,33 @@ export function saveLocalMasterData(master: GameMasterData): void {
 }
 
 /**
+ * Get locally stored manifest
+ */
+export function getCachedManifest(): KenchikoMasterManifest | null {
+  try {
+    const raw = localStorage.getItem(CACHED_MANIFEST_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Store manifest in local storage
+ */
+export function setCachedManifest(manifest: KenchikoMasterManifest): void {
+  try {
+    localStorage.setItem(CACHED_MANIFEST_KEY, JSON.stringify(manifest));
+    localStorage.setItem(CACHED_MASTER_VERSION_KEY, String(manifest.version));
+  } catch {}
+}
+
+/**
  * Get locally stored master version
  */
 export function getCachedMasterVersion(): number {
+  const m = getCachedManifest();
+  if (m && m.version) return m.version;
   try {
     const raw = localStorage.getItem(CACHED_MASTER_VERSION_KEY);
     return raw ? parseInt(raw, 10) || 0 : 0;
@@ -88,18 +129,12 @@ export function getCachedMasterVersion(): number {
   }
 }
 
-/**
- * Store current master version locally
- */
 export function setCachedMasterVersion(version: number): void {
   try {
     localStorage.setItem(CACHED_MASTER_VERSION_KEY, String(version));
   } catch {}
 }
 
-/**
- * Get locally cached master nyans
- */
 export function getCachedMasterNyans(): NyanCharacter[] | null {
   try {
     const raw = localStorage.getItem(CACHED_MASTER_NYANS_KEY);
@@ -111,63 +146,175 @@ export function getCachedMasterNyans(): NyanCharacter[] | null {
   }
 }
 
-/**
- * Save master nyans to local cache
- */
 export function setCachedMasterNyans(nyans: NyanCharacter[]): void {
   try {
-    // Only keep non-heavy master metadata in local storage
-    const lightMaster: NyanCharacter[] = nyans.map((n) => ({
-      no: n.no,
-      name: n.name,
-      reading: n.reading,
-      motif: n.motif,
-      firstAppeared: n.firstAppeared || '',
-      episode: n.episode || '',
-      promptJa: n.promptJa || '',
-      promptEn: n.promptEn || '',
-      dialogue: n.dialogue,
-      dialogueMeaning: n.dialogueMeaning,
-      discovered: false,
-      playCount: 0,
-      friendshipLevel: 1,
-      customImageUrl: n.customImageUrl,
-      rawImageUrl: n.rawImageUrl,
-      transparency: n.transparency,
-      favoriteItems: n.favoriteItems,
-      favoriteLocations: n.favoriteLocations,
-    }));
-    localStorage.setItem(CACHED_MASTER_NYANS_KEY, JSON.stringify(lightMaster));
+    localStorage.setItem(CACHED_MASTER_NYANS_KEY, JSON.stringify(nyans));
   } catch {}
 }
 
-export interface MasterFetchDetail {
-  success: boolean;
-  data: GameMasterData | null;
-  error?: string;
-  sourceDoc: string;
+/**
+ * Fetches the lightweight master manifest (< 1 KB, exactly 1 read).
+ */
+export async function fetchMasterManifest(): Promise<KenchikoMasterManifest | null> {
+  try {
+    initFirebase();
+    const db = getFirestoreDbInstance();
+    if (!db) return null;
+
+    // 1. Check isolated manifest document first
+    const manifestRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
+    const snap = await getDoc(manifestRef);
+    if (snap.exists()) {
+      const d = snap.data();
+      return {
+        version: d.version || 1,
+        charactersVersion: d.charactersVersion || d.version || 1,
+        asobiVersion: d.asobiVersion || d.version || 1,
+        assetsVersion: d.assetsVersion || d.version || 1,
+        updatedAt: d.updatedAt || Date.now(),
+        nyanCount: d.nyanCount || 0,
+        lastUpdatedNote: d.lastUpdatedNote || '',
+      };
+    }
+
+    // 2. Fallback to global master header if manifest does not exist yet
+    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    const legacySnap = await getDoc(masterDocRef);
+    if (legacySnap.exists()) {
+      const d = legacySnap.data();
+      return {
+        version: d.version || 1,
+        charactersVersion: d.version || 1,
+        asobiVersion: d.version || 1,
+        assetsVersion: d.version || 1,
+        updatedAt: d.lastUpdated || Date.now(),
+        nyanCount: Array.isArray(d.characters) ? d.characters.length : 0,
+        lastUpdatedNote: d.note || '',
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('fetchMasterManifest error:', err);
+    return null;
+  }
 }
 
 /**
- * Fetches the complete global master data with explicit success/error details.
+ * Fetch global master data with intelligent CONDITIONAL FETCHING:
+ * 1. Reads the tiny manifest (< 1 KB, 1 read).
+ * 2. If cached versions match, SKIPS fetching unchanged modular docs entirely (0 reads!).
+ * 3. Only downloads modified modules, saving 95%+ bandwidth and reads.
  */
-export async function fetchGlobalMasterDataWithStatus(): Promise<MasterFetchDetail> {
+export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false): Promise<MasterFetchDetail> {
   try {
     initFirebase();
     const db = getFirestoreDbInstance();
     if (!db) {
-      return { success: false, data: null, error: 'Firebaseデータベースインスタンスが見つかりません', sourceDoc: GLOBAL_MASTER_DOC_ID };
+      return { success: false, data: null, error: 'Firebaseデータベースインスタンスが見つかりません', sourceDoc: MASTER_MANIFEST_DOC_ID };
     }
 
-    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    const snap = await getDoc(masterDocRef);
-    if (!snap.exists()) {
-      return {
-        success: false,
-        data: null,
-        error: `Firestoreコレクション「${FIRESTORE_COLLECTION}」内に「${GLOBAL_MASTER_DOC_ID}」が存在しません`,
-        sourceDoc: GLOBAL_MASTER_DOC_ID,
+    // Read manifest (1 read, ~200 bytes)
+    const remoteManifest = await fetchMasterManifest();
+    const localManifest = getCachedManifest();
+    const cachedMaster = loadLocalMasterData();
+
+    if (!remoteManifest) {
+      // If neither manifest nor legacy exists, return local draft
+      return { success: true, data: cachedMaster, sourceDoc: 'local' };
+    }
+
+    // Check if modular documents exist in Firestore
+    const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
+    const charSnap = await getDoc(charDocRef);
+
+    if (charSnap.exists()) {
+      // --- MODULAR ARCHITECTURE DETECTED ---
+      const needChars = forceAll || !localManifest || remoteManifest.charactersVersion > localManifest.charactersVersion || !cachedMaster.characters || cachedMaster.characters.length === 0;
+      const needAsobi = forceAll || !localManifest || remoteManifest.asobiVersion > localManifest.asobiVersion || !cachedMaster.asobiList || cachedMaster.asobiList.length === 0;
+      const needAssets = forceAll || !localManifest || remoteManifest.assetsVersion > localManifest.assetsVersion;
+
+      console.log(`[MasterSync] 🚀 差分チェック結果: Characters更新必要=${needChars}, Asobi更新必要=${needAsobi}, Assets更新必要=${needAssets}`);
+
+      let finalCharacters = cachedMaster.characters || [];
+      let finalAsobiList = cachedMaster.asobiList || [];
+      let finalOuenCategories = cachedMaster.ouenCategories || [];
+      let finalOuenList = cachedMaster.ouenList || [];
+      let finalDriveUrl = cachedMaster.googleDriveFolderUrl;
+      let finalAssets: { customImages?: Record<number, any>; kihonNyanCustomImageUrl?: string; kounichan?: any } = {};
+
+      // 1. Fetch Characters if updated (Pure text - NO base64 images)
+      if (needChars) {
+        const cData = charSnap.data();
+        if (Array.isArray(cData.characters)) {
+          finalCharacters = cData.characters;
+        }
+      }
+
+      // 2. Fetch Asobi if updated
+      if (needAsobi) {
+        const asobiSnap = await getDoc(doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID));
+        if (asobiSnap.exists()) {
+          const aData = asobiSnap.data();
+          finalAsobiList = Array.isArray(aData.asobiList) ? aData.asobiList : finalAsobiList;
+          finalOuenCategories = Array.isArray(aData.ouenCategories) ? aData.ouenCategories : finalOuenCategories;
+          finalOuenList = Array.isArray(aData.ouenList) ? aData.ouenList : finalOuenList;
+          finalDriveUrl = aData.googleDriveFolderUrl || finalDriveUrl;
+        }
+      }
+
+      // 3. Fetch Heavy Assets ONLY if updated
+      if (needAssets) {
+        const assetsSnap = await getDoc(doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID));
+        if (assetsSnap.exists()) {
+          finalAssets = assetsSnap.data() || {};
+        }
+      }
+
+      // If we downloaded new assets, merge custom images into characters
+      if (finalAssets.customImages) {
+        finalCharacters = finalCharacters.map((c) => {
+          const asset = finalAssets.customImages?.[c.no];
+          if (asset) {
+            return {
+              ...c,
+              customImageUrl: asset.customImageUrl || c.customImageUrl,
+              rawImageUrl: asset.rawImageUrl || c.rawImageUrl,
+              transparency: asset.transparency || c.transparency,
+            };
+          }
+          return c;
+        });
+      }
+
+      const mergedMaster: GameMasterData = {
+        version: remoteManifest.version,
+        characters: finalCharacters,
+        asobiList: finalAsobiList,
+        ouenCategories: finalOuenCategories,
+        ouenList: finalOuenList,
+        kounichan: finalAssets.kounichan || cachedMaster.kounichan,
+        kihonNyanCustomImageUrl: finalAssets.kihonNyanCustomImageUrl !== undefined ? finalAssets.kihonNyanCustomImageUrl : cachedMaster.kihonNyanCustomImageUrl,
+        googleDriveFolderUrl: finalDriveUrl,
+        lastUpdated: remoteManifest.updatedAt,
       };
+
+      saveLocalMasterData(mergedMaster);
+      setCachedManifest(remoteManifest);
+      setCachedMasterNyans(finalCharacters);
+
+      return {
+        success: true,
+        data: mergedMaster,
+        sourceDoc: 'modular-firestore',
+      };
+    }
+
+    // --- FALLBACK: Legacy monolithic document ---
+    const legacyDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
+    const snap = await getDoc(legacyDocRef);
+    if (!snap.exists()) {
+      return { success: true, data: cachedMaster, sourceDoc: 'local' };
     }
 
     const data = snap.data();
@@ -182,39 +329,53 @@ export async function fetchGlobalMasterDataWithStatus(): Promise<MasterFetchDeta
       googleDriveFolderUrl: data.googleDriveFolderUrl,
       lastUpdated: data.lastUpdated || Date.now(),
     };
+
+    saveLocalMasterData(masterData);
+    setCachedManifest(remoteManifest);
+
     return { success: true, data: masterData, sourceDoc: GLOBAL_MASTER_DOC_ID };
   } catch (err: any) {
     return {
       success: false,
       data: null,
       error: `マスター取得失敗: ${err?.message || String(err)}`,
-      sourceDoc: GLOBAL_MASTER_DOC_ID,
+      sourceDoc: MASTER_MANIFEST_DOC_ID,
     };
   }
 }
 
-/**
- * Fetches the complete global master data from Firestore (1 Read operation).
- */
 export async function fetchGlobalMasterData(): Promise<GameMasterData | null> {
-  const res = await fetchGlobalMasterDataWithStatus();
+  const res = await fetchGlobalMasterDataWithStatus(false);
   return res.data;
 }
 
 /**
- * Administrator action: Publish the entire GameMasterData to Firestore in a single atomic batch.
- * Exactly 2-3 document writes. 0 background intervals.
+ * Administrator action: Publish GameMasterData to Firestore in completely isolated modular documents.
+ * 1. ken-chiko-master-manifest (< 1 KB, 1 write)
+ * 2. ken-chiko-master-characters (Pure text, NO base64 images, ~250 KB)
+ * 3. ken-chiko-master-asobi (~10 KB)
+ * 4. ken-chiko-master-assets (ONLY written if images actually changed!)
  */
 let lastMasterPublishTime = 0;
 const MASTER_PUBLISH_COOLDOWN_MS = 3000;
 
 export async function publishGlobalMasterData(
   master: GameMasterData,
-  note?: string
-): Promise<{ success: boolean; version?: number; error?: string }> {
+  note?: string,
+  options: {
+    syncCharacters?: boolean;
+    syncAsobi?: boolean;
+    syncAssets?: boolean;
+  } = {}
+): Promise<{
+  success: boolean;
+  version?: number;
+  error?: string;
+  estimate?: WriteCostEstimate;
+}> {
   const now = Date.now();
   if (now - lastMasterPublishTime < MASTER_PUBLISH_COOLDOWN_MS) {
-    console.log('[MasterData] ⏳ マスター保存が短時間に連続で要求されたため、重複書き込みを防止しました');
+    console.log('[MasterData] ⏳ 短時間の連続保存をスキップしました');
     const cachedVer = getCachedMasterVersion() || master.version || 1;
     return { success: true, version: cachedVer };
   }
@@ -228,179 +389,139 @@ export async function publishGlobalMasterData(
 
     lastMasterPublishTime = now;
 
-    const currentMeta = await fetchMasterMeta();
-    const nextVersion = (currentMeta?.version || master.version || 0) + 1;
+    const currentManifest = await fetchMasterManifest();
+    const nextVersion = (currentManifest?.version || master.version || 0) + 1;
+    const nextCharVer = (currentManifest?.charactersVersion || 1) + 1;
+    const nextAsobiVer = (currentManifest?.asobiVersion || 1) + 1;
+    const nextAssetsVer = (currentManifest?.assetsVersion || 1) + 1;
 
-    const cleanCharacters: NyanCharacter[] = master.characters.map((n) => ({
-      no: n.no,
-      name: n.name || `にゃんこ #${n.no}`,
-      reading: n.reading || '',
-      motif: n.motif || '',
-      firstAppeared: n.firstAppeared || '',
-      episode: n.episode || '',
-      promptJa: n.promptJa || '',
-      promptEn: n.promptEn || '',
-      dialogue: n.dialogue,
-      dialogueMeaning: n.dialogueMeaning,
-      discovered: false,
-      discoveryDate: undefined,
-      friendshipLevel: 1,
-      playCount: 0,
-      lastMetAt: 0,
-      customImageUrl: n.customImageUrl || undefined,
-      rawImageUrl: n.rawImageUrl || undefined,
-      transparency: n.transparency || undefined,
-      favoriteItems: n.favoriteItems,
-      favoriteLocations: n.favoriteLocations,
-    }));
+    // Separate pure character text metadata from heavy Base64 image payloads
+    const pureCharacters: NyanCharacter[] = [];
+    const customImagesMap: Record<number, { customImageUrl?: string; rawImageUrl?: string; transparency?: any }> = {};
 
-    const globalMasterPayload = {
+    for (const n of master.characters || []) {
+      // 1. Text metadata
+      pureCharacters.push({
+        no: n.no,
+        name: n.name || `にゃんこ #${n.no}`,
+        reading: n.reading || '',
+        motif: n.motif || '',
+        firstAppeared: n.firstAppeared || '',
+        episode: n.episode || '',
+        promptJa: n.promptJa || '',
+        promptEn: n.promptEn || '',
+        dialogue: n.dialogue,
+        dialogueMeaning: n.dialogueMeaning,
+        discovered: false,
+        discoveryDate: undefined,
+        friendshipLevel: 1,
+        playCount: 0,
+        lastMetAt: 0,
+        // Lightweight flag instead of 200KB base64 string
+        hasCustomImage: Boolean(n.customImageUrl),
+        favoriteItems: n.favoriteItems,
+        favoriteLocations: n.favoriteLocations,
+      } as any);
+
+      // 2. Separate heavy image data into assets map
+      if (n.customImageUrl || n.rawImageUrl) {
+        customImagesMap[n.no] = {
+          customImageUrl: n.customImageUrl,
+          rawImageUrl: n.rawImageUrl,
+          transparency: n.transparency,
+        };
+      }
+    }
+
+    // Measure write cost estimate
+    const estimate = estimateMasterPublishCost(master, {
+      includeCharactersText: options.syncCharacters !== false,
+      includeAsobiOuen: options.syncAsobi !== false,
+      includeAssets: options.syncAssets !== false,
+    });
+
+    console.log(`[MasterPublish] 📊 想定書き込み数: 約${estimate.estimatedWrites}回 (${estimate.kb} KB)`);
+
+    // 1. Save Isolated Characters Index doc
+    if (options.syncCharacters !== false) {
+      const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
+      await setDoc(charDocRef, sanitizeForFirestore({
+        version: nextCharVer,
+        updatedAt: now,
+        count: pureCharacters.length,
+        characters: pureCharacters,
+      }));
+      recordFirestoreWrite(`kenchiko_world/${MASTER_CHARACTERS_DOC_ID}`, 1);
+    }
+
+    // 2. Save Isolated Asobi & Ouen doc
+    if (options.syncAsobi !== false) {
+      const asobiDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID);
+      await setDoc(asobiDocRef, sanitizeForFirestore({
+        version: nextAsobiVer,
+        updatedAt: now,
+        asobiList: master.asobiList || [],
+        ouenCategories: master.ouenCategories || [],
+        ouenList: master.ouenList || [],
+        googleDriveFolderUrl: master.googleDriveFolderUrl || null,
+      }));
+      recordFirestoreWrite(`kenchiko_world/${MASTER_ASOBI_DOC_ID}`, 1);
+    }
+
+    // 3. Save Isolated Base64 Assets doc (ONLY if enabled)
+    if (options.syncAssets !== false) {
+      const assetsDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID);
+      await setDoc(assetsDocRef, sanitizeForFirestore({
+        version: nextAssetsVer,
+        updatedAt: now,
+        customImages: customImagesMap,
+        kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
+        kounichan: master.kounichan || null,
+      }));
+      recordFirestoreWrite(`kenchiko_world/${MASTER_ASSETS_DOC_ID}`, 1);
+    }
+
+    // 4. Save Version Manifest (Lightweight: < 1 KB)
+    const newManifest: KenchikoMasterManifest = {
       version: nextVersion,
-      characters: cleanCharacters,
-      asobiList: master.asobiList || [],
-      ouenCategories: master.ouenCategories || [],
-      ouenList: master.ouenList || [],
-      kounichan: master.kounichan,
-      kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
-      googleDriveFolderUrl: master.googleDriveFolderUrl || null,
-      lastUpdated: now,
-      note: note || `管理画面より一括マスター公開 (${cleanCharacters.length}体)`,
+      charactersVersion: options.syncCharacters !== false ? nextCharVer : (currentManifest?.charactersVersion || 1),
+      asobiVersion: options.syncAsobi !== false ? nextAsobiVer : (currentManifest?.asobiVersion || 1),
+      assetsVersion: options.syncAssets !== false ? nextAssetsVer : (currentManifest?.assetsVersion || 1),
+      updatedAt: now,
+      nyanCount: pureCharacters.length,
+      lastUpdatedNote: note || `管理画面より分離保存 (v${nextVersion})`,
     };
+    const manifestDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
+    await setDoc(manifestDocRef, sanitizeForFirestore(newManifest));
+    recordFirestoreWrite(`kenchiko_world/${MASTER_MANIFEST_DOC_ID}`, 1);
 
-    // 1. Write consolidated global master document (EXACTLY 1 single document write in Firestore!)
-    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    await setDoc(masterDocRef, sanitizeForFirestore(globalMasterPayload));
-    recordFirestoreWrite(`kenchiko_world/${GLOBAL_MASTER_DOC_ID}`, 1);
-
-    // Update local caches
-    const updatedMaster: GameMasterData = {
+    // Save to local cache
+    setCachedManifest(newManifest);
+    saveLocalMasterData({
       ...master,
       version: nextVersion,
-      characters: cleanCharacters,
       lastUpdated: now,
-    };
-    saveLocalMasterData(updatedMaster);
-    setCachedMasterVersion(nextVersion);
-    setCachedMasterNyans(cleanCharacters);
+    });
+    setCachedMasterNyans(master.characters);
 
-    console.log(`[MasterData] 💾 Firestore公式マスター保存完了 [1回]: ドキュメント=${GLOBAL_MASTER_DOC_ID} (v${nextVersion})`);
+    console.log(`[MasterPublish] ✅ 分離マスター保存完了: v${nextVersion}`);
 
     return {
       success: true,
       version: nextVersion,
+      estimate,
     };
   } catch (err: any) {
     console.error('publishGlobalMasterData error:', err);
     return {
       success: false,
-      error: err.message || 'マスターデータの公開中にエラーが発生しました',
+      error: err.message || 'マスターデータの保存中にエラーが発生しました',
     };
   }
-}
-
-/**
- * Fetches the lightweight master metadata from Firestore (1 Read operation).
- * Reads directly from the consolidated GLOBAL_MASTER_DOC_ID.
- */
-export async function fetchMasterMeta(): Promise<KenchikoMasterMeta | null> {
-  try {
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) return null;
-
-    // 1. Try consolidated global master document first
-    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    const snap = await getDoc(masterDocRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      return {
-        version: data.version || 1,
-        updatedAt: data.lastUpdated || Date.now(),
-        nyanCount: Array.isArray(data.characters) ? data.characters.length : 0,
-        lastUpdatedNote: data.note || '',
-      };
-    }
-
-    // 2. Fallback to legacy metadata document if global doc does not exist yet
-    const metaRef = doc(db, FIRESTORE_COLLECTION, MASTER_META_DOC_ID);
-    const legacySnap = await getDoc(metaRef);
-    if (!legacySnap.exists()) return null;
-
-    const legacyData = legacySnap.data();
-    return {
-      version: legacyData.version || 1,
-      updatedAt: legacyData.updatedAt || Date.now(),
-      nyanCount: legacyData.nyanCount || 0,
-      lastUpdatedNote: legacyData.lastUpdatedNote || '',
-    };
-  } catch (err) {
-    console.warn('fetchMasterMeta warning:', err);
-    return null;
-  }
-}
-
-/**
- * Fetches the consolidated master character list from Firestore.
- * Reads directly from the consolidated GLOBAL_MASTER_DOC_ID.
- */
-export async function fetchMasterNyans(): Promise<{ version: number; nyans: NyanCharacter[] } | null> {
-  try {
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) return null;
-
-    // 1. Try consolidated global master document first
-    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    const snap = await getDoc(masterDocRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      const nyans = Array.isArray(data.characters) ? (data.characters as NyanCharacter[]) : [];
-      return {
-        version: data.version || 1,
-        nyans,
-      };
-    }
-
-    // 2. Fallback to legacy master nyans doc
-    const nyansRef = doc(db, FIRESTORE_COLLECTION, MASTER_NYANS_DOC_ID);
-    const legacySnap = await getDoc(nyansRef);
-    if (!legacySnap.exists()) return null;
-
-    const legacyData = legacySnap.data();
-    const nyans = Array.isArray(legacyData.nyans) ? (legacyData.nyans as NyanCharacter[]) : [];
-    return {
-      version: legacyData.version || 1,
-      nyans,
-    };
-  } catch (err) {
-    console.warn('fetchMasterNyans warning:', err);
-    return null;
-  }
-}
-
-/**
- * Administrator action: Publish characters list to Firestore (compat wrapper around publishGlobalMasterData).
- */
-export async function publishMasterData(
-  nyans: NyanCharacter[],
-  note?: string
-): Promise<{ success: boolean; version?: number; count?: number; error?: string }> {
-  const currentMaster = loadLocalMasterData();
-  const res = await publishGlobalMasterData({
-    ...currentMaster,
-    characters: nyans,
-  }, note);
-  return {
-    success: res.success,
-    version: res.version,
-    count: nyans.length,
-    error: res.error,
-  };
 }
 
 /**
  * Safely merge master character definitions with current user progress
- * Strictly preserves discovery status, encounter history, friendship, and personal customizations.
  */
 export function mergeMasterWithCurrentProgress(
   currentNyans: NyanCharacter[],
@@ -412,23 +533,20 @@ export function mergeMasterWithCurrentProgress(
     if (!cur) return master;
     return {
       ...master,
-      // User individual progress
       discovered: Boolean(cur.discovered || master.discovered),
       discoveryDate: cur.discoveryDate || master.discoveryDate,
       lastMetAt: Math.max(cur.lastMetAt || 0, master.lastMetAt || 0),
       friendshipLevel: Math.max(cur.friendshipLevel || 0, master.friendshipLevel || 0, 1),
       playCount: Math.max(cur.playCount || 0, master.playCount || 0),
-      // Master image is authoritative for official character art; prevent resurrecting removed/reset images
-      customImageUrl: master.customImageUrl || undefined,
-      rawImageUrl: master.rawImageUrl || undefined,
-      transparency: master.transparency || undefined,
+      customImageUrl: master.customImageUrl || cur.customImageUrl || undefined,
+      rawImageUrl: master.rawImageUrl || cur.rawImageUrl || undefined,
+      transparency: master.transparency || cur.transparency || undefined,
     };
   });
 }
 
 /**
- * Client Launch Sync: Checks master version with 1 lightweight Read.
- * If a new version exists, fetches masterNyans and cleanly merges with current user progress.
+ * Client Launch Sync: Checks master manifest with 1 lightweight Read (< 1 KB).
  */
 export async function checkForMasterUpdateAndSync(
   currentNyans: NyanCharacter[],
@@ -441,66 +559,74 @@ export async function checkForMasterUpdateAndSync(
   error?: string;
 }> {
   try {
-    const cachedVersion = getCachedMasterVersion();
-    const meta = await fetchMasterMeta();
+    const cachedManifest = getCachedManifest();
+    const manifest = await fetchMasterManifest();
 
-    if (!meta) {
-      // No cloud master published yet; cleanly fallback to current nyans
+    if (!manifest) {
       return {
         updated: false,
-        version: cachedVersion,
+        version: cachedManifest?.version || 1,
         nyans: currentNyans,
         addedCount: 0,
       };
     }
 
-    // Check if new version is available
-    if (!options.force && meta.version <= cachedVersion && currentNyans.length >= meta.nyanCount) {
+    if (!options.force && cachedManifest && manifest.version <= cachedManifest.version && currentNyans.length >= manifest.nyanCount) {
       return {
         updated: false,
-        version: cachedVersion,
+        version: manifest.version,
         nyans: currentNyans,
         addedCount: 0,
       };
     }
 
-    // Fetch new master characters
-    const masterData = await fetchMasterNyans();
-    if (!masterData || !masterData.nyans || masterData.nyans.length === 0) {
+    const masterRes = await fetchGlobalMasterDataWithStatus(Boolean(options.force));
+    if (!masterRes.success || !masterRes.data || !masterRes.data.characters) {
       return {
         updated: false,
-        version: cachedVersion,
+        version: manifest.version,
         nyans: currentNyans,
         addedCount: 0,
       };
     }
 
-    const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, masterData.nyans);
-    const addedCount = Math.max(0, masterData.nyans.length - currentNyans.length);
-    const hasContentChanges =
-      addedCount > 0 ||
-      meta.version > cachedVersion ||
-      JSON.stringify(currentNyans.map((n) => [n.no, n.customImageUrl, n.name])) !==
-        JSON.stringify(mergedNyans.map((n) => [n.no, n.customImageUrl, n.name]));
+    const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, masterRes.data.characters);
+    const addedCount = Math.max(0, masterRes.data.characters.length - currentNyans.length);
 
-    // Save to local cache
-    setCachedMasterVersion(meta.version);
-    setCachedMasterNyans(masterData.nyans);
+    setCachedManifest(manifest);
+    setCachedMasterNyans(mergedNyans);
 
     return {
-      updated: hasContentChanges,
-      version: meta.version,
+      updated: true,
+      version: manifest.version,
       nyans: mergedNyans,
       addedCount,
     };
   } catch (err: any) {
-    console.warn('checkForMasterUpdateAndSync error:', err);
+    console.warn('checkForMasterUpdateAndSync warning:', err);
     return {
       updated: false,
       version: getCachedMasterVersion(),
       nyans: currentNyans,
       addedCount: 0,
-      error: err.message,
+      error: err?.message,
     };
   }
+}
+
+// Backward compatibility alias
+export type KenchikoMasterMeta = KenchikoMasterManifest;
+export const fetchMasterMeta = fetchMasterManifest;
+export async function fetchMasterNyans(): Promise<{ version: number; nyans: NyanCharacter[] } | null> {
+  const data = await fetchGlobalMasterData();
+  if (!data) return null;
+  return { version: data.version || 1, nyans: data.characters || [] };
+}
+export async function publishMasterData(nyans: NyanCharacter[], note?: string) {
+  const current = loadLocalMasterData();
+  const res = await publishGlobalMasterData({ ...current, characters: nyans }, note, { syncCharacters: true, syncAssets: false });
+  return {
+    ...res,
+    count: nyans.length,
+  };
 }

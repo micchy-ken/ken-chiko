@@ -43,12 +43,13 @@ import {
   syncNyansFromGoogleDoc,
 } from '../services/googleDocSync';
 import {
-  fetchMasterMeta,
+  fetchMasterManifest,
   publishMasterData,
   publishGlobalMasterData,
   fetchGlobalMasterDataWithStatus,
-  KenchikoMasterMeta,
+  KenchikoMasterManifest,
 } from '../services/masterDataService';
+import { estimateMasterPublishCost, WriteCostEstimate } from '../services/writeCostEstimator';
 import { GameMasterData } from '../types';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
@@ -235,10 +236,34 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [trimPadding, setTrimPadding] = useState(true);
 
   // Official Master Publisher State (Firestore central distribution)
-  const [masterMeta, setMasterMeta] = useState<KenchikoMasterMeta | null>(null);
+  const [masterMeta, setMasterMeta] = useState<KenchikoMasterManifest | null>(null);
   const [isLoadingMasterMeta, setIsLoadingMasterMeta] = useState<boolean>(false);
   const [isPublishingMaster, setIsPublishingMaster] = useState<boolean>(false);
   const [masterPublishStatus, setMasterPublishStatus] = useState<string | null>(null);
+
+  // Modular Publish Selections
+  const [syncCharacters, setSyncCharacters] = useState<boolean>(true);
+  const [syncAsobi, setSyncAsobi] = useState<boolean>(true);
+  const [syncAssets, setSyncAssets] = useState<boolean>(false); // Off by default to avoid huge Base64 write costs unless images modified!
+  const [showPublishDetailModal, setShowPublishDetailModal] = useState<boolean>(false);
+
+  // Asobi Editor State (declared early for live publish cost estimation)
+  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
+  const [editingAsobiId, setEditingAsobiId] = useState<string | null>(null);
+  const [asobiViewMode, setAsobiViewMode] = useState<'sheet' | 'cards' | 'batch'>('sheet');
+  const [newTitle, setNewTitle] = useState('');
+  const [newContent, setNewContent] = useState('');
+  const [newCondition, setNewCondition] = useState<AsobiConditionScope>('all');
+  const [newFrequency, setNewFrequency] = useState<AsobiFrequency>('normal');
+  const [batchRawText, setBatchRawText] = useState('');
+  const [batchDefaultCondition, setBatchDefaultCondition] = useState<AsobiConditionScope>('all');
+  const [batchDefaultFrequency, setBatchDefaultFrequency] = useState<AsobiFrequency>('normal');
+  const [asobiNotice, setAsobiNotice] = useState<string | null>(null);
+  const [filterCondition, setFilterCondition] = useState<string>('all');
+  const [searchEventQuery, setSearchEventQuery] = useState('');
+  const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
+  const [isSyncingCloudAsobi, setIsSyncingCloudAsobi] = useState(false);
+  const [hasUnsavedAsobi, setHasUnsavedAsobi] = useState(false);
 
   // Global pending changes tracking across all tabs
   const [unsavedChangesCount, setUnsavedChangesCount] = useState<number>(0);
@@ -364,8 +389,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const loadCurrentMasterMeta = async () => {
     setIsLoadingMasterMeta(true);
     try {
-      const meta = await fetchMasterMeta();
-      setMasterMeta(meta);
+      const manifest = await fetchMasterManifest();
+      setMasterMeta(manifest);
     } catch {
     } finally {
       setIsLoadingMasterMeta(false);
@@ -377,14 +402,29 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     diagnoseAndFetchCloudMaster(false);
   }, []);
 
-  const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
-    // Safety check: if master data seems incomplete (e.g. initial 15 events), confirm with user
-    if ((asobiList.length <= 15 || saveData.ouenList?.length <= 1) && !cloudMasterDetail.existsInCloud) {
-      // Proceed with caution
-    }
+  // Compute live estimated write cost based on active selections
+  const currentPublishEstimate: WriteCostEstimate = React.useMemo(() => {
+    const dummyMaster: GameMasterData = {
+      version: masterMeta?.version || 1,
+      characters: saveData.characters || characters,
+      asobiList: asobiList,
+      ouenCategories: saveData.ouenCategories || [],
+      ouenList: saveData.ouenList || [],
+      kounichan: saveData.kounichan,
+      kihonNyanCustomImageUrl: saveData.kihonNyanCustomImageUrl,
+      googleDriveFolderUrl: saveData.googleDriveFolderUrl,
+      lastUpdated: Date.now(),
+    };
+    return estimateMasterPublishCost(dummyMaster, {
+      includeCharactersText: syncCharacters,
+      includeAsobiOuen: syncAsobi,
+      includeAssets: syncAssets,
+    });
+  }, [saveData, characters, asobiList, masterMeta, syncCharacters, syncAsobi, syncAssets]);
 
+  const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
     setIsPublishingMaster(true);
-    setMasterPublishStatus('🚀 全マスターデータ（図鑑・あそび・応援・こうにちゃん・画像）をFirestoreへ一括保存中...');
+    setMasterPublishStatus(`🚀 分割マスター（推定 ${currentPublishEstimate.estimatedWrites}書込 / ${currentPublishEstimate.kb} KB）をFirestoreへ保存中...`);
     
     const masterPayload: GameMasterData = {
       version: masterMeta?.version || 1,
@@ -398,15 +438,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       lastUpdated: Date.now(),
     };
 
-    const res = await publishGlobalMasterData(masterPayload, customNote || '管理画面より一括マスター保存');
+    const res = await publishGlobalMasterData(
+      masterPayload,
+      customNote || '管理画面より分割マスター保存',
+      {
+        syncCharacters,
+        syncAsobi,
+        syncAssets,
+      }
+    );
     setIsPublishingMaster(false);
+    setShowPublishDetailModal(false);
     if (res.success) {
       setUnsavedChangesCount(0);
       setModifiedTabs(new Set());
       setHasUnsavedAsobi(false);
       setInternalMasterError(null);
+      const writesMsg = res.estimate ? ` (約${res.estimate.estimatedWrites}書込 / ${res.estimate.kb} KB)` : '';
       setMasterPublishStatus(
-        `🎉 保存完了！公式マスター v${res.version} をFirestoreに1回で安全に保存しました。（全端末で同期されます）`
+        `🎉 保存完了！公式マスター v${res.version} をFirestoreに安全に保存しました${writesMsg}。（全端末で同期されます）`
       );
       loadCurrentMasterMeta();
       diagnoseAndFetchCloudMaster(false);
@@ -625,24 +675,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     });
     return () => unsub();
   }, []);
-
-  // Asobi Editor State
-  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
-  const [editingAsobiId, setEditingAsobiId] = useState<string | null>(null);
-  const [asobiViewMode, setAsobiViewMode] = useState<'sheet' | 'cards' | 'batch'>('sheet');
-  const [newTitle, setNewTitle] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [newCondition, setNewCondition] = useState<AsobiConditionScope>('all');
-  const [newFrequency, setNewFrequency] = useState<AsobiFrequency>('normal');
-  const [batchRawText, setBatchRawText] = useState('');
-  const [batchDefaultCondition, setBatchDefaultCondition] = useState<AsobiConditionScope>('all');
-  const [batchDefaultFrequency, setBatchDefaultFrequency] = useState<AsobiFrequency>('normal');
-  const [asobiNotice, setAsobiNotice] = useState<string | null>(null);
-  const [filterCondition, setFilterCondition] = useState<string>('all');
-  const [searchEventQuery, setSearchEventQuery] = useState('');
-  const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
-  const [isSyncingCloudAsobi, setIsSyncingCloudAsobi] = useState(false);
-  const [hasUnsavedAsobi, setHasUnsavedAsobi] = useState(false);
 
   // Synchronize asobiList when saveData.asobiList updates via real-time cloud sync (only if user does not have unsaved edits)
   useEffect(() => {
@@ -1665,6 +1697,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
+                onClick={() => setShowPublishDetailModal(true)}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[#FAF5ED] hover:bg-[#F3ECE0] text-[#7A583A] text-xs font-bold rounded-xl border border-[#D9CEBA] transition shadow-2xs cursor-pointer"
+                title="保存対象のドキュメント分割設定と想定書き込み回数の詳細を確認します"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>想定書込: 約{currentPublishEstimate.estimatedWrites}回 ({currentPublishEstimate.kb} KB)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handlePublishMaster()}
                 disabled={isPublishingMaster}
                 className={`w-full md:w-auto flex items-center justify-center gap-1.5 px-4 py-2 text-white text-xs font-black rounded-xl shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting ${
@@ -1679,9 +1721,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <span>
                   {isPublishingMaster
                     ? 'クラウドへ保存中...'
-                    : unsavedChangesCount > 0
-                    ? 'Firebaseに一括保存 (1回)'
-                    : 'マスター一括保存 (1回)'}
+                    : `Firebaseに保存 (約${currentPublishEstimate.estimatedWrites}回)`}
                 </span>
               </button>
             </div>
@@ -3433,6 +3473,150 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               >
                 <Save className="w-4 h-4" />
                 <span>{isPublishingMaster ? '保存中...' : 'Firebaseに保存して閉じる (1回)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modular Publish Configuration & Cost Breakdown Modal */}
+      {showPublishDetailModal && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FAF8F5] w-full max-w-xl rounded-2xl border-2 border-[#DDD7C8] shadow-2xl flex flex-col overflow-hidden animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-4 bg-[#EFECE4] border-b border-[#DDD7C8] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-[#487560]" />
+                <h4 className="text-sm font-black text-[#2E2824] font-handwriting">
+                  Firestore 保存先ドキュメント分離と想定書き込み数
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPublishDetailModal(false)}
+                className="p-1 hover:bg-[#DDD7C8] rounded-lg text-[#7A726A] cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 space-y-4 text-xs text-[#5A524A] max-h-[75vh] overflow-y-auto">
+              <div className="bg-[#E8F3ED] p-3 rounded-xl border border-[#BDE0CE] text-[#34654D]">
+                <p className="font-bold flex items-center gap-1.5 mb-1">
+                  <ShieldCheck className="w-4 h-4" />
+                  Firestoreの従量課金対策（1KB = 1書込カウント）
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  かつて約800KBの巨大な単一ドキュメントに全てを保存していたため、1回の保存で約800回の書き込みが計上されていました。
+                  現在は<strong>「図鑑名簿（文字）」「あそび・応援」「画像アセット」</strong>を独立した別ドキュメントに完全分離し、変更があったドキュメントのみをピンポイント保存します。
+                </p>
+              </div>
+
+              {/* Document Toggles & Estimates */}
+              <div className="space-y-2">
+                <h5 className="font-black text-[#2E2824]">今回の更新対象ドキュメントの選択</h5>
+
+                <label className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#DDD7C8] hover:border-[#487560]/40 transition cursor-pointer">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={syncCharacters}
+                      onChange={(e) => setSyncCharacters(e.target.checked)}
+                      className="rounded text-[#487560] w-4 h-4"
+                    />
+                    <div>
+                      <div className="font-bold text-[#2E2824]">1. 図鑑名簿（文字情報・全264体）</div>
+                      <div className="text-[11px] text-[#7A726A]">名前、よみ、モチーフ、セリフ、解説（※画像データは除外）</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-[#487560]">約253回</span>
+                    <span className="text-[10px] text-[#8C8275] block">約252 KB</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#DDD7C8] hover:border-[#487560]/40 transition cursor-pointer">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={syncAsobi}
+                      onChange={(e) => setSyncAsobi(e.target.checked)}
+                      className="rounded text-[#487560] w-4 h-4"
+                    />
+                    <div>
+                      <div className="font-bold text-[#2E2824]">2. あそび・応援マスター</div>
+                      <div className="text-[11px] text-[#7A726A]">けんちこのあそびイベント、応援メッセージ、Drive設定</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-[#487560]">約11回</span>
+                    <span className="text-[10px] text-[#8C8275] block">約11 KB</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#DDD7C8] hover:border-[#487560]/40 transition cursor-pointer">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={syncAssets}
+                      onChange={(e) => setSyncAssets(e.target.checked)}
+                      className="rounded text-[#487560] w-4 h-4"
+                    />
+                    <div>
+                      <div className="font-bold text-[#2E2824]">3. 画像・アセット（Base64イラスト群）</div>
+                      <div className="text-[11px] text-[#7A726A]">
+                        {syncAssets ? '⚠️ イラストの差し替えがある時のみON推奨' : '通常はOFF（画像を差し替えた時のみONにしてください）'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className={`font-mono font-bold ${syncAssets ? 'text-[#C8744E]' : 'text-[#8C8275]'}`}>
+                      {syncAssets ? '約624回' : '0回 (スキップ)'}
+                    </span>
+                    <span className="text-[10px] text-[#8C8275] block">
+                      {syncAssets ? '約624 KB' : '0 KB'}
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Total Estimated Cost Box */}
+              <div className="p-3.5 bg-[#FFFDF9] rounded-xl border-2 border-[#487560] flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black text-[#2E2824]">今回の想定Firestore書き込み回数:</span>
+                  <p className="text-[11px] text-[#7A726A]">
+                    マニフェスト（台帳）を含めた合計ペイロード: {currentPublishEstimate.kb} KB
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-black text-[#487560] font-mono">
+                    約 {currentPublishEstimate.estimatedWrites} <span className="text-xs font-normal">回</span>
+                  </div>
+                  <div className="text-[10px] text-[#6E6458]">
+                    {syncAssets ? '※画像を含む一括保存' : '✨ 画像をスキップし大幅節約中'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-[#EFECE4] border-t border-[#DDD7C8] flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPublishDetailModal(false)}
+                className="px-4 py-2 bg-white hover:bg-[#FAF8F5] text-[#5A524A] border border-[#DDD7C8] rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                閉じる
+              </button>
+              <button
+                type="button"
+                disabled={isPublishingMaster}
+                onClick={() => handlePublishMaster()}
+                className="px-5 py-2 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isPublishingMaster ? '保存中...' : `この設定で保存を実行 (約${currentPublishEstimate.estimatedWrites}回)`}</span>
               </button>
             </div>
           </div>

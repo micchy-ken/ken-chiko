@@ -46,6 +46,7 @@ import {
   deleteFromUnmappedArchive,
 } from '../services/nyankoStoryService';
 import { NyankoStoryModal } from './NyankoStoryModal';
+import { estimateObjectWriteCost } from '../services/writeCostEstimator';
 
 interface AdminStoryManagerProps {
   characters: NyanCharacter[];
@@ -1313,7 +1314,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                     <span>
                       {isUploading
                         ? 'Firestoreへアップロード中...'
-                        : `${parsedPreview.stories.length}件を図鑑に登録・反映`}
+                        : `${parsedPreview.stories.length}件を登録 (想定${parsedPreview.stories.length}回書込)`}
                     </span>
                   </button>
                 </div>
@@ -1593,18 +1594,28 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-[#EFECE4] border-t border-[#DDD7C8] flex justify-between items-center">
-              <button
-                onClick={() => setEditingNyan(null)}
-                className="px-4 py-2 bg-white hover:bg-[#FAF8F5] text-[#5A524A] border border-[#DDD7C8] rounded-xl text-xs font-bold transition"
-              >
-                キャンセル
-              </button>
+            <div className="p-4 bg-[#EFECE4] border-t border-[#DDD7C8] flex justify-between items-center flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEditingNyan(null)}
+                  className="px-4 py-2 bg-white hover:bg-[#FAF8F5] text-[#5A524A] border border-[#DDD7C8] rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  キャンセル
+                </button>
+                {(() => {
+                  const est = estimateObjectWriteCost('story', { id: editingNyan.no, text: editingJsonText });
+                  return (
+                    <span className="text-[11px] text-[#7A726A] bg-white px-2.5 py-1 rounded-lg border border-[#DDD7C8] font-mono">
+                      想定書込: <strong className="text-[#487560]">{est.estimatedWrites}回</strong> ({est.kb} KB)
+                    </span>
+                  );
+                })()}
+              </div>
 
               <button
                 onClick={handleSaveSingleStory}
                 disabled={isSavingSingleStory || isLoadingSingleStory}
-                className="px-5 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5"
+                className="px-5 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
               >
                 <UploadCloud className="w-4 h-4" />
                 <span>{isSavingSingleStory ? 'Firestoreへ保存中...' : 'Firestoreへ保存・更新'}</span>
