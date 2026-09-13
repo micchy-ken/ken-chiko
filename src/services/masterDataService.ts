@@ -1,7 +1,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { NyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
-import { getFirestoreDbInstance, initFirebase } from './firebaseSync';
+import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 
 export interface KenchikoMasterMeta {
   version: number;
@@ -270,6 +270,7 @@ export async function publishGlobalMasterData(
     // 1. Write consolidated global master document (EXACTLY 1 single document write in Firestore!)
     const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
     await setDoc(masterDocRef, sanitizeForFirestore(globalMasterPayload));
+    recordFirestoreWrite(`kenchiko_world/${GLOBAL_MASTER_DOC_ID}`, 1);
 
     // Update local caches
     const updatedMaster: GameMasterData = {

@@ -379,14 +379,21 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       const res = await fetchStoriesMeta(force);
       setMeta(res);
 
-      // Sync character hasStory property if onUpdateCharacters provided
+      // Sync character hasStory property only if there are actual discrepancies
       if (res && onUpdateCharacters) {
         const registeredIds = new Set(Object.keys(res.stories).map((k) => parseInt(k, 10)));
-        const updatedChars = characters.map((c) => ({
-          ...c,
-          hasStory: registeredIds.has(c.no),
-        }));
-        onUpdateCharacters(updatedChars);
+        let hasChanges = false;
+        const updatedChars = characters.map((c) => {
+          const has = registeredIds.has(c.no);
+          if (c.hasStory !== has) hasChanges = true;
+          return {
+            ...c,
+            hasStory: has,
+          };
+        });
+        if (hasChanges) {
+          onUpdateCharacters(updatedChars);
+        }
       }
     } catch (err) {
       console.error('Failed to load stories meta:', err);

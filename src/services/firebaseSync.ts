@@ -1423,6 +1423,25 @@ let sessionDbReadCount: number = 0;
 let sessionDbWriteCount: number = 0;
 
 /**
+ * Global audit recorder for any Firestore write across the entire application.
+ * Increments session & daily counters and emits an event for reactive UI display.
+ */
+export function recordFirestoreWrite(docName: string, count: number = 1): void {
+  sessionDbWriteCount += count;
+  for (let i = 0; i < count; i++) {
+    incrementDailyWriteCount();
+  }
+  console.log(`[FirestoreWriteAudit] 🎯 書き込み記録: ${docName} (+${count}回, セッション累計: ${sessionDbWriteCount}回, 本日累計: ${getDailyWriteStats().count}回)`);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('kenchiko-firestore-write', {
+        detail: { docName, count, sessionWrites: sessionDbWriteCount, dailyWrites: getDailyWriteStats().count },
+      })
+    );
+  }
+}
+
+/**
  * Cooldown between automatic routine cloud writes: 120 seconds (2 minutes).
  * LocalStorage updates at 0ms latency for 100% data safety.
  */

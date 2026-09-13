@@ -33,6 +33,8 @@ import {
   MAX_DAILY_WRITES,
   fetchInitialFirebaseState,
   MasterFetchStatus,
+  getFirebaseAccessStats,
+  getDailyWriteStats,
 } from '../services/firebaseSync';
 import { getActiveUserId, getFirestoreDocIdForUser } from '../services/userService';
 import {
@@ -242,6 +244,21 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [unsavedChangesCount, setUnsavedChangesCount] = useState<number>(0);
   const [modifiedTabs, setModifiedTabs] = useState<Set<AdminTab>>(new Set());
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
+
+  // Live session and daily Firestore write monitor
+  const [sessionWriteCount, setSessionWriteCount] = useState<number>(() => getFirebaseAccessStats().sessionWrites);
+  const [dailyWriteCount, setDailyWriteCount] = useState<number>(() => getDailyWriteStats().count);
+
+  useEffect(() => {
+    const handleWriteEvent = (e: any) => {
+      if (e.detail) {
+        setSessionWriteCount(e.detail.sessionWrites ?? getFirebaseAccessStats().sessionWrites);
+        setDailyWriteCount(e.detail.dailyWrites ?? getDailyWriteStats().count);
+      }
+    };
+    window.addEventListener('kenchiko-firestore-write', handleWriteEvent);
+    return () => window.removeEventListener('kenchiko-firestore-write', handleWriteEvent);
+  }, []);
 
   const markTabChanged = (tab?: AdminTab) => {
     const target = tab || activeTab;
@@ -1614,8 +1631,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   <span className="text-xs font-black text-[#2E2824] font-handwriting">
                     マスターデータ完全分離モード（ドラフト作業中）
                   </span>
-                  <span className="bg-[#E8F3ED] text-[#34654D] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#BDE0CE]">
-                    編集中書き込み: 0回
+                  <span
+                    className="bg-[#E8F3ED] text-[#34654D] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#BDE0CE] flex items-center gap-1 cursor-help"
+                    title="現在ブラウザを開いてから実際にFirestoreへ送信された書き込み回数です（ドラフト編集中は0回）。"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#487560]"></span>
+                    今セッション書込: {sessionWriteCount}回
+                  </span>
+                  <span
+                    className="bg-[#F3EFE6] text-[#6E6458] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#DDD7C8] cursor-help"
+                    title="本日（UTC/JST）このプロジェクト全体で記録された累計書き込み数です。Firebaseコンソールの使用量メーターはこの日次累計値を表示します。"
+                  >
+                    本日累計: {dailyWriteCount}回
                   </span>
                   {unsavedChangesCount > 0 ? (
                     <span className="bg-[#FFF3CD] text-[#856404] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#FFEBAA] animate-pulse">
@@ -2872,7 +2899,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             <AdminStoryManager
               characters={characters}
               onUpdateCharacters={(updatedChars) => {
-                markTabChanged('story');
+                // Background hydration of hasStory flags should NOT mark master data as modified
                 onImportNyans(updatedChars, 0, 0);
               }}
             />

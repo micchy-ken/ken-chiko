@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
-import { getFirestoreDbInstance } from './firebaseSync';
+import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
 
 export interface StoryIndexItem {
@@ -467,6 +467,7 @@ export async function uploadStoriesJsonToFirestore(
     batch.set(metaRef, currentMeta);
 
     await batch.commit();
+    recordFirestoreWrite('kenchiko_world/stories_batch', 2);
     setLocalStoriesMeta(currentMeta);
 
     console.log(`[NyankoStory] 💾 全物語を一括保存完了 [writeBatchで完全アトミック一括保存]: ${total}件の物語を ${GLOBAL_STORIES_DOC_ID} に統合`);
@@ -505,6 +506,7 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
         [String(story.id)]: cleanPayload,
       },
     }, { merge: true });
+    recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 1);
 
     // Save to memory cache
     saveToLocalCache(story.id, story);
@@ -589,6 +591,7 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
     }
 
     await batch.commit();
+    recordFirestoreWrite('kenchiko_world/stories_delete', 2);
 
     return { success: true };
   } catch (err: any) {
@@ -685,6 +688,7 @@ export async function rebuildStoriesMetaFromFirestore(
     // Save to Firestore kenchiko_world/nyanko_stories_meta
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
     await setDoc(metaRef, meta);
+    recordFirestoreWrite(`kenchiko_world/${STORIES_META_DOC_ID}`, 1);
 
     // Save to local cache
     setLocalStoriesMeta(meta);
@@ -793,6 +797,7 @@ export async function saveStoriesMetaDoc(meta: NyankoStoriesMeta): Promise<{ suc
 
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
     await setDoc(metaRef, metaPayload);
+    recordFirestoreWrite(`kenchiko_world/${STORIES_META_DOC_ID}`, 1);
     setLocalStoriesMeta(metaPayload);
     return { success: true };
   } catch (err: any) {
@@ -923,6 +928,7 @@ export async function assignUnmappedStoryToNyan(
     }
 
     await batch.commit();
+    recordFirestoreWrite('kenchiko_world/story_assign', 2);
 
     return { success: true, updatedMeta: currentMeta };
   } catch (err: any) {
@@ -972,6 +978,7 @@ export async function saveStoriesToUnmappedArchive(
         count: savedIds.length,
         stories: storiesMap,
       }, { merge: true });
+      recordFirestoreWrite(`kenchiko_world/${GLOBAL_UNMAPPED_DOC_ID}`, 1);
 
       console.log(`[NyankoStory] 💾 未紐づけ保管庫への一括保存完了 [わずか1回書き込み]: ${savedIds.length}件を ${GLOBAL_UNMAPPED_DOC_ID} に統合`);
     }
@@ -1010,6 +1017,7 @@ export async function deleteFromUnmappedArchive(oldId: string): Promise<{ succes
     batch.delete(legacyRef);
 
     await batch.commit();
+    recordFirestoreWrite('kenchiko_world/unmapped_delete', 1);
     return { success: true };
   } catch (err: any) {
     console.error('Failed to delete from unmapped archive:', err);
