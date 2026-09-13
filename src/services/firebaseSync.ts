@@ -1555,13 +1555,8 @@ export async function executeFirestoreWrite(
     return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };
   }
 
-  // 1.5. If active user is default/unspecified, DO NOT perform automatic cloud writes.
-  // Anonymous / default users in preview iframe should be 100% local only unless manual save button is clicked.
+  // 1.5. If active user is specified or default, write to their document
   const activeUid = getActiveUserId();
-  if (!forceManual && !isAdmin && (!activeUid || activeUid === 'default' || activeUid === 'global')) {
-    console.log('[CloudSync] 🛑 プレイヤー未指定（プレビュー/デフォルト環境）のためクラウド自動書き込みをスキップ（ローカル完全保護）');
-    return { success: true };
-  }
 
   // 2. Check user auto-sync toggle (if false, only manual save or admin allowed)
   if (!forceManual && !isAdmin && !isCloudAutoSyncEnabled()) {
@@ -1722,6 +1717,7 @@ export async function syncSaveDataToFirebase(
 // User-action-only and Exit-only save APIs
 export async function saveOnUserAction(
   data: GameSaveData,
+  immediate: boolean = false,
   config: FirebaseCustomConfig = loadSavedFirebaseConfig(),
   bypassDailyLimit: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
@@ -1746,7 +1742,16 @@ export async function saveOnUserAction(
     return { success: true }; // Skip scheduling cloud write completely
   }
 
-  // Debounce consecutive user actions (minimum 120s cooldown)
+  // If immediate flag is true (e.g. nyan discovered or ticket acquired), save to cloud right away
+  if (immediate) {
+    if (pendingWriteTimeout) {
+      clearTimeout(pendingWriteTimeout);
+      pendingWriteTimeout = null;
+    }
+    return executeFirestoreWrite(data, config, true, bypassDailyLimit);
+  }
+
+  // Debounce consecutive user actions (2 minutes cooldown)
   const now = Date.now();
   const timeSinceLast = now - lastSuccessfulWriteTime;
 

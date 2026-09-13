@@ -568,6 +568,19 @@ export default function App() {
   // Master Data Refresh key
   const LAST_MASTER_CHECK_KEY = 'kenchiko_last_master_check_time_v2';
 
+  // 2-Minute Automatic Cloud Sync interval (when app is open and running)
+  useEffect(() => {
+    if (!isInitialSyncCompleted || isStandaloneAdmin || showSyncModal) return;
+
+    const autoSyncInterval = setInterval(() => {
+      if (saveDataRef.current) {
+        saveOnUserAction(saveDataRef.current).catch(() => {});
+      }
+    }, 120000); // exactly every 2 minutes
+
+    return () => clearInterval(autoSyncInterval);
+  }, [isInitialSyncCompleted, isStandaloneAdmin, showSyncModal]);
+
   // Hook up exit save (beforeunload)
   useEffect(() => {
     const handleUnload = () => {
@@ -670,7 +683,7 @@ export default function App() {
         rewards: updatedRewards,
         lastSaved: Date.now(),
       };
-      saveOnUserAction(nextData);
+      saveOnUserAction(nextData, true);
       return nextData;
     });
     if (toastMsg) {
@@ -716,7 +729,7 @@ export default function App() {
         rewards: updatedRewards,
         lastSaved: Date.now(),
       };
-      saveOnUserAction(nextData);
+      saveOnUserAction(nextData, true);
       return nextData;
     });
   };
@@ -913,7 +926,10 @@ export default function App() {
           };
 
           saveLocalBackup(nextData);
-          // Encounter discoveries are preserved in local storage; zero automatic cloud writes
+          // If a new cat was discovered, save immediately to Cloud Firestore!
+          if (isNewlyDiscoveredNyan) {
+            saveOnUserAction(nextData, true).catch(() => {});
+          }
           return nextData;
         } else {
           // MISS (70%): No cat appeared yet. Schedule next check in 15-60 seconds.
