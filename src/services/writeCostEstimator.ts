@@ -6,30 +6,32 @@ import { NyanCharacter, GameMasterData } from '../types';
 export interface WriteCostEstimate {
   bytes: number;
   kb: number;
-  estimatedWrites: number;
+  docWrites: number;
   breakdown: {
     name: string;
+    docId: string;
     bytes: number;
     kb: number;
-    estimatedWrites: number;
+    docWrites: number;
   }[];
 }
 
 /**
- * Calculates byte size and estimated Firestore write units for any object
- * Firestore Standard billing: 1 write per 1 KB + index entries overhead
+ * Calculates byte size and actual Firestore document write units for an operation
+ * Firestore Billing Rule: 1 document written = exactly 1 Write (regardless of document size up to 1MB).
+ * The byte size represents network payload (Egress/Ingress bandwidth).
  */
-export function estimateObjectWriteCost(name: string, obj: any): { name: string; bytes: number; kb: number; estimatedWrites: number } {
+export function estimateObjectWriteCost(name: string, docId: string, obj: any): { name: string; docId: string; bytes: number; kb: number; docWrites: number } {
   try {
     const json = JSON.stringify(obj || {});
     // UTF-8 byte length
     const bytes = new TextEncoder().encode(json).length;
     const kb = parseFloat((bytes / 1024).toFixed(1));
-    // Firestore write units: 1 unit per 1 KB (minimum 1)
-    const estimatedWrites = Math.max(1, Math.ceil(bytes / 1024));
-    return { name, bytes, kb, estimatedWrites };
+    // Firestore write units: 1 document written = exactly 1 Write
+    const docWrites = 1;
+    return { name, docId, bytes, kb, docWrites };
   } catch {
-    return { name, bytes: 0, kb: 0, estimatedWrites: 1 };
+    return { name, docId, bytes: 0, kb: 0, docWrites: 1 };
   }
 }
 
@@ -50,10 +52,10 @@ export function estimateMasterPublishCost(
     includeAssets = true,
   } = options;
 
-  const breakdown: { name: string; bytes: number; kb: number; estimatedWrites: number }[] = [];
+  const breakdown: { name: string; docId: string; bytes: number; kb: number; docWrites: number }[] = [];
 
-  // 1. Manifest / Version ledger (< 1 KB, exactly 1 write)
-  breakdown.push(estimateObjectWriteCost('バージョン台帳 (マニフェスト)', {
+  // 1. Manifest / Version ledger (< 1 KB, exactly 1 document write)
+  breakdown.push(estimateObjectWriteCost('バージョン台帳', 'ken-chiko-master-manifest', {
     version: master.version || 1,
     charactersVersion: 1,
     asobiVersion: 1,
@@ -76,17 +78,16 @@ export function estimateMasterPublishCost(
       dialogueMeaning: n.dialogueMeaning,
       favoriteItems: n.favoriteItems,
       favoriteLocations: n.favoriteLocations,
-      // External URLs are fine (< 100 bytes), but huge Base64 strings are isolated to assets doc
       hasCustomImage: Boolean(n.customImageUrl),
     }));
-    breakdown.push(estimateObjectWriteCost('図鑑名簿テキスト (264体)', {
+    breakdown.push(estimateObjectWriteCost('図鑑名簿テキスト (264体)', 'ken-chiko-master-characters', {
       characters: lightCharacters,
     }));
   }
 
   // 3. Asobi & Ouen
   if (includeAsobiOuen) {
-    breakdown.push(estimateObjectWriteCost('あそび・応援マスター', {
+    breakdown.push(estimateObjectWriteCost('あそび・応援マスター', 'ken-chiko-master-asobi', {
       asobiList: master.asobiList || [],
       ouenCategories: master.ouenCategories || [],
       ouenList: master.ouenList || [],
@@ -96,7 +97,6 @@ export function estimateMasterPublishCost(
 
   // 4. Large Base64 Assets
   if (includeAssets) {
-    // Only includes images that actually exist
     const customImagesMap: Record<number, { customImageUrl?: string; rawImageUrl?: string; transparency?: any }> = {};
     for (const c of master.characters || []) {
       if (c.customImageUrl || c.rawImageUrl) {
@@ -107,7 +107,7 @@ export function estimateMasterPublishCost(
         };
       }
     }
-    breakdown.push(estimateObjectWriteCost('画像・アセットマスター (Base64画像)', {
+    breakdown.push(estimateObjectWriteCost('画像アセット (Base64)', 'ken-chiko-master-assets', {
       customImages: customImagesMap,
       kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
       kounichan: master.kounichan || null,
@@ -116,12 +116,12 @@ export function estimateMasterPublishCost(
 
   const totalBytes = breakdown.reduce((acc, b) => acc + b.bytes, 0);
   const totalKb = parseFloat((totalBytes / 1024).toFixed(1));
-  const totalWrites = breakdown.reduce((acc, b) => acc + b.estimatedWrites, 0);
+  const totalWrites = breakdown.reduce((acc, b) => acc + b.docWrites, 0);
 
   return {
     bytes: totalBytes,
     kb: totalKb,
-    estimatedWrites: totalWrites,
+    docWrites: totalWrites,
     breakdown,
   };
 }

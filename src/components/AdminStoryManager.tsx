@@ -1603,10 +1603,10 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                   キャンセル
                 </button>
                 {(() => {
-                  const est = estimateObjectWriteCost('story', { id: editingNyan.no, text: editingJsonText });
+                  const est = estimateObjectWriteCost('story', `nyanko_stories/${editingNyan.no}`, { id: editingNyan.no, text: editingJsonText });
                   return (
                     <span className="text-[11px] text-[#7A726A] bg-white px-2.5 py-1 rounded-lg border border-[#DDD7C8] font-mono">
-                      想定書込: <strong className="text-[#487560]">{est.estimatedWrites}回</strong> ({est.kb} KB)
+                      書き込み: <strong className="text-[#487560]">{est.docWrites}回</strong> ({est.kb} KB)
                     </span>
                   );
                 })()}

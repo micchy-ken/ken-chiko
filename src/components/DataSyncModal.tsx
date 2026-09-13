@@ -424,7 +424,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
     setIsPublishingMaster(true);
-    setMasterPublishStatus(`🚀 分割マスター（推定 ${currentPublishEstimate.estimatedWrites}書込 / ${currentPublishEstimate.kb} KB）をFirestoreへ保存中...`);
+    setMasterPublishStatus(`🚀 分割マスター（${currentPublishEstimate.docWrites}ドキュメント書込 / 計${currentPublishEstimate.kb} KB）をFirestoreへ保存中...`);
     
     const masterPayload: GameMasterData = {
       version: masterMeta?.version || 1,
@@ -454,7 +454,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setModifiedTabs(new Set());
       setHasUnsavedAsobi(false);
       setInternalMasterError(null);
-      const writesMsg = res.estimate ? ` (約${res.estimate.estimatedWrites}書込 / ${res.estimate.kb} KB)` : '';
+      const writesMsg = res.estimate ? ` (${res.estimate.docWrites}書込 / ${res.estimate.kb} KB)` : '';
       setMasterPublishStatus(
         `🎉 保存完了！公式マスター v${res.version} をFirestoreに安全に保存しました${writesMsg}。（全端末で同期されます）`
       );
@@ -1702,7 +1702,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 title="保存対象のドキュメント分割設定と想定書き込み回数の詳細を確認します"
               >
                 <Sliders className="w-3.5 h-3.5" />
-                <span>想定書込: 約{currentPublishEstimate.estimatedWrites}回 ({currentPublishEstimate.kb} KB)</span>
+                <span>書き込み数: {currentPublishEstimate.docWrites}ドキュメント ({currentPublishEstimate.kb} KB)</span>
               </button>
 
               <button
@@ -1721,7 +1721,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <span>
                   {isPublishingMaster
                     ? 'クラウドへ保存中...'
-                    : `Firebaseに保存 (約${currentPublishEstimate.estimatedWrites}回)`}
+                    : `Firebaseに保存 (${currentPublishEstimate.docWrites}回書込)`}
                 </span>
               </button>
             </div>
@@ -3505,11 +3505,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="bg-[#E8F3ED] p-3 rounded-xl border border-[#BDE0CE] text-[#34654D]">
                 <p className="font-bold flex items-center gap-1.5 mb-1">
                   <ShieldCheck className="w-4 h-4" />
-                  Firestoreの従量課金対策（1KB = 1書込カウント）
+                  Firestoreドキュメント分離による1MB制限対策・転送量最適化
                 </p>
                 <p className="text-[11px] leading-relaxed">
-                  かつて約800KBの巨大な単一ドキュメントに全てを保存していたため、1回の保存で約800回の書き込みが計上されていました。
-                  現在は<strong>「図鑑名簿（文字）」「あそび・応援」「画像アセット」</strong>を独立した別ドキュメントに完全分離し、変更があったドキュメントのみをピンポイント保存します。
+                  Firestoreでは1ドキュメントの保存が<strong>「1回の書き込み」</strong>として課金カウントされます。
+                  画像を含めた全データを1ドキュメントに保存するとFirestoreの1MB上限を超過してエラーになるため、<strong>「図鑑名簿（文字）」「あそび・応援」「画像アセット」</strong>を独立ドキュメントに完全分離しています。
+                  更新が必要なモジュールのみを選択して保存できます。
                 </p>
               </div>
 
@@ -3526,12 +3527,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       className="rounded text-[#487560] w-4 h-4"
                     />
                     <div>
-                      <div className="font-bold text-[#2E2824]">1. 図鑑名簿（文字情報・全264体）</div>
+                      <div className="font-bold text-[#2E2824]">1. 図鑑名簿ドキュメント（文字情報・全264体）</div>
                       <div className="text-[11px] text-[#7A726A]">名前、よみ、モチーフ、セリフ、解説（※画像データは除外）</div>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <span className="font-mono font-bold text-[#487560]">約253回</span>
+                    <span className="font-mono font-bold text-[#487560]">1 書込</span>
                     <span className="text-[10px] text-[#8C8275] block">約252 KB</span>
                   </div>
                 </label>
@@ -3545,12 +3546,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       className="rounded text-[#487560] w-4 h-4"
                     />
                     <div>
-                      <div className="font-bold text-[#2E2824]">2. あそび・応援マスター</div>
+                      <div className="font-bold text-[#2E2824]">2. あそび・応援マスタードキュメント</div>
                       <div className="text-[11px] text-[#7A726A]">けんちこのあそびイベント、応援メッセージ、Drive設定</div>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <span className="font-mono font-bold text-[#487560]">約11回</span>
+                    <span className="font-mono font-bold text-[#487560]">1 書込</span>
                     <span className="text-[10px] text-[#8C8275] block">約11 KB</span>
                   </div>
                 </label>
@@ -3564,7 +3565,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       className="rounded text-[#487560] w-4 h-4"
                     />
                     <div>
-                      <div className="font-bold text-[#2E2824]">3. 画像・アセット（Base64イラスト群）</div>
+                      <div className="font-bold text-[#2E2824]">3. 画像・アセットドキュメント（Base64イラスト群）</div>
                       <div className="text-[11px] text-[#7A726A]">
                         {syncAssets ? '⚠️ イラストの差し替えがある時のみON推奨' : '通常はOFF（画像を差し替えた時のみONにしてください）'}
                       </div>
@@ -3572,7 +3573,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`font-mono font-bold ${syncAssets ? 'text-[#C8744E]' : 'text-[#8C8275]'}`}>
-                      {syncAssets ? '約624回' : '0回 (スキップ)'}
+                      {syncAssets ? '1 書込' : '0 書込 (スキップ)'}
                     </span>
                     <span className="text-[10px] text-[#8C8275] block">
                       {syncAssets ? '約624 KB' : '0 KB'}
@@ -3584,17 +3585,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               {/* Total Estimated Cost Box */}
               <div className="p-3.5 bg-[#FFFDF9] rounded-xl border-2 border-[#487560] flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-black text-[#2E2824]">今回の想定Firestore書き込み回数:</span>
+                  <span className="text-xs font-black text-[#2E2824]">今回のFirestore書き込みドキュメント数:</span>
                   <p className="text-[11px] text-[#7A726A]">
-                    マニフェスト（台帳）を含めた合計ペイロード: {currentPublishEstimate.kb} KB
+                    台帳（マニフェスト）＋選択されたモジュールの合計サイズ: {currentPublishEstimate.kb} KB
                   </p>
                 </div>
                 <div className="text-right">
                   <div className="text-xl font-black text-[#487560] font-mono">
-                    約 {currentPublishEstimate.estimatedWrites} <span className="text-xs font-normal">回</span>
+                    {currentPublishEstimate.docWrites} <span className="text-xs font-normal">回（ドキュメント）</span>
                   </div>
                   <div className="text-[10px] text-[#6E6458]">
-                    {syncAssets ? '※画像を含む一括保存' : '✨ 画像をスキップし大幅節約中'}
+                    {syncAssets ? '※画像ドキュメントを含む保存' : '✨ 画像ドキュメントをスキップして高速保存'}
                   </div>
                 </div>
               </div>
@@ -3616,7 +3617,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 className="px-5 py-2 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
               >
                 <Save className="w-4 h-4" />
-                <span>{isPublishingMaster ? '保存中...' : `この設定で保存を実行 (約${currentPublishEstimate.estimatedWrites}回)`}</span>
+                <span>{isPublishingMaster ? '保存中...' : `この設定で保存を実行 (${currentPublishEstimate.docWrites}回の書込)`}</span>
               </button>
             </div>
           </div>

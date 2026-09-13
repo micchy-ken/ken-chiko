@@ -224,15 +224,14 @@ export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false)
       return { success: true, data: cachedMaster, sourceDoc: 'local' };
     }
 
-    // Check if modular documents exist in Firestore
-    const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
-    const charSnap = await getDoc(charDocRef);
+    // Check if modular documents are active based on manifest
+    const isModular = remoteManifest && remoteManifest.charactersVersion !== undefined;
 
-    if (charSnap.exists()) {
+    if (isModular) {
       // --- MODULAR ARCHITECTURE DETECTED ---
-      const needChars = forceAll || !localManifest || remoteManifest.charactersVersion > localManifest.charactersVersion || !cachedMaster.characters || cachedMaster.characters.length === 0;
-      const needAsobi = forceAll || !localManifest || remoteManifest.asobiVersion > localManifest.asobiVersion || !cachedMaster.asobiList || cachedMaster.asobiList.length === 0;
-      const needAssets = forceAll || !localManifest || remoteManifest.assetsVersion > localManifest.assetsVersion;
+      const needChars = forceAll || !localManifest || remoteManifest.charactersVersion > (localManifest.charactersVersion || 0) || !cachedMaster.characters || cachedMaster.characters.length === 0;
+      const needAsobi = forceAll || !localManifest || remoteManifest.asobiVersion > (localManifest.asobiVersion || 0) || !cachedMaster.asobiList || cachedMaster.asobiList.length === 0;
+      const needAssets = forceAll || !localManifest || remoteManifest.assetsVersion > (localManifest.assetsVersion || 0);
 
       console.log(`[MasterSync] 🚀 差分チェック結果: Characters更新必要=${needChars}, Asobi更新必要=${needAsobi}, Assets更新必要=${needAssets}`);
 
@@ -243,11 +242,15 @@ export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false)
       let finalDriveUrl = cachedMaster.googleDriveFolderUrl;
       let finalAssets: { customImages?: Record<number, any>; kihonNyanCustomImageUrl?: string; kounichan?: any } = {};
 
-      // 1. Fetch Characters if updated (Pure text - NO base64 images)
+      // 1. Fetch Characters ONLY if updated (Pure text - NO base64 images)
       if (needChars) {
-        const cData = charSnap.data();
-        if (Array.isArray(cData.characters)) {
-          finalCharacters = cData.characters;
+        const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
+        const charSnap = await getDoc(charDocRef);
+        if (charSnap.exists()) {
+          const cData = charSnap.data();
+          if (Array.isArray(cData.characters)) {
+            finalCharacters = cData.characters;
+          }
         }
       }
 
@@ -440,7 +443,7 @@ export async function publishGlobalMasterData(
       includeAssets: options.syncAssets !== false,
     });
 
-    console.log(`[MasterPublish] 📊 想定書き込み数: 約${estimate.estimatedWrites}回 (${estimate.kb} KB)`);
+    console.log(`[MasterPublish] 📊 書き込みドキュメント数: ${estimate.docWrites}件 (${estimate.kb} KB)`);
 
     // 1. Save Isolated Characters Index doc
     if (options.syncCharacters !== false) {
