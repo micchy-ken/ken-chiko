@@ -982,7 +982,20 @@ export async function testFirebaseConnection(
     notifyConnectionStatusChange(true);
     return { success: true };
   } catch (err: any) {
-    const errMsg = err?.message || String(err);
+    const isQuota =
+      err?.code === 'resource-exhausted' ||
+      err?.status === 429 ||
+      String(err?.message || '').toLowerCase().includes('quota') ||
+      String(err?.message || '').toLowerCase().includes('resource_exhausted');
+
+    if (isQuota) {
+      markQuotaExhausted(30 * 60 * 1000);
+    }
+
+    const errMsg = isQuota
+      ? 'Firestoreの無料枠・読込上限に達しました（ローカル保護モードで稼働中）'
+      : err?.message || String(err);
+
     lastConnectionCheckTime = Date.now();
     lastConnectionCheckResult = { success: false, error: errMsg };
     notifyConnectionStatusChange(false, errMsg);
@@ -1181,6 +1194,19 @@ export async function fetchInitialFirebaseState(
       let masterDocIdUsed = 'ken-chiko-global-master';
       let masterErrorDetail: string | undefined = undefined;
 
+      const isQuotaError = (err: any) => {
+        if (!err) return false;
+        const msg = String(err?.message || err?.code || err || '').toLowerCase();
+        return (
+          err?.code === 'resource-exhausted' ||
+          err?.status === 429 ||
+          msg.includes('quota') ||
+          msg.includes('resource_exhausted') ||
+          msg.includes('limit') ||
+          msg.includes('exhausted')
+        );
+      };
+
       try {
         const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
         const masterSnap = await getDoc(masterDocRef);
@@ -1200,10 +1226,12 @@ export async function fetchInitialFirebaseState(
           }
         }
       } catch (gErr: any) {
-        if (gErr?.code === 'resource-exhausted' || gErr?.status === 429) {
-          markQuotaExhausted();
+        if (isQuotaError(gErr)) {
+          markQuotaExhausted(30 * 60 * 1000);
+          masterErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
+        } else {
+          masterErrorDetail = `マスター読込エラー: ${gErr?.message || gErr?.code || String(gErr)}`;
         }
-        masterErrorDetail = `マスター読込エラー: ${gErr?.message || gErr?.code || String(gErr)}`;
         console.warn('Firestore global shared read note:', gErr);
       }
 
@@ -1226,17 +1254,28 @@ export async function fetchInitialFirebaseState(
             userRaw = userSnap.data();
           }
         } catch (uErr: any) {
-          if (uErr?.code === 'resource-exhausted' || uErr?.status === 429) {
-            markQuotaExhausted();
+          if (isQuotaError(uErr)) {
+            markQuotaExhausted(30 * 60 * 1000);
+            userErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
+          } else {
+            userErrorDetail = `ユーザーデータ読込エラー: ${uErr?.message || uErr?.code || String(uErr)}`;
           }
-          userErrorDetail = `ユーザーデータ読込エラー: ${uErr?.message || uErr?.code || String(uErr)}`;
           console.warn('Firestore user progress read note:', uErr);
         }
       }
 
-      clearQuotaExhausted();
-      notifyConnectionStatusChange(true);
-      console.log(`[CloudSync] 📥 Firestore読込完了 [2件]: master(${masterDocIdUsed}, 成功=${masterFetched}) + user(${userDocId}) (累計セッション読込: ${sessionDbReadCount}回)`);
+      if (globalRaw || userRaw) {
+        if (!getIsQuotaExhausted()) {
+          clearQuotaExhausted();
+          notifyConnectionStatusChange(true);
+        } else {
+          notifyConnectionStatusChange(false, 'Firestore無料枠上限（ローカル保護モードで稼働中）');
+        }
+      } else {
+        const fallbackMsg = masterErrorDetail || userErrorDetail || 'オフラインモード（端末ローカルで安全に保持中）';
+        notifyConnectionStatusChange(false, fallbackMsg);
+      }
+      console.log(`[CloudSync] 📥 Firestore読込 [master=${masterDocIdUsed}, 成功=${masterFetched}, user=${userDocId}] (累計セッション読込: ${sessionDbReadCount}回)`);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
     // Asobi list is strictly loaded from the Global Shared Master document (or local backup / initial defaults)

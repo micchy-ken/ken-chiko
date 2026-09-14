@@ -95,6 +95,9 @@ import {
   RefreshCw,
   AlertTriangle,
   ShieldCheck,
+  WifiOff,
+  CloudOff,
+  X,
 } from 'lucide-react';
 import confetti from './utils/confetti';
 
@@ -231,6 +234,9 @@ export default function App() {
   // Guard flag: Ensure the encounter/activity lottery never begins until initial sync has fully settled
   const [isInitialSyncCompleted, setIsInitialSyncCompleted] = useState<boolean>(false);
   const isInitialSyncCompletedRef = useRef<boolean>(false);
+
+  // Offline notice banner dismiss state (allows clean gameplay screen)
+  const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState<boolean>(false);
 
   // Auto-dismiss new encounter toast after 12 seconds so it never lingers indefinitely
   useEffect(() => {
@@ -1916,13 +1922,16 @@ export default function App() {
             {/* Connection Status Lamp Indicator (Only shown when offline) */}
             {connectionStatus.isOffline && (
               <button
-                onClick={() => setShowUserSettingsModal(true)}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-[#FDECE8] hover:bg-[#FCDFD8] border border-[#F5A898] text-[#B92B1B] px-2.5 py-1 sketch-tag shadow-xs transition cursor-pointer"
-                title="オフライン動作中。タップして設定を確認"
+                onClick={() => {
+                  setIsOfflineBannerDismissed(false);
+                  setShowUserSettingsModal(true);
+                }}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-[#FFF8EE] hover:bg-[#FBEEDC] border border-[#E2C799] text-[#7A5328] px-2.5 py-1 sketch-tag shadow-xs transition cursor-pointer"
+                title="オフラインモードで稼働中（端末ローカルに安全保存されています）。タップして設定を確認"
               >
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
-                <span className="font-handwriting text-xs font-bold text-[#9A2214]">
-                  オフライン
+                <WifiOff className="w-3 h-3 text-[#B45309]" />
+                <span className="font-handwriting text-xs font-bold text-[#8A4810]">
+                  オフラインモード
                 </span>
               </button>
             )}
@@ -1930,8 +1939,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Explicit Master Data Load Failure Warning Banner */}
-      {masterFetchError && (
+      {/* Explicit Master Data Load Failure Warning Banner (Only when not already explained by offline banner) */}
+      {masterFetchError && !connectionStatus.isOffline && (
         <div className="bg-[#FEF2F2] border-b-2 border-[#EF4444] px-4 py-2.5 shadow-sm">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
             <div className="flex items-start gap-2.5 text-[#991B1B]">
@@ -1957,34 +1966,33 @@ export default function App() {
         </div>
       )}
 
-      {/* Alert Bar (Only shown when genuinely offline) */}
-      {connectionStatus.isOffline && (
-        <div className="bg-[#FFF4F2] border-b-2 border-[#E74C3C]/40 px-4 py-2.5 shadow-inner">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start sm:items-center gap-3">
-              <span className="relative flex h-3.5 w-3.5 mt-0.5 sm:mt-0 flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.9)] ring-2 ring-red-300"></span>
-              </span>
+      {/* Offline Mode Alert Bar (Dismissible & reassuring: gameplay continues 100% seamlessly) */}
+      {connectionStatus.isOffline && !isOfflineBannerDismissed && (
+        <div className="bg-[#FFFBF5] border-b-2 border-[#E2C799] px-4 py-2.5 shadow-xs">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full bg-[#F5E6CC] flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 text-[#8A4810]">
+                <WifiOff className="w-4 h-4" />
+              </div>
               <div>
-                <span className="font-handwriting font-black text-sm text-[#922B21] mr-2">
-                  【ローカル保持中 / オフライン】
-                </span>
-                <span className="text-xs text-[#78281F]">
-                  Firebaseと未接続です。意図しない書き込みは発生せず、ゲームの進行は端末内で安全に保持されています。
-                </span>
+                <div className="font-handwriting font-black text-xs sm:text-sm text-[#6C421A] flex items-center gap-1.5 flex-wrap">
+                  <span>【オフラインモードで稼働中】</span>
+                  <span className="text-[10px] font-sans font-semibold text-[#8A633E] bg-[#F5EAD6] px-2 py-0.5 rounded-md border border-[#E5D2B8]">
+                    端末ローカル完全保護
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-[#7A5B3E] mt-0.5 leading-relaxed">
+                  クラウド読込制限または未接続のため、端末内セーブで動作しています。お散歩・ねこずかん・ガラポン・思い出絵日記など、<strong>すべてのゲーム機能は支障なく通常通りプレイいただけます</strong>。
+                </p>
                 {connectionStatus.lastError && (
-                  <span className="block text-[10px] text-[#A93226] font-mono mt-0.5 opacity-80 truncate max-w-xl">
+                  <span className="block text-[10px] text-[#A66E38] font-mono mt-0.5 opacity-85 truncate max-w-xl">
                     詳細: {connectionStatus.lastError}
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto flex-shrink-0">
-              <span className="text-[11px] font-mono font-bold text-[#922B21] bg-white px-2.5 py-1 rounded-lg border border-red-200">
-                本日: {connectionStatus.dailyWriteCount || 0} / {connectionStatus.maxDailyWrites || 60} 回
-              </span>
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
               <button
                 onClick={async () => {
                   setIsRetryingConnection(true);
@@ -1992,10 +2000,19 @@ export default function App() {
                   setTimeout(() => setIsRetryingConnection(false), 600);
                 }}
                 disabled={isRetryingConnection}
-                className="flex items-center gap-1.5 bg-[#C0392B] hover:bg-[#A93226] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-sm transition disabled:opacity-60"
+                className="flex items-center gap-1.5 bg-[#8A532A] hover:bg-[#724320] text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition disabled:opacity-60 cursor-pointer"
+                title="接続状態を再チェック"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRetryingConnection ? 'animate-spin' : ''}`} />
-                <span>{isRetryingConnection ? '接続確認中...' : '再接続を試す'}</span>
+                <span>{isRetryingConnection ? '確認中...' : '再接続'}</span>
+              </button>
+              <button
+                onClick={() => setIsOfflineBannerDismissed(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-[#8A633E] hover:text-[#4A321E] hover:bg-[#F2E4CF] rounded-lg transition cursor-pointer"
+                title="この通知を閉じる（画面を広く使えます）"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>閉じる</span>
               </button>
             </div>
           </div>

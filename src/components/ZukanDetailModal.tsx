@@ -28,13 +28,17 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
 }) => {
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [storiesMeta, setStoriesMeta] = useState(() => getLocalStoriesMeta());
+  const hasAttemptedFetch = useRef(false);
 
   useEffect(() => {
-    // If local metadata is not yet loaded, or doesn't have stories yet, refresh it non-blockingly
+    // If local metadata is not yet loaded, or doesn't have stories yet, refresh it non-blockingly (exactly ONCE)
     if (!storiesMeta || Object.keys(storiesMeta.stories || {}).length === 0) {
-      fetchStoriesMeta(false).then((meta) => {
-        if (meta) setStoriesMeta(meta);
-      });
+      if (!hasAttemptedFetch.current) {
+        hasAttemptedFetch.current = true;
+        fetchStoriesMeta(false).then((meta) => {
+          if (meta) setStoriesMeta(meta);
+        });
+      }
     }
   }, [storiesMeta]);
 
