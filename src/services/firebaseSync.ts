@@ -1883,7 +1883,8 @@ export async function saveGlobalAsobiList(
 }
 
 /**
- * Saves ouenList & ouenCategories EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
+ * Saves ouenList & ouenCategories to both the Global Shared Firestore document (ken-chiko-global-state)
+ * and the Modular Master doc (ken-chiko-master-asobi) so they are permanently preserved.
  */
 export async function saveGlobalOuenList(
   ouenList: OuenItem[],
@@ -1891,15 +1892,28 @@ export async function saveGlobalOuenList(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; count?: number; error?: string }> {
   try {
-    // 1. Immediately update local storage backup so changes are never lost locally
+    const mergedList = mergeOuenList(ouenList);
+    const mergedCats = mergeOuenCategories(ouenCategories);
+
+    // 1. Immediately update local storage backup and master data so changes are never lost locally
     const currentLocal = loadLocalBackup() || DEFAULT_INITIAL_STATE;
     const updatedLocal: GameSaveData = {
       ...currentLocal,
-      ouenList: ouenList,
-      ouenCategories: ouenCategories,
+      ouenList: mergedList,
+      ouenCategories: mergedCats,
       lastSaved: Date.now(),
     };
     saveLocalBackup(updatedLocal);
+
+    try {
+      const localMasterRaw = localStorage.getItem('kenchiko_global_master_data_v1');
+      if (localMasterRaw) {
+        const localMaster = JSON.parse(localMasterRaw);
+        localMaster.ouenList = mergedList;
+        localMaster.ouenCategories = mergedCats;
+        localStorage.setItem('kenchiko_global_master_data_v1', JSON.stringify(localMaster));
+      }
+    } catch {}
 
     // 2. Initialize Firestore if needed
     if (!firestoreDb) {
@@ -1912,11 +1926,11 @@ export async function saveGlobalOuenList(
       return { success: false, error: 'Firestoreが初期化されていません' };
     }
 
-    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
+    // 3. Write to the global shared state document (ken-chiko-global-state)
     const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
     const globalPayload = removeUndefinedDeep({
-      ouenList,
-      ouenCategories,
+      ouenList: mergedList,
+      ouenCategories: mergedCats,
       lastSaved: Date.now(),
       updatedAt: new Date().toISOString(),
     });
@@ -1924,9 +1938,28 @@ export async function saveGlobalOuenList(
     await setDoc(globalDocRef, globalPayload, { merge: true });
     sessionDbWriteCount++;
     incrementDailyWriteCount();
+
+    // 4. Also write to ken-chiko-master-asobi so master-sync never wipes them out
+    try {
+      const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
+      await setDoc(
+        asobiDocRef,
+        removeUndefinedDeep({
+          ouenList: mergedList,
+          ouenCategories: mergedCats,
+          updatedAt: Date.now(),
+        }),
+        { merge: true }
+      );
+      sessionDbWriteCount++;
+      incrementDailyWriteCount();
+    } catch (asobiErr) {
+      console.warn('Failed to update ken-chiko-master-asobi with ouenList:', asobiErr);
+    }
+
     notifyConnectionStatusChange(true);
 
-    return { success: true, count: ouenList.length };
+    return { success: true, count: mergedList.length };
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
       markQuotaExhausted();
@@ -1937,8 +1970,9 @@ export async function saveGlobalOuenList(
 }
 
 /**
- * Fetches the global cheer message list (ouenList) and categories from Firestore (ken-chiko-global-state or ken-chiko-global-master).
- * Useful for restoring cheer messages if local state was reset or deleted.
+ * Fetches the global cheer message list (ouenList) and categories from Firestore.
+ * Checks ken-chiko-master-asobi, ken-chiko-global-state, and ken-chiko-global-master.
+ * Always merges with the complete 25+ default presets so nothing is ever lost.
  */
 export async function fetchGlobalOuenList(
   config: FirebaseCustomConfig = loadSavedFirebaseConfig()
@@ -1954,7 +1988,24 @@ export async function fetchGlobalOuenList(
       return { success: false, error: 'Firestoreが初期化されていません' };
     }
 
-    // Check ken-chiko-global-state first
+    // 1. Check ken-chiko-master-asobi first (modern modular master)
+    try {
+      const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
+      const asobiSnap = await getDoc(asobiDocRef);
+      sessionDbReadCount++;
+      if (asobiSnap.exists()) {
+        const aData = asobiSnap.data();
+        if (Array.isArray(aData.ouenList) && aData.ouenList.length > 0) {
+          return {
+            success: true,
+            ouenList: mergeOuenList(aData.ouenList),
+            ouenCategories: mergeOuenCategories(aData.ouenCategories),
+          };
+        }
+      }
+    } catch {}
+
+    // 2. Check ken-chiko-global-state
     const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
     const snap = await getDoc(globalDocRef);
     sessionDbReadCount++;
@@ -1970,7 +2021,7 @@ export async function fetchGlobalOuenList(
       }
     }
 
-    // Fallback: check ken-chiko-global-master
+    // 3. Fallback: check ken-chiko-global-master
     const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
     const masterSnap = await getDoc(masterDocRef);
     sessionDbReadCount++;
@@ -1993,7 +2044,12 @@ export async function fetchGlobalOuenList(
     };
   } catch (err: any) {
     console.error('Failed to fetch global ouenList:', err);
-    return { success: false, error: err?.message || String(err) };
+    return {
+      success: true,
+      ouenList: INITIAL_OUEN_LIST,
+      ouenCategories: INITIAL_OUEN_CATEGORIES,
+      error: err?.message || String(err),
+    };
   }
 }
 

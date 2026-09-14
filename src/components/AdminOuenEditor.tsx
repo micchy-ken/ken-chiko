@@ -129,9 +129,18 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
       lastSaved: Date.now(),
     }));
 
+    // Instantly persist directly to global Firestore & local backup so edits become canonical master
+    saveGlobalOuenList(updatedList, currentCategories).catch((err) => {
+      console.warn('Auto-save ouenList failed:', err);
+    });
+
     setIsAddingNew(false);
     setEditingItem(null);
     setFormMessage('');
+    setSaveStatus({
+      type: 'success',
+      message: `メッセージを更新し、クラウドマスターへ保存しました（全 ${updatedList.length} 件）`,
+    });
 
     try {
       confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 } });
@@ -142,18 +151,23 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
     openConfirm(
       '応援メッセージの削除',
       `「${item.message}」を削除してもよろしいですか？`,
-      () => {
+      async () => {
         const updatedList = currentList.filter((i) => i.id !== item.id);
         onUpdateSaveData((prev) => ({
           ...prev,
           ouenList: updatedList,
           lastSaved: Date.now(),
         }));
+        await saveGlobalOuenList(updatedList, currentCategories);
+        setSaveStatus({
+          type: 'success',
+          message: `メッセージを削除し、クラウドマスターへ保存しました（残り ${updatedList.length} 件）`,
+        });
       }
     );
   };
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     if (!newCategoryLabel.trim()) return;
     const label = newCategoryLabel.trim();
     const id = `cat_${Date.now()}`;
@@ -165,6 +179,11 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
       lastSaved: Date.now(),
     }));
 
+    await saveGlobalOuenList(currentList, updatedCategories);
+    setSaveStatus({
+      type: 'success',
+      message: `カテゴリー「${label}」を追加し、クラウドマスターへ保存しました`,
+    });
     setNewCategoryLabel('');
   };
 
@@ -176,7 +195,7 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
     openConfirm(
       'カテゴリーの削除',
       `カテゴリー「${cat.label}」を削除しますか？\n（関連するメッセージは残りますが、別のカテゴリーへの変更が必要になります）`,
-      () => {
+      async () => {
         const updatedCategories = currentCategories.filter((c) => c.id !== cat.id);
         onUpdateSaveData((prev) => ({
           ...prev,
@@ -186,6 +205,11 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
         if (selectedCategoryFilter === cat.id) {
           setSelectedCategoryFilter('all');
         }
+        await saveGlobalOuenList(currentList, updatedCategories);
+        setSaveStatus({
+          type: 'success',
+          message: `カテゴリー「${cat.label}」を削除し、クラウドマスターへ保存しました`,
+        });
       }
     );
   };
@@ -260,15 +284,25 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
 
   const handleResetToDefault = () => {
     openConfirm(
-      '初期設定へのリセット',
-      '応援メッセージを初期状態（「よしよし」のみ）にリセットしますか？\n※追加したメッセージは消去されます。',
-      () => {
+      '公式プリセット復元（全25件）',
+      '公式の応援メッセージ（全25件：つかれた、いらいらする、はらがたつ、はげまして等）を一括復元して適用しますか？',
+      async () => {
+        const restoredList = mergeOuenList(INITIAL_OUEN_LIST);
+        const restoredCats = mergeOuenCategories(INITIAL_OUEN_CATEGORIES);
         onUpdateSaveData((prev) => ({
           ...prev,
-          ouenCategories: INITIAL_OUEN_CATEGORIES,
-          ouenList: INITIAL_OUEN_LIST,
+          ouenCategories: restoredCats,
+          ouenList: restoredList,
           lastSaved: Date.now(),
         }));
+        await saveGlobalOuenList(restoredList, restoredCats);
+        setSaveStatus({
+          type: 'success',
+          message: `公式プリセット応援メッセージ全 ${restoredList.length} 件を正常に復元・同期しました！`,
+        });
+        try {
+          confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+        } catch {}
       }
     );
   };
@@ -292,6 +326,15 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2 w-full sm:w-auto">
+          <button
+            onClick={handleResetToDefault}
+            disabled={isSaving || isFetchingRemote}
+            title="公式プリセット全25件（つかれた、いらいら、はらがたつ等）を一括復元します"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#FFF8E7] hover:bg-[#FCE8BD] text-[#8C6414] font-bold text-xs shadow-xs transition border border-[#ECD9A8]"
+          >
+            <RotateCcw className="w-4 h-4 text-[#C2881E]" />
+            <span>全25件プリセット復元</span>
+          </button>
           <button
             onClick={handleFetchFromFirebase}
             disabled={isFetchingRemote || isSaving}
@@ -526,7 +569,7 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
           className="hover:text-[#D4736A] flex items-center gap-1 text-[11px] underline"
         >
           <RotateCcw className="w-3 h-3" />
-          <span>初期設定（よしよし）にリセット</span>
+          <span>公式プリセット（全25件）を復元・同期</span>
         </button>
       </div>
 

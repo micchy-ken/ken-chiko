@@ -216,32 +216,23 @@ export const INITIAL_OUEN_LIST: OuenItem[] = [
 ];
 
 /**
- * Ensures system baseline cheer categories (such as "はげまして") are always available,
- * while preserving any custom categories added by the user.
+ * Returns user's cheer categories if present, or falls back to baseline categories ONLY if completely empty.
+ * Never overwrites or forcibly injects initial templates over user's configured data.
  */
 export function mergeOuenCategories(categories?: OuenCategory[]): OuenCategory[] {
-  if (!categories || categories.length === 0) {
-    return [...INITIAL_OUEN_CATEGORIES];
-  }
-  const existingIds = new Set(categories.map((c) => c.id));
-  const missing = INITIAL_OUEN_CATEGORIES.filter((c) => !existingIds.has(c.id));
-  if (missing.length === 0) {
+  if (Array.isArray(categories) && categories.length > 0) {
     return categories;
   }
-  return [...categories, ...missing];
+  return [...INITIAL_OUEN_CATEGORIES];
 }
 
 /**
- * Ensures baseline cheer messages are available, while preserving all existing messages.
+ * Returns user's cheer messages if present, or falls back to baseline cheer list ONLY if completely empty.
+ * Never overwrites or forcibly injects initial templates over user's configured data.
  */
 export function mergeOuenList(list?: OuenItem[]): OuenItem[] {
-  if (!list || list.length === 0) {
-    return [...INITIAL_OUEN_LIST];
-  }
-  const existingIds = new Set(list.map((item) => item.id));
-  const missing = INITIAL_OUEN_LIST.filter((item) => !existingIds.has(item.id));
-  if (missing.length === 0) {
+  if (Array.isArray(list) && list.length > 0) {
     return list;
   }
-  return [...list, ...missing];
+  return [...INITIAL_OUEN_LIST];
 }

@@ -52,6 +52,7 @@ import {
 import { estimateMasterPublishCost, WriteCostEstimate } from '../services/writeCostEstimator';
 import { GameMasterData } from '../types';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
+import { mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { EVENT_PRESET_TEMPLATES } from '../data/eventPresets';
 import { KihonNyanCat } from './KihonNyanCat';
 import { ConfirmModal } from './ConfirmModal';
@@ -461,8 +462,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       version: masterMeta?.version || 1,
       characters: saveData.characters || characters,
       asobiList: asobiList,
-      ouenCategories: saveData.ouenCategories || [],
-      ouenList: saveData.ouenList || [],
+      ouenCategories: mergeOuenCategories(saveData.ouenCategories),
+      ouenList: mergeOuenList(saveData.ouenList),
       kounichan: saveData.kounichan,
       kihonNyanCustomImageUrl: saveData.kihonNyanCustomImageUrl,
       googleDriveFolderUrl: saveData.googleDriveFolderUrl,
@@ -483,8 +484,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       version: masterMeta?.version || 1,
       characters: saveData.characters || characters,
       asobiList: asobiList,
-      ouenCategories: saveData.ouenCategories || [],
-      ouenList: saveData.ouenList || [],
+      ouenCategories: mergeOuenCategories(saveData.ouenCategories),
+      ouenList: mergeOuenList(saveData.ouenList),
       kounichan: saveData.kounichan,
       kihonNyanCustomImageUrl: saveData.kihonNyanCustomImageUrl,
       googleDriveFolderUrl: saveData.googleDriveFolderUrl,

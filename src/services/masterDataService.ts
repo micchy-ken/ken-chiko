@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { NyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
 
@@ -72,9 +73,9 @@ export function loadLocalMasterData(): GameMasterData {
       ...DEFAULT_MASTER_DATA,
       ...parsed,
       characters: Array.isArray(parsed.characters) && parsed.characters.length > 0 ? parsed.characters : DEFAULT_MASTER_DATA.characters,
-      asobiList: Array.isArray(parsed.asobiList) ? parsed.asobiList : DEFAULT_MASTER_DATA.asobiList,
-      ouenCategories: Array.isArray(parsed.ouenCategories) ? parsed.ouenCategories : DEFAULT_MASTER_DATA.ouenCategories,
-      ouenList: Array.isArray(parsed.ouenList) ? parsed.ouenList : DEFAULT_MASTER_DATA.ouenList,
+      asobiList: Array.isArray(parsed.asobiList) && parsed.asobiList.length > 0 ? parsed.asobiList : DEFAULT_MASTER_DATA.asobiList,
+      ouenCategories: mergeOuenCategories(parsed.ouenCategories),
+      ouenList: mergeOuenList(parsed.ouenList),
       kounichan: parsed.kounichan || DEFAULT_MASTER_DATA.kounichan,
     };
   } catch {
@@ -259,9 +260,9 @@ export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false)
         const asobiSnap = await getDoc(doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID));
         if (asobiSnap.exists()) {
           const aData = asobiSnap.data();
-          finalAsobiList = Array.isArray(aData.asobiList) ? aData.asobiList : finalAsobiList;
-          finalOuenCategories = Array.isArray(aData.ouenCategories) ? aData.ouenCategories : finalOuenCategories;
-          finalOuenList = Array.isArray(aData.ouenList) ? aData.ouenList : finalOuenList;
+          finalAsobiList = Array.isArray(aData.asobiList) && aData.asobiList.length > 0 ? aData.asobiList : finalAsobiList;
+          finalOuenCategories = mergeOuenCategories(aData.ouenCategories || finalOuenCategories);
+          finalOuenList = mergeOuenList(aData.ouenList || finalOuenList);
           finalDriveUrl = aData.googleDriveFolderUrl || finalDriveUrl;
         }
       }
@@ -464,8 +465,8 @@ export async function publishGlobalMasterData(
         version: nextAsobiVer,
         updatedAt: now,
         asobiList: master.asobiList || [],
-        ouenCategories: master.ouenCategories || [],
-        ouenList: master.ouenList || [],
+        ouenCategories: mergeOuenCategories(master.ouenCategories),
+        ouenList: mergeOuenList(master.ouenList),
         googleDriveFolderUrl: master.googleDriveFolderUrl || null,
       }));
       recordFirestoreWrite(`kenchiko_world/${MASTER_ASOBI_DOC_ID}`, 1);
@@ -627,7 +628,7 @@ export async function fetchMasterNyans(): Promise<{ version: number; nyans: Nyan
 }
 export async function publishMasterData(nyans: NyanCharacter[], note?: string) {
   const current = loadLocalMasterData();
-  const res = await publishGlobalMasterData({ ...current, characters: nyans }, note, { syncCharacters: true, syncAssets: false });
+  const res = await publishGlobalMasterData({ ...current, characters: nyans }, note, { syncCharacters: true, syncAsobi: false, syncAssets: false });
   return {
     ...res,
     count: nyans.length,
