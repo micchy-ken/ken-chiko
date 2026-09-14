@@ -26,6 +26,12 @@ import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser, DEFAULT_GLOBAL_DOC_ID } from './userService';
 import { loadLocalKenchikoImage, saveLocalKenchikoImage } from './imageCompression';
+import {
+  cleanseMasterCharacters,
+  extractProgressMap,
+  composeCharacters,
+  mergeUserProgressSafely,
+} from '../utils/dataSeparation';
 
 export const GLOBAL_SHARED_DOC_ID = DEFAULT_GLOBAL_DOC_ID;
 
@@ -1347,24 +1353,15 @@ export async function fetchInitialFirebaseState(
       userBaseData = DEFAULT_INITIAL_STATE;
     }
 
-    // 2. 公式マスターの定義・画像を厳格な正本とし、ユーザーの進行度（発見・親密度など）のみをマージ
-    const progressMap = new Map((userBaseData.characters || []).map((c) => [c.no, c]));
-    const mergedCharacters: NyanCharacter[] = masterNyans.map((master) => {
-      const cur = progressMap.get(master.no);
-      if (!cur) return master;
-      return {
-        ...master,
-        discovered: Boolean(cur.discovered),
-        discoveryDate: cur.discoveryDate,
-        lastMetAt: cur.lastMetAt || 0,
-        friendshipLevel: Math.max(cur.friendshipLevel || 1, 1),
-        playCount: cur.playCount || 0,
-        // 画像と透過設定は公式マスターのみが唯一の正本
-        customImageUrl: master.customImageUrl || undefined,
-        rawImageUrl: master.rawImageUrl || undefined,
-        transparency: master.transparency,
-      };
-    });
+    // 2. 有利マージ（Advantageous Merge）:
+    // 公式マスターの定義・画像を厳格な正本とし、ユーザーの進行度（発見・親密度など）のみをマージ
+    // ローカル側とリモート側の双方から進行度を抽出し、より進行している方を確実に保護
+    const remoteProgress = extractProgressMap(userRaw?.nyanProgress || userBaseData.characters);
+    const localProgress = extractProgressMap(localBackup?.characters);
+    const mergedProgress = mergeUserProgressSafely(localProgress, remoteProgress);
+
+    const pureMasters = cleanseMasterCharacters(masterNyans);
+    const mergedCharacters: NyanCharacter[] = composeCharacters(pureMasters, mergedProgress);
 
     const mergedData: GameSaveData = {
       ...userBaseData,

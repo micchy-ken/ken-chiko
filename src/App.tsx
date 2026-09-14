@@ -132,30 +132,29 @@ function formatEncounterTimeBadge(timestamp: number, isCurrent: boolean): string
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+import {
+  composeCharacters,
+  cleanseMasterCharacters,
+  extractProgressMap,
+  mergeUserProgressSafely,
+} from './utils/dataSeparation';
+
 /**
  * Safely merge newly synced master character definitions with current user progress
- * Strictly protects discovered status, encounter history, friendship, and custom attributes.
+ * Strictly separates master definition from user progress:
+ * - Master definitions (name, image, dialogue, motif) are 100% authoritative from master
+ * - User progress (discovered, discoveryDate, friendship, playCount, lastMetAt) is 100% authoritative from user
  */
 function mergeMasterWithCurrentProgress(
   currentNyans: NyanCharacter[],
-  masterNyans: NyanCharacter[]
+  masterNyans: (NyanCharacter | any)[]
 ): NyanCharacter[] {
-  const map = new Map(currentNyans.map((c) => [c.no, c]));
-  return masterNyans.map((up) => {
-    const cur = map.get(up.no);
-    if (!cur) return up;
-    return {
-      ...up,
-      discovered: Boolean(cur.discovered || up.discovered),
-      discoveryDate: cur.discoveryDate || up.discoveryDate,
-      lastMetAt: Math.max(cur.lastMetAt || 0, up.lastMetAt || 0),
-      friendshipLevel: Math.max(cur.friendshipLevel || 0, up.friendshipLevel || 0),
-      playCount: Math.max(cur.playCount || 0, up.playCount || 0),
-      customImageUrl: cur.customImageUrl || up.customImageUrl,
-      rawImageUrl: cur.rawImageUrl || up.rawImageUrl,
-      transparency: cur.transparency ?? up.transparency,
-    };
-  });
+  const currentProgress = extractProgressMap(currentNyans);
+  const masterProgress = extractProgressMap(masterNyans);
+  // Advantageous merge ensures user never loses discoveries or friendship levels
+  const mergedProgress = mergeUserProgressSafely(masterProgress, currentProgress);
+  const pureMasters = cleanseMasterCharacters(masterNyans);
+  return composeCharacters(pureMasters, mergedProgress);
 }
 
 export default function App() {

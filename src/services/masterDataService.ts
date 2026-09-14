@@ -1,9 +1,10 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { NyanCharacter, GameMasterData } from '../types';
+import { NyanCharacter, MasterNyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
+import { cleanseMasterCharacter, cleanseMasterCharacters, composeCharacters, extractProgressMap } from '../utils/dataSeparation';
 
 export interface KenchikoMasterManifest {
   version: number;
@@ -136,7 +137,7 @@ export function setCachedMasterVersion(version: number): void {
   } catch {}
 }
 
-export function getCachedMasterNyans(): NyanCharacter[] | null {
+export function getCachedMasterNyans(): MasterNyanCharacter[] | null {
   try {
     const raw = localStorage.getItem(CACHED_MASTER_NYANS_KEY);
     if (!raw) return null;
@@ -147,7 +148,7 @@ export function getCachedMasterNyans(): NyanCharacter[] | null {
   }
 }
 
-export function setCachedMasterNyans(nyans: NyanCharacter[]): void {
+export function setCachedMasterNyans(nyans: (MasterNyanCharacter | NyanCharacter)[]): void {
   try {
     localStorage.setItem(CACHED_MASTER_NYANS_KEY, JSON.stringify(nyans));
   } catch {}
@@ -400,32 +401,15 @@ export async function publishGlobalMasterData(
     const nextAssetsVer = (currentManifest?.assetsVersion || 1) + 1;
 
     // Separate pure character text metadata from heavy Base64 image payloads
-    const pureCharacters: NyanCharacter[] = [];
+    // ZERO user progress fields are included in pureCharacters!
+    const pureCharacters: MasterNyanCharacter[] = [];
     const customImagesMap: Record<number, { customImageUrl?: string; rawImageUrl?: string; transparency?: any }> = {};
 
     for (const n of master.characters || []) {
-      // 1. Text metadata
-      pureCharacters.push({
-        no: n.no,
-        name: n.name || `にゃんこ #${n.no}`,
-        reading: n.reading || '',
-        motif: n.motif || '',
-        firstAppeared: n.firstAppeared || '',
-        episode: n.episode || '',
-        promptJa: n.promptJa || '',
-        promptEn: n.promptEn || '',
-        dialogue: n.dialogue,
-        dialogueMeaning: n.dialogueMeaning,
-        discovered: false,
-        discoveryDate: undefined,
-        friendshipLevel: 1,
-        playCount: 0,
-        lastMetAt: 0,
-        // Lightweight flag instead of 200KB base64 string
-        hasCustomImage: Boolean(n.customImageUrl),
-        favoriteItems: n.favoriteItems,
-        favoriteLocations: n.favoriteLocations,
-      } as any);
+      // 1. Text metadata (Completely cleansed of any user progress)
+      const cleanChar = cleanseMasterCharacter(n);
+      cleanChar.hasCustomImage = Boolean(n.customImageUrl || n.hasCustomImage);
+      pureCharacters.push(cleanChar);
 
       // 2. Separate heavy image data into assets map
       if (n.customImageUrl || n.rawImageUrl) {
@@ -529,24 +513,11 @@ export async function publishGlobalMasterData(
  */
 export function mergeMasterWithCurrentProgress(
   currentNyans: NyanCharacter[],
-  masterNyans: NyanCharacter[]
+  masterNyans: (MasterNyanCharacter | NyanCharacter)[]
 ): NyanCharacter[] {
-  const map = new Map(currentNyans.map((c) => [c.no, c]));
-  return masterNyans.map((master) => {
-    const cur = map.get(master.no);
-    if (!cur) return master;
-    return {
-      ...master,
-      discovered: Boolean(cur.discovered || master.discovered),
-      discoveryDate: cur.discoveryDate || master.discoveryDate,
-      lastMetAt: Math.max(cur.lastMetAt || 0, master.lastMetAt || 0),
-      friendshipLevel: Math.max(cur.friendshipLevel || 0, master.friendshipLevel || 0, 1),
-      playCount: Math.max(cur.playCount || 0, master.playCount || 0),
-      customImageUrl: master.customImageUrl || cur.customImageUrl || undefined,
-      rawImageUrl: master.rawImageUrl || cur.rawImageUrl || undefined,
-      transparency: master.transparency || cur.transparency || undefined,
-    };
-  });
+  const progressMap = extractProgressMap(currentNyans);
+  const pureMasters = cleanseMasterCharacters(masterNyans);
+  return composeCharacters(pureMasters, progressMap);
 }
 
 /**
@@ -597,8 +568,9 @@ export async function checkForMasterUpdateAndSync(
     const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, masterRes.data.characters);
     const addedCount = Math.max(0, masterRes.data.characters.length - currentNyans.length);
 
+    const pureMasterNyans = cleanseMasterCharacters(masterRes.data.characters);
     setCachedManifest(manifest);
-    setCachedMasterNyans(mergedNyans);
+    setCachedMasterNyans(pureMasterNyans as any);
 
     return {
       updated: true,
@@ -621,14 +593,14 @@ export async function checkForMasterUpdateAndSync(
 // Backward compatibility alias
 export type KenchikoMasterMeta = KenchikoMasterManifest;
 export const fetchMasterMeta = fetchMasterManifest;
-export async function fetchMasterNyans(): Promise<{ version: number; nyans: NyanCharacter[] } | null> {
+export async function fetchMasterNyans(): Promise<{ version: number; nyans: MasterNyanCharacter[] } | null> {
   const data = await fetchGlobalMasterData();
   if (!data) return null;
   return { version: data.version || 1, nyans: data.characters || [] };
 }
-export async function publishMasterData(nyans: NyanCharacter[], note?: string) {
+export async function publishMasterData(nyans: (MasterNyanCharacter | NyanCharacter)[], note?: string) {
   const current = loadLocalMasterData();
-  const res = await publishGlobalMasterData({ ...current, characters: nyans }, note, { syncCharacters: true, syncAsobi: false, syncAssets: false });
+  const res = await publishGlobalMasterData({ ...current, characters: cleanseMasterCharacters(nyans) }, note, { syncCharacters: true, syncAsobi: false, syncAssets: false });
   return {
     ...res,
     count: nyans.length,

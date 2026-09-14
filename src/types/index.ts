@@ -70,7 +70,12 @@ export interface NyankoStory {
   updatedAt?: string;
 }
 
-export interface NyanCharacter {
+/**
+ * Master Cat Definition (Pure Master Data)
+ * ユーザー進行度（発見フラグ・親密度・遭遇日・遊んだ回数など）は一切含みません。
+ * 公式マスター（GoogleスプレッドシートやFirestoreのマスタードキュメント）からのみ提供されます。
+ */
+export interface MasterNyanCharacter {
   no: number;
   name: string;
   reading: string;
@@ -82,17 +87,33 @@ export interface NyanCharacter {
   dialogue?: string; // ねこのセリフ（I列）
   dialogueMeaning?: string; // ねこのセリフの意味・翻訳（J列）
   hasStory?: boolean; // 物語（会話劇）が登録されているかどうか
+  customImageUrl?: string;
+  rawImageUrl?: string; // Original URL before transparency processing (e.g. Google Drive link)
+  hasCustomImage?: boolean;
+  transparency?: NyanTransparencyOptions; // Custom transparency settings per character (persisted on re-sync)
+  favoriteItems?: string[];
+  favoriteLocations?: LocationId[];
+}
+
+/**
+ * User Progress for a single Cat (Pure User Data)
+ * ユーザーがゲーム内で獲得した進行度データのみを保持します。
+ * マスターデータの更新で上書きされたりリセットされることは絶対にありません。
+ */
+export interface UserNyanProgress {
   discovered: boolean;
   discoveryDate?: string;
   lastMetAt?: number; // timestamp (ms) of the latest encounter
   playCount: number;
   friendshipLevel: number;
-  customImageUrl?: string;
-  rawImageUrl?: string; // Original URL before transparency processing (e.g. Google Drive link)
-  transparency?: NyanTransparencyOptions; // Custom transparency settings per character (persisted on re-sync)
-  favoriteItems?: string[];
-  favoriteLocations?: LocationId[];
 }
+
+/**
+ * Composite View Character
+ * UI表示・操作用：MasterNyanCharacter と UserNyanProgress を安全に合成した型。
+ * 既存のコンポーネントとの100%の互換性を保証します。
+ */
+export interface NyanCharacter extends MasterNyanCharacter, UserNyanProgress {}
 
 export interface LocationInfo {
   id: LocationId;
@@ -181,7 +202,7 @@ export interface OuenItem {
 
 export interface GameMasterData {
   version: number;
-  characters: NyanCharacter[]; // 図鑑マスター
+  characters: MasterNyanCharacter[]; // 図鑑マスター（純粋なマスター定義のみ）
   asobiList: KenchikoAsobi[]; // あそびマスター
   ouenCategories: OuenCategory[]; // 応援カテゴリー
   ouenList: OuenItem[]; // 応援セリフ
@@ -196,13 +217,7 @@ export interface UserProgressData {
   userId?: string;
   kenchiko: KenchikoState;
   discoveredNyanNos: number[];
-  nyanProgress: Record<number, {
-    discovered: boolean;
-    discoveryDate?: string;
-    friendshipLevel: number;
-    playCount: number;
-    lastMetAt?: number;
-  }>;
+  nyanProgress: Record<number, UserNyanProgress>;
   inventory: GiftItem[];
   diary: DiaryEntry[];
   stats: {

@@ -4,10 +4,11 @@ import { INITIAL_ITEMS } from '../data/items';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
 import { DEFAULT_GOOGLE_DRIVE_FOLDER_URL } from './googleDriveFolderSync';
+import { cleanseMasterCharacters } from '../utils/dataSeparation';
 
 export const DEFAULT_MASTER_DATA: GameMasterData = {
   version: 1,
-  characters: INITIAL_NYANS,
+  characters: cleanseMasterCharacters(INITIAL_NYANS),
   asobiList: INITIAL_ASOBI_LIST,
   ouenCategories: INITIAL_OUEN_CATEGORIES,
   ouenList: INITIAL_OUEN_LIST,
