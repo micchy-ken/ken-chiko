@@ -77,7 +77,7 @@ import {
   grantInitialDiscoveryBonus,
   createInitialRewardState,
 } from './services/rewardService';
-import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from './data/defaultOuen';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
@@ -1200,15 +1200,11 @@ export default function App() {
     setShowOuenModal(false);
     setCurrentOuenCategoryId(categoryId);
 
-    const categories = saveData.ouenCategories && saveData.ouenCategories.length > 0
-      ? saveData.ouenCategories
-      : INITIAL_OUEN_CATEGORIES;
+    const categories = mergeOuenCategories(saveData.ouenCategories);
     const catObj = categories.find((c) => c.id === categoryId);
     const catLabel = catObj ? catObj.label : 'つかれた';
 
-    const list = saveData.ouenList && saveData.ouenList.length > 0
-      ? saveData.ouenList
-      : INITIAL_OUEN_LIST;
+    const list = mergeOuenList(saveData.ouenList);
 
     const matched = list.filter((item) => item.categoryId === categoryId);
     const chosenItem = matched.length > 0
@@ -1282,16 +1278,12 @@ export default function App() {
 
   // User Actions: "もっと！" (More Cheer - picks a new cheer message & waits another 15s)
   const handleCheerMore = () => {
-    const categories = saveData.ouenCategories && saveData.ouenCategories.length > 0
-      ? saveData.ouenCategories
-      : INITIAL_OUEN_CATEGORIES;
+    const categories = mergeOuenCategories(saveData.ouenCategories);
     const targetCatId = currentOuenCategoryId || (categories[0] ? categories[0].id : 'tired');
     const catObj = categories.find((c) => c.id === targetCatId);
     const catLabel = catObj ? catObj.label : '応援';
 
-    const list = saveData.ouenList && saveData.ouenList.length > 0
-      ? saveData.ouenList
-      : INITIAL_OUEN_LIST;
+    const list = mergeOuenList(saveData.ouenList);
 
     const matched = list.filter((item) => item.categoryId === targetCatId);
     const available = matched.length > 1
@@ -2308,11 +2300,7 @@ export default function App() {
 
       {showOuenModal && (
         <OuenModal
-          categories={
-            saveData.ouenCategories && saveData.ouenCategories.length > 0
-              ? saveData.ouenCategories
-              : INITIAL_OUEN_CATEGORIES
-          }
+          categories={mergeOuenCategories(saveData.ouenCategories)}
           kenchiko={saveData.kenchiko}
           onClose={() => setShowOuenModal(false)}
           onSelectCategory={handleSelectOuenCategory}

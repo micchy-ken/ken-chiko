@@ -386,7 +386,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
         let hasChanges = false;
         const updatedChars = characters.map((c) => {
           const has = registeredIds.has(c.no);
-          if (c.hasStory !== has) hasChanges = true;
+          if (!!c.hasStory !== has) hasChanges = true;
           return {
             ...c,
             hasStory: has,

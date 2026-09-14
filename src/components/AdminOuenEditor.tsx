@@ -4,7 +4,7 @@
  */
 import React, { useState, useMemo } from 'react';
 import { OuenCategory, OuenItem, GameSaveData } from '../types';
-import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { saveGlobalOuenList, fetchGlobalOuenList } from '../services/firebaseSync';
 import {
   Heart,
@@ -37,15 +37,11 @@ export const AdminOuenEditor: React.FC<AdminOuenEditorProps> = ({
   openConfirm,
 }) => {
   const currentCategories: OuenCategory[] = useMemo(() => {
-    return saveData.ouenCategories && saveData.ouenCategories.length > 0
-      ? saveData.ouenCategories
-      : INITIAL_OUEN_CATEGORIES;
+    return mergeOuenCategories(saveData.ouenCategories);
   }, [saveData.ouenCategories]);
 
   const currentList: OuenItem[] = useMemo(() => {
-    return saveData.ouenList && saveData.ouenList.length > 0
-      ? saveData.ouenList
-      : INITIAL_OUEN_LIST;
+    return mergeOuenList(saveData.ouenList);
   }, [saveData.ouenList]);
 
   // Filter & Search

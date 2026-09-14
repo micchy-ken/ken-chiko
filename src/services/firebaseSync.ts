@@ -23,7 +23,7 @@ import { DEFAULT_INITIAL_STATE } from './storage';
 import { DEFAULT_KOUNICHAN_SETTINGS } from '../types/kounichan';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
-import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST } from '../data/defaultOuen';
+import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
 import { getActiveUserId, getFirestoreDocIdForUser, getLocalStorageKeyForUser, DEFAULT_GLOBAL_DOC_ID } from './userService';
 import { loadLocalKenchikoImage, saveLocalKenchikoImage } from './imageCompression';
 
@@ -370,8 +370,8 @@ export function reconstructGameSaveData(
     inventory: remoteDoc.inventory || DEFAULT_INITIAL_STATE.inventory,
     diary: deduplicateDiary(remoteDoc.diary || DEFAULT_INITIAL_STATE.diary),
     asobiList: remoteDoc.asobiList || DEFAULT_INITIAL_STATE.asobiList,
-    ouenCategories: remoteDoc.ouenCategories || DEFAULT_INITIAL_STATE.ouenCategories || INITIAL_OUEN_CATEGORIES,
-    ouenList: remoteDoc.ouenList || DEFAULT_INITIAL_STATE.ouenList || INITIAL_OUEN_LIST,
+    ouenCategories: mergeOuenCategories(remoteDoc.ouenCategories || DEFAULT_INITIAL_STATE.ouenCategories),
+    ouenList: mergeOuenList(remoteDoc.ouenList || DEFAULT_INITIAL_STATE.ouenList),
     kihonNyanCustomImageUrl: remoteDoc.kihonNyanCustomImageUrl,
     googleDriveFolderUrl: remoteDoc.googleDriveFolderUrl,
     stats: remoteDoc.stats || DEFAULT_INITIAL_STATE.stats,
@@ -1039,13 +1039,8 @@ export function loadLocalBackup(userId?: string | null): GameSaveData | null {
           ? parsed.asobiList
           : INITIAL_ASOBI_LIST;
 
-        const ouen = Array.isArray(parsed.ouenList) && parsed.ouenList.length >= INITIAL_OUEN_LIST.length
-          ? parsed.ouenList
-          : INITIAL_OUEN_LIST;
-
-        const ouenCats = Array.isArray(parsed.ouenCategories) && parsed.ouenCategories.length >= INITIAL_OUEN_CATEGORIES.length
-          ? parsed.ouenCategories
-          : INITIAL_OUEN_CATEGORIES;
+        const ouen = mergeOuenList(parsed.ouenList);
+        const ouenCats = mergeOuenCategories(parsed.ouenCategories);
 
         const progressMap = new Map((parsed.characters || []).map((c: any) => [c.no, c]));
         const characters = INITIAL_NYANS.map((master) => {
@@ -1304,19 +1299,21 @@ export async function fetchInitialFirebaseState(
       userRaw?.googleDriveFolderUrl ||
       '';
 
-    const globalOuenCategories: OuenCategory[] =
+    const globalOuenCategories: OuenCategory[] = mergeOuenCategories(
       globalRaw?.ouenCategories && globalRaw.ouenCategories.length > 0
         ? globalRaw.ouenCategories
         : (localBackup?.ouenCategories && localBackup.ouenCategories.length > 0
             ? localBackup.ouenCategories
-            : INITIAL_OUEN_CATEGORIES);
+            : INITIAL_OUEN_CATEGORIES)
+    );
 
-    const globalOuenList: OuenItem[] =
+    const globalOuenList: OuenItem[] = mergeOuenList(
       globalRaw?.ouenList && globalRaw.ouenList.length > 0
         ? globalRaw.ouenList
         : (localBackup?.ouenList && localBackup.ouenList.length > 0
             ? localBackup.ouenList
-            : INITIAL_OUEN_LIST);
+            : INITIAL_OUEN_LIST)
+    );
 
     const globalKounichanSettings: import('../types/kounichan').KounichanSettings =
       globalRaw?.kounichan && typeof globalRaw.kounichan === 'object'
@@ -1967,8 +1964,8 @@ export async function fetchGlobalOuenList(
       if (Array.isArray(data.ouenList) && data.ouenList.length > 0) {
         return {
           success: true,
-          ouenList: data.ouenList,
-          ouenCategories: Array.isArray(data.ouenCategories) && data.ouenCategories.length > 0 ? data.ouenCategories : INITIAL_OUEN_CATEGORIES,
+          ouenList: mergeOuenList(data.ouenList),
+          ouenCategories: mergeOuenCategories(data.ouenCategories),
         };
       }
     }
@@ -1983,8 +1980,8 @@ export async function fetchGlobalOuenList(
       if (Array.isArray(mData.ouenList) && mData.ouenList.length > 0) {
         return {
           success: true,
-          ouenList: mData.ouenList,
-          ouenCategories: Array.isArray(mData.ouenCategories) && mData.ouenCategories.length > 0 ? mData.ouenCategories : INITIAL_OUEN_CATEGORIES,
+          ouenList: mergeOuenList(mData.ouenList),
+          ouenCategories: mergeOuenCategories(mData.ouenCategories),
         };
       }
     }

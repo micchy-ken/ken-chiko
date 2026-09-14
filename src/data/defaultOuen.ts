@@ -12,10 +12,62 @@ export const INITIAL_OUEN_CATEGORIES: OuenCategory[] = [
   {
     "id": "angry",
     "label": "はらがたつ"
+  },
+  {
+    "id": "encourage",
+    "label": "はげまして"
   }
 ];
 
 export const INITIAL_OUEN_LIST: OuenItem[] = [
+  {
+    "id": "ouen_encourage_1",
+    "categoryId": "encourage",
+    "message": "だいじょうぶ、だいじょうぶ！けんちこがずーっと味方だよ！",
+    "createdAt": 1788789200000
+  },
+  {
+    "id": "ouen_encourage_2",
+    "categoryId": "encourage",
+    "message": "ゆみさまならできる！ぜったいできる！けんちこ保証つき！",
+    "createdAt": 1788789200001
+  },
+  {
+    "id": "ouen_encourage_3",
+    "categoryId": "encourage",
+    "message": "よしよしよしよし！今日も生きててえらい！はなまる満点！",
+    "createdAt": 1788789200002
+  },
+  {
+    "id": "ouen_encourage_4",
+    "categoryId": "encourage",
+    "message": "ぎゅーーーーっ！けんちこパワー、フルじゅうでん！",
+    "createdAt": 1788789200003
+  },
+  {
+    "id": "ouen_encourage_5",
+    "categoryId": "encourage",
+    "message": "無理しなくていいんだよ。けんちこがぜんぶなんとなくしとく！",
+    "createdAt": 1788789200004
+  },
+  {
+    "id": "ouen_encourage_6",
+    "categoryId": "encourage",
+    "message": "けんちこ特製、元気が出るおどり！…それっ、ほいっ、よいしょー！",
+    "createdAt": 1788789200005
+  },
+  {
+    "id": "ouen_encourage_7",
+    "categoryId": "encourage",
+    "message": "いつもがんばってるの、けんちこはちゃんと知ってるからね。",
+    "createdAt": 1788789200006
+  },
+  {
+    "id": "ouen_encourage_8",
+    "categoryId": "encourage",
+    "message": "けんちこの頭なでなでしていいよ！ほら、元気でてきたでしょ？",
+    "createdAt": 1788789200007
+  },
   {
     "categoryId": "angry",
     "message": "あ、なんかあとすこしでちきうがほろぶらしいよ",
@@ -162,3 +214,34 @@ export const INITIAL_OUEN_LIST: OuenItem[] = [
     "updatedAt": 1788787449858
   }
 ];
+
+/**
+ * Ensures system baseline cheer categories (such as "はげまして") are always available,
+ * while preserving any custom categories added by the user.
+ */
+export function mergeOuenCategories(categories?: OuenCategory[]): OuenCategory[] {
+  if (!categories || categories.length === 0) {
+    return [...INITIAL_OUEN_CATEGORIES];
+  }
+  const existingIds = new Set(categories.map((c) => c.id));
+  const missing = INITIAL_OUEN_CATEGORIES.filter((c) => !existingIds.has(c.id));
+  if (missing.length === 0) {
+    return categories;
+  }
+  return [...categories, ...missing];
+}
+
+/**
+ * Ensures baseline cheer messages are available, while preserving all existing messages.
+ */
+export function mergeOuenList(list?: OuenItem[]): OuenItem[] {
+  if (!list || list.length === 0) {
+    return [...INITIAL_OUEN_LIST];
+  }
+  const existingIds = new Set(list.map((item) => item.id));
+  const missing = INITIAL_OUEN_LIST.filter((item) => !existingIds.has(item.id));
+  if (missing.length === 0) {
+    return list;
+  }
+  return [...list, ...missing];
+}

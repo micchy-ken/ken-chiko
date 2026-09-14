@@ -115,7 +115,19 @@ import { AdminOuenEditor } from './AdminOuenEditor';
 import { AdminStoryManager } from './AdminStoryManager';
 import { AdminKounichanEditor } from './kounichan/AdminKounichanEditor';
 
-export type AdminTab = 'zukan' | 'story' | 'avatar' | 'kihon_nyan' | 'kounichan' | 'asobi' | 'ouen' | 'users' | 'googledoc' | 'firebase';
+export type AdminTab =
+  | 'zukan'
+  | 'images'
+  | 'kounichan'
+  | 'asobi'
+  | 'ouen'
+  | 'users'
+  | 'story'
+  | 'data'
+  | 'avatar'
+  | 'kihon_nyan'
+  | 'googledoc'
+  | 'firebase';
 
 interface DataSyncModalProps {
   characters: NyanCharacter[];
@@ -199,23 +211,64 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Tab navigation - supports initialTab prop or URL query params (?admin=asobi or ?subtab=asobi)
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    const validTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase'];
+    const validTabs: AdminTab[] = [
+      'zukan',
+      'images',
+      'kounichan',
+      'asobi',
+      'ouen',
+      'users',
+      'story',
+      'data',
+      'avatar',
+      'kihon_nyan',
+      'googledoc',
+      'firebase',
+    ];
+    let candidate: AdminTab | null = null;
     if (initialTab && validTabs.includes(initialTab)) {
-      return initialTab;
-    }
-    if (typeof window !== 'undefined') {
+      candidate = initialTab;
+    } else if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const adminVal = params.get('admin') as AdminTab;
       const subVal = (params.get('subtab') || params.get('admintab') || params.get('section')) as AdminTab;
-      if (adminVal && validTabs.includes(adminVal)) return adminVal;
-      if (subVal && validTabs.includes(subVal)) return subVal;
+      if (adminVal && validTabs.includes(adminVal)) candidate = adminVal;
+      else if (subVal && validTabs.includes(subVal)) candidate = subVal;
     }
-    return 'zukan';
+    if (candidate === 'avatar' || candidate === 'kihon_nyan') return 'images';
+    if (candidate === 'googledoc' || candidate === 'firebase') return 'data';
+    return candidate || 'zukan';
+  });
+
+  const [imageSubTab, setImageSubTab] = useState<'avatar' | 'kihon_nyan'>(() => {
+    if (initialTab === 'kihon_nyan') return 'kihon_nyan';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin') === 'kihon_nyan' || params.get('subtab') === 'kihon_nyan') return 'kihon_nyan';
+    }
+    return 'avatar';
+  });
+
+  const [dataSubTab, setDataSubTab] = useState<'googledoc' | 'firebase'>(() => {
+    if (initialTab === 'firebase') return 'firebase';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin') === 'firebase' || params.get('subtab') === 'firebase') return 'firebase';
+    }
+    return 'googledoc';
   });
 
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      if (initialTab === 'avatar' || initialTab === 'kihon_nyan') {
+        setActiveTab('images');
+        setImageSubTab(initialTab);
+      } else if (initialTab === 'googledoc' || initialTab === 'firebase') {
+        setActiveTab('data');
+        setDataSubTab(initialTab);
+      } else {
+        setActiveTab(initialTab);
+      }
     }
   }, [initialTab]);
   const [dragActive, setDragActive] = useState(false);
@@ -1311,263 +1364,144 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             : 'relative w-full max-w-4xl bg-[#FAF8F4] sketch-card overflow-hidden flex flex-col max-h-[92vh]'
         }
       >
-        {/* Header */}
-        <div className="bg-[#ECE7DC] px-4 sm:px-6 py-3.5 border-b-1.5 border-[#3E3833] flex items-center justify-between text-[#2E2824]">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="p-2 sketch-tag bg-[#3E3833] text-white shadow-sm">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-[#2E2824] font-handwriting">
-                  {isStandalone ? 'けんちこの世界 管理画面' : '開発・データ連携コンソール'}
-                </h3>
-                <span className="bg-[#487560] text-white text-[10px] font-bold px-2 py-0.5 sketch-tag flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3" />
-                  認証済み
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-[#7A726A] font-handwriting">
-                {isStandalone
-                  ? '管理画面モード（全イベント編集・図鑑修正・画像登録・ユーザー管理・データ連携）'
-                  : '開発者向け：全イベント・行動・セリフ編集、FirebaseクラウドデータCRUD、Google Docs連携'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Unsaved Changes Warning Badge */}
-            {unsavedChangesCount > 0 ? (
-              <div
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF3CD] text-[#856404] border border-[#FFEBAA] rounded-xl text-xs font-bold shadow-xs animate-pulse"
-                title="未保存の変更があります。上部の「Firebaseに一括保存」ボタンを押すことで、全データを1回の書き込みで安全にクラウドへ反映します。"
-              >
-                <AlertTriangle className="w-4 h-4 text-[#D97706] shrink-0" />
-                <span className="whitespace-nowrap">⚠️ 変更あり ({unsavedChangesCount}件)</span>
-              </div>
-            ) : (
-              <div className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 bg-[#FAF8F4] text-[#7A726A] border border-[#DDD7C8] rounded-xl text-[11px] font-bold">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#487560]" />
-                <span>クラウド同期済み (v{masterMeta?.version || 1})</span>
-              </div>
-            )}
-
-            {/* Global Master Save Button in Header */}
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center justify-between border-b border-[#DDD7C8] bg-[#EFECE4] px-3 sm:px-5 pt-2.5 gap-2">
+          <div className="flex gap-1 overflow-x-auto pb-0 items-end flex-1 min-w-0">
+            {/* TAB 1: 図鑑 */}
             <button
-              onClick={() => handlePublishMaster()}
-              disabled={isPublishingMaster}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer font-handwriting ${
-                unsavedChangesCount > 0
-                  ? 'bg-[#C8744E] hover:bg-[#B3633E] text-white ring-2 ring-[#C8744E]/40 animate-pulse'
-                  : 'bg-[#487560] hover:bg-[#3B614F] text-white'
+              onClick={() => setActiveTab('zukan')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'zukan'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
               }`}
-              title="図鑑・あそび・応援・こうにちゃんなど全タブの編集内容を、Firestore公式マスター（ken-chiko-global-master）へ1回でまとめて保存します"
             >
-              {isPublishingMaster ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Save className="w-3.5 h-3.5" />
+              <BookOpen className="w-4 h-4 text-[#C8744E]" />
+              <span>図鑑</span>
+              {modifiedTabs.has('zukan') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
               )}
-              <span className="whitespace-nowrap">
-                {isPublishingMaster
-                  ? '保存中...'
-                  : unsavedChangesCount > 0
-                  ? 'Firebaseに一括保存 (1回)'
-                  : 'マスター一括保存 (1回)'}
-              </span>
             </button>
 
+            {/* TAB 2: 画像登録 (けんちこ画像 + きほんのにゃんこ画像) */}
             <button
-              onClick={handleLogout}
-              className="text-[11px] font-bold text-[#5A524A] hover:text-[#2E2824] bg-[#FAF8F4] hover:bg-white px-2.5 py-1.5 sketch-tag transition flex items-center gap-1 font-handwriting cursor-pointer"
-              title="ロックする"
+              onClick={() => setActiveTab('images')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'images' || activeTab === 'avatar' || activeTab === 'kihon_nyan'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
             >
-              <Lock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">再ロック</span>
+              <Camera className="w-4 h-4 text-[#C8744E]" />
+              <span>画像登録</span>
+              {(modifiedTabs.has('avatar') || modifiedTabs.has('kihon_nyan') || modifiedTabs.has('images')) && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
             </button>
+
+            {/* TAB 3: こうにちゃん */}
             <button
-              onClick={handleRequestClose}
-              className={
-                isStandalone
-                  ? 'px-3.5 py-1.5 sketch-tag bg-[#487560] hover:bg-[#3B614F] text-white font-black text-xs transition flex items-center gap-1.5 shadow-sm font-handwriting cursor-pointer'
-                  : 'p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer'
-              }
-              title={isStandalone ? 'ゲーム画面へ移動' : '閉じる'}
+              onClick={() => setActiveTab('kounichan')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'kounichan'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
             >
-              {isStandalone ? (
-                <>
-                  <Gamepad2 className="w-4 h-4" />
-                  <span>ゲーム画面へ</span>
-                </>
-              ) : (
-                <X className="w-5 h-5" />
+              <span className="text-sm">🛵</span>
+              <span>こうにちゃん</span>
+              {modifiedTabs.has('kounichan') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
+            </button>
+
+            {/* TAB 4: あそび */}
+            <button
+              onClick={() => setActiveTab('asobi')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'asobi'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <Smile className="w-4 h-4 text-[#C8744E]" />
+              <span>あそび</span>
+              {modifiedTabs.has('asobi') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
+            </button>
+
+            {/* TAB 5: おうえん */}
+            <button
+              onClick={() => setActiveTab('ouen')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'ouen'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#D4736A] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-[#D4736A]" />
+              <span>おうえん</span>
+              {modifiedTabs.has('ouen') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
+            </button>
+
+            {/* TAB 6: ユーザー管理 */}
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'users'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#3E7B68] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <Users className="w-4 h-4 text-[#3E7B68]" />
+              <span>ユーザー管理</span>
+              {modifiedTabs.has('users') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
+            </button>
+
+            {/* TAB 7: 物語 */}
+            <button
+              onClick={() => setActiveTab('story')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'story'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#487560] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 text-[#487560]" />
+              <span>物語</span>
+              {modifiedTabs.has('story') && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+              )}
+            </button>
+
+            {/* TAB 8: データ (Google Docs + Firebase) */}
+            <button
+              onClick={() => setActiveTab('data')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'data' || activeTab === 'googledoc' || activeTab === 'firebase'
+                  ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <Database className="w-4 h-4 text-[#728C7E]" />
+              <span>データ</span>
+              {(modifiedTabs.has('googledoc') || modifiedTabs.has('firebase') || modifiedTabs.has('data')) && (
+                <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
               )}
             </button>
           </div>
-        </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-[#DDD7C8] bg-[#EFECE4] px-4 sm:px-6 pt-3 gap-1.5 overflow-x-auto">
-          {/* TAB 0: Nyanko Zukan Master Editor (にゃんこ図鑑修正) */}
           <button
-            onClick={() => setActiveTab('zukan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'zukan'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
+            onClick={handleRequestClose}
+            className="p-1.5 mb-1 ml-2 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer shrink-0"
+            title="閉じる"
           >
-            <BookOpen className="w-4 h-4 text-[#C8744E]" />
-            <span>にゃんこ図鑑修正・画像設定 ({characters.length}体)</span>
-            {modifiedTabs.has('zukan') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB 1: Kenchiko Avatar (けんちこ画像設定) */}
-          <button
-            onClick={() => setActiveTab('avatar')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'avatar'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Camera className="w-4 h-4 text-[#C8744E]" />
-            <span>けんちこ画像登録</span>
-            {modifiedTabs.has('avatar') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB 2: Kihon Nyan Base Avatar (きほんのにゃんこ画像登録) */}
-          <button
-            onClick={() => setActiveTab('kihon_nyan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'kihon_nyan'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#438363] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-[#438363]" />
-            <span>きほんのにゃんこ画像登録</span>
-            {modifiedTabs.has('kihon_nyan') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB: Kouni-chan & Vehicles (こうにちゃん＆のりもの設定) */}
-          <button
-            onClick={() => setActiveTab('kounichan')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'kounichan'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <span className="text-sm">🛵</span>
-            <span>こうにちゃん設定</span>
-            {modifiedTabs.has('kounichan') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-            {!saveData.kounichan?.enabled ? (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-red-100 text-red-700 font-bold border border-red-300">
-                🛑 無効
-              </span>
-            ) : (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 font-bold border border-emerald-300">
-                🟢 有効
-              </span>
-            )}
-          </button>
-
-          {/* TAB 3: Events & Asobi Editor (全イベント編集) */}
-          <button
-            onClick={() => setActiveTab('asobi')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'asobi'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#C8744E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Smile className="w-4 h-4 text-[#C8744E]" />
-            <span>全イベント・あそび編集 ({asobiList.length}件)</span>
-            {modifiedTabs.has('asobi') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB: Ouen Messages Editor (おうえん設定) */}
-          <button
-            onClick={() => setActiveTab('ouen')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'ouen'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#D4736A] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-[#D4736A]" />
-            <span>おうえん設定 ({(saveData.ouenList?.length || 1)}件)</span>
-            {modifiedTabs.has('ouen') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB: User Management (ユーザー管理画面) */}
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'users'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#3E7B68] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Users className="w-4 h-4 text-[#3E7B68]" />
-            <span>ユーザー管理・データ分析</span>
-            {modifiedTabs.has('users') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB 4: Story Management */}
-          <button
-            onClick={() => setActiveTab('story')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'story'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#487560] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <BookOpen className="w-4 h-4 text-[#487560]" />
-            <span>📜 物語（会話劇）管理</span>
-            {modifiedTabs.has('story') && (
-              <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
-            )}
-          </button>
-
-          {/* TAB 5: Google Doc Sync */}
-          <button
-            onClick={() => setActiveTab('googledoc')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'googledoc'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Globe className="w-4 h-4 text-[#728C7E]" />
-            <span>Google Docs 自動連携</span>
-          </button>
-
-          {/* TAB 6: Firebase Config */}
-          <button
-            onClick={() => setActiveTab('firebase')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-t-2xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
-              activeTab === 'firebase'
-                ? 'bg-[#FAF8F5] text-[#3A342F] border-t-[#728C7E] border-x-[#DDD7C8] -mb-[1px]'
-                : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
-            }`}
-          >
-            <Cloud className="w-4 h-4 text-[#728C7E]" />
-            <span>Firebase設定</span>
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -1740,10 +1674,46 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           )}
 
           {/* ========================================================= */}
-          {/* TAB 1: KENCHIKO AVATAR IMAGE SETTING */}
+          {/* TAB 2: 画像登録 (けんちこ画像 + きほんのにゃんこ画像) */}
           {/* ========================================================= */}
-          {activeTab === 'avatar' && (
+          {(activeTab === 'images' || activeTab === 'avatar' || activeTab === 'kihon_nyan') && (
             <div className="space-y-4 animate-fadeIn">
+              {/* Image Subtabs Switcher */}
+              <div className="flex items-center gap-2 p-1 bg-[#FAF8F5] rounded-2xl w-fit border border-[#DDD7C8]">
+                <button
+                  type="button"
+                  onClick={() => { setImageSubTab('avatar'); setActiveTab('images'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    imageSubTab === 'avatar'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#C8744E]" />
+                  <span>けんちこ画像</span>
+                  {modifiedTabs.has('avatar') && (
+                    <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setImageSubTab('kihon_nyan'); setActiveTab('images'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    imageSubTab === 'kihon_nyan'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#438363]" />
+                  <span>きほんのにゃんこ画像</span>
+                  {modifiedTabs.has('kihon_nyan') && (
+                    <span className="w-2 h-2 rounded-full bg-[#D97706] animate-pulse shrink-0" title="未保存の変更あり" />
+                  )}
+                </button>
+              </div>
+
+              {imageSubTab === 'avatar' && (
+                <div className="space-y-4 animate-fadeIn">
               <div className="bg-[#FAF2EB] p-4 rounded-2xl border border-[#F0D5C3]">
                 <div className="flex items-center justify-between mb-1">
                   <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
@@ -1918,13 +1888,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               </div>
             </div>
-          )}
+              )}
 
-          {/* ========================================================= */}
-          {/* TAB 0.5: KIHON NYAN (きほんのにゃんこ) IMAGE & SMART TRANSPARENCY */}
-          {/* ========================================================= */}
-          {activeTab === 'kihon_nyan' && (
-            <div className="space-y-4 animate-fadeIn">
+              {imageSubTab === 'kihon_nyan' && (
+                <div className="space-y-4 animate-fadeIn">
               {/* Header Box */}
               <div className="bg-[#EEF5F1] p-4 rounded-2xl border border-[#D0E2D8] flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
@@ -2155,6 +2122,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+              )}
             </div>
           )}
 
@@ -2946,10 +2915,40 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           )}
 
           {/* ========================================================= */}
-          {/* TAB 3: Google Docs Automatic Realtime Sync */}
+          {/* TAB 8: データ (Google Docs自動連携 + Firebase設定) */}
           {/* ========================================================= */}
-          {activeTab === 'googledoc' && (
+          {(activeTab === 'data' || activeTab === 'googledoc' || activeTab === 'firebase') && (
             <div className="space-y-4 animate-fadeIn">
+              {/* Data Subtabs Switcher */}
+              <div className="flex items-center gap-2 p-1 bg-[#FAF8F5] rounded-2xl w-fit border border-[#DDD7C8]">
+                <button
+                  type="button"
+                  onClick={() => { setDataSubTab('googledoc'); setActiveTab('data'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    dataSubTab === 'googledoc'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5 text-[#728C7E]" />
+                  <span>Google Docs 自動連携</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDataSubTab('firebase'); setActiveTab('data'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    dataSubTab === 'firebase'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <Cloud className="w-3.5 h-3.5 text-[#728C7E]" />
+                  <span>Firebase設定</span>
+                </button>
+              </div>
+
+              {dataSubTab === 'googledoc' && (
+                <div className="space-y-4 animate-fadeIn">
               <div className="bg-[#EAF0EC] p-4 rounded-2xl border border-[#C6D8CD]">
                 <div className="flex items-center justify-between mb-1.5">
                   <h4 className="text-xs font-black text-[#3D5447] flex items-center gap-1.5">
@@ -3121,13 +3120,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               )}
             </div>
-          )}
+              )}
 
-          {/* ========================================================= */}
-          {/* TAB 4: Firebase Multi-device Realtime Sync */}
-          {/* ========================================================= */}
-          {activeTab === 'firebase' && (
-            <div className="space-y-4 animate-fadeIn">
+              {dataSubTab === 'firebase' && (
+                <div className="space-y-4 animate-fadeIn">
               {/* Traffic Safeguard & Write Budget Box */}
               <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF] space-y-3">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -3401,6 +3397,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               )}
             </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -3409,14 +3407,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           <span>パスワード保護コンソール (ログイン中)</span>
           <button
             onClick={handleRequestClose}
-            className={
-              isStandalone
-                ? 'px-4 py-1.5 bg-[#487560] hover:bg-[#3B614F] text-white rounded-xl font-bold transition shadow-sm flex items-center gap-1.5 font-handwriting cursor-pointer'
-                : 'px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm font-handwriting cursor-pointer'
-            }
+            className="px-4 py-1.5 bg-[#4A443F] hover:bg-[#3A342F] text-white rounded-xl font-bold transition shadow-sm font-handwriting cursor-pointer"
           >
-            {isStandalone && <Gamepad2 className="w-3.5 h-3.5" />}
-            <span>{isStandalone ? 'ゲーム画面へ戻る' : '閉じる'}</span>
+            <span>閉じる</span>
           </button>
         </div>
       </div>
