@@ -1582,13 +1582,6 @@ export async function executeFirestoreWrite(
     };
   }
 
-  // STRICT SAFETY GUARD: Block all automatic background writes.
-  // ONLY explicit manual button clicks (forceManual === true, such as "Firebaseに保存") are allowed to write to Firestore!
-  if (!forceManual) {
-    console.log('[CloudSync] 🛡️ 自動書き込みは安全のため完全遮断中（手動保存ボタンのみ許可）');
-    return { success: true };
-  }
-
   // 1. Check quota exhaustion (skip if manual save or admin)
   if (!forceManual && !isAdmin && getIsQuotaExhausted()) {
     return { success: true, error: 'Firebase無料枠上限のためローカル保護中' };

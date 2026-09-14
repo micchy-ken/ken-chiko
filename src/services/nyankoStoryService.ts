@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs, deleteField } from 'firebase/firestore';
 import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
 
@@ -744,8 +744,10 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
     // Fallback to legacy collection if consolidated doc does not exist yet
     const colRef = collection(db, 'nyanko_stories_unmapped');
     const legacySnap = await getDocs(colRef);
+    const storiesMapToMigrate: Record<string, any> = {};
     const list = legacySnap.docs.map((d) => {
       const data = d.data();
+      storiesMapToMigrate[d.id] = data;
       return {
         oldId: d.id,
         name: data.name || '',
@@ -756,6 +758,22 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
     });
 
     list.sort((a, b) => Number(a.oldId) - Number(b.oldId));
+
+    // Auto-migrate legacy docs into the consolidated global document (1 Write) to permanently eliminate getDocs
+    if (list.length > 0) {
+      try {
+        await setDoc(docRef, {
+          updatedAt: new Date().toISOString(),
+          count: list.length,
+          stories: storiesMapToMigrate,
+        }, { merge: true });
+        recordFirestoreWrite(`kenchiko_world/${GLOBAL_UNMAPPED_DOC_ID}`, 1);
+        console.log(`[NyankoStory] 💾 未紐づけ物語の目録（統合ドキュメント）を自動生成しました: ${list.length}件を ${GLOBAL_UNMAPPED_DOC_ID} に統合`);
+      } catch (migrateErr) {
+        console.warn('Failed to auto-migrate unmapped stories to global index:', migrateErr);
+      }
+    }
+
     return { success: true, stories: list };
   } catch (err: any) {
     console.error('Failed to fetch unmapped stories archive:', err);
@@ -923,8 +941,18 @@ export async function assignUnmappedStoryToNyan(
     batch.set(metaRef, currentMeta);
 
     // If deleting from unmapped collection
-    if (unmappedSnap.exists() && options.deleteFromArchive !== false) {
-      batch.delete(unmappedRef);
+    if (options.deleteFromArchive !== false) {
+      if (unmappedSnap.exists()) {
+        batch.delete(unmappedRef);
+      }
+      // Also remove from consolidated global unmapped document
+      const globalUnmappedRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
+      batch.set(globalUnmappedRef, {
+        updatedAt: new Date().toISOString(),
+        stories: {
+          [oldId]: deleteField(),
+        }
+      }, { merge: true });
     }
 
     await batch.commit();
