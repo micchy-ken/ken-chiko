@@ -139,23 +139,6 @@ export const GiftItemModal: React.FC<GiftItemModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-[#5A524A] leading-relaxed font-handwriting">{selectedItem.effectText}</p>
-              <div className="flex items-center gap-3 text-[11px] font-bold text-[#7A726A] pt-1">
-                {selectedItem.hungerRecovery > 0 && (
-                  <span className="flex items-center gap-1 text-[#D97543]">
-                    <UtensilsCrossed className="w-3.5 h-3.5" /> 満腹+{selectedItem.hungerRecovery}
-                  </span>
-                )}
-                {selectedItem.happinessGain > 0 && (
-                  <span className="flex items-center gap-1 text-[#C85A53]">
-                    <Heart className="w-3.5 h-3.5" /> ごきげん+{selectedItem.happinessGain}
-                  </span>
-                )}
-                {selectedItem.staminaGain > 0 && (
-                  <span className="flex items-center gap-1 text-[#487560]">
-                    <Shield className="w-3.5 h-3.5" /> 体力+{selectedItem.staminaGain}
-                  </span>
-                )}
-              </div>
             </div>
           )}
 

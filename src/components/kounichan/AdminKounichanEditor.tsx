@@ -749,7 +749,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
           settings={settings}
           activeVehicleId={activeVehicleId}
           onSelectVehicle={(id) => setActiveVehicleId(id)}
-          undiscoveredCats={saveData.characters.filter((c) => !c.discovered && !c.isDiscovered)}
+          undiscoveredCats={saveData.characters.filter((c) => !c.discovered)}
           onClaimGift={(type, cat) => {
             if (type === 'cat' && cat) {
               onUpdateSaveData((prev) => ({
@@ -759,8 +759,8 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
                     ? {
                         ...c,
                         discovered: true,
-                        isDiscovered: true,
-                        lastEncounterTime: Date.now(),
+                        discoveryDate: new Date().toLocaleString('ja-JP'),
+                        lastMetAt: Date.now(),
                       }
                     : c
                 ),

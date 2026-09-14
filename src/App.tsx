@@ -723,7 +723,14 @@ export default function App() {
         setRewardToastMessage('🛵 こうにちゃんからおこづかい（10pt）をもらいました！');
       } else if (type === 'cat' && cat) {
         updatedCharacters = prev.characters.map((c) =>
-          c.no === cat.no ? { ...c, isDiscovered: true, discoveredAt: Date.now() } : c
+          c.no === cat.no
+            ? {
+                ...c,
+                discovered: true,
+                discoveryDate: new Date().toLocaleString('ja-JP'),
+                lastMetAt: Date.now(),
+              }
+            : c
         );
         updatedRewards = addDiscoveryPoints(prev.rewards);
         setRewardToastMessage(`🛵 こうにちゃんが新しいお友達【${cat.name}】を連れてきてくれました！`);
@@ -910,7 +917,7 @@ export default function App() {
               nyanId: nextCompanionId,
               nyanName: comp.name,
               itemUsed: null,
-              mood: curK.mood,
+              
               text: encounterRes.diaryText,
             });
           }
@@ -1097,6 +1104,7 @@ export default function App() {
     // Completely freeze simulation loop if default user, until initial sync is 100% complete, or if admin / sync modal / tutorial is open
     if (isDefaultUser || !isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
 
+    const TICK_INTERVAL_MS = 3000;
     const interval = setInterval(() => {
       let isCompleted = false;
 
@@ -1112,12 +1120,13 @@ export default function App() {
           const transitRemaining = Math.max(0, 20 - Math.floor(elapsedSinceStart / 1000));
           currentSec = Math.min(20, transitRemaining);
         }
-        const nextTime = currentSec - timeSpeed;
+        const timeReduction = timeSpeed * (TICK_INTERVAL_MS / 1000);
+        const nextTime = currentSec - timeReduction;
         if (nextTime <= 0 || (isTransit && elapsedSinceStart >= 20000)) {
           isCompleted = true;
           return 0;
         }
-        return nextTime;
+        return Math.floor(nextTime);
       });
 
       // Encounter Check: After 5 seconds elapsed, then every 15-60s with 30% chance.
@@ -1141,7 +1150,7 @@ export default function App() {
       if (isCompleted) {
         handleActivityCompletion();
       }
-    }, 1000);
+    }, TICK_INTERVAL_MS);
 
     // Reconcile remaining time when returning to the tab / window focus
     const handleVisibilityOrFocus = () => {
@@ -1233,7 +1242,7 @@ export default function App() {
           nyanId: null,
           nyanName: null,
           itemUsed: null,
-          mood: 'happy',
+          
           text: `${locInfo.name}でけんちこに応援してもらった。「${cheerMessage}」と寄り添ってくれて心がぽかぽか温かくなった。`,
         },
         ...prev.diary,
@@ -1253,7 +1262,7 @@ export default function App() {
           currentCompanionNyanId: null, // No cat during cheer
           encounterChecked: true, // Mark encounter checked so no cat spawns
           monologue: cheerMessage,
-          happiness: Math.min(100, curK.happiness + 20),
+          
         },
       };
 
@@ -1319,7 +1328,7 @@ export default function App() {
           nyanId: null,
           nyanName: null,
           itemUsed: null,
-          mood: 'happy',
+          
           text: `${locInfo.name}で「もっと！」とお願いしたら、けんちこが「${cheerMessage}」とさらに応援してくれた。`,
         },
         ...prev.diary,
@@ -1339,7 +1348,7 @@ export default function App() {
           currentCompanionNyanId: null,
           encounterChecked: true,
           monologue: cheerMessage,
-          happiness: Math.min(100, curK.happiness + 15),
+          
         },
       };
 
@@ -1373,7 +1382,7 @@ export default function App() {
         lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
-          happiness: Math.min(100, prev.kenchiko.happiness + 10),
+          
         },
         rewards: nextRewards,
       };
@@ -1537,7 +1546,7 @@ export default function App() {
           nyanId: target === 'nyan' && companionNyan ? companionNyan.no : null,
           nyanName: target === 'nyan' && companionNyan ? companionNyan.name : null,
           itemUsed: item.name,
-          mood: 'happy',
+          
           text: `${locInfo.name}で「${item.name}」を${
             target === 'nyan' && companionNyan ? companionNyan.name : 'けんちこ'
           }にあげた。${item.effectText}`,
@@ -1553,9 +1562,9 @@ export default function App() {
         lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
-          hunger: Math.min(100, prev.kenchiko.hunger + item.hungerRecovery),
-          happiness: Math.min(100, prev.kenchiko.happiness + item.happinessGain),
-          stamina: Math.min(100, prev.kenchiko.stamina + item.staminaGain),
+          
+          
+          
           monologue: `「${item.name}」をもらった！${item.effectText}`,
         },
       };
@@ -1638,7 +1647,7 @@ export default function App() {
       nyanId: companionNyan ? companionNyan.no : null,
       nyanName: companionNyan ? companionNyan.name : null,
       itemUsed: null,
-      mood: saveData.kenchiko.mood,
+      
       text: `${locInfo.name}で${
         companionNyan ? `${companionNyan.name}と一緒に` : ''
       }まったりしているところをパシャリと撮影。けんちこは「${saveData.kenchiko.monologue}」とつぶやいていた。`,

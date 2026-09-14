@@ -28,10 +28,6 @@ export const DEFAULT_USER_PROGRESS: UserProgressData = {
     activityDurationSec: 300, // 5 minutes
     currentCompanionNyanId: null,
     encounterChecked: false,
-    mood: 'happy',
-    stamina: 100,
-    hunger: 100,
-    happiness: 100,
     monologue: '今日からけんちことのんびり生活がはじまるよ〜',
     equippedItem: null,
     totalPlayTimeSec: 0,

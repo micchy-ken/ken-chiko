@@ -117,10 +117,6 @@ export interface KenchikoState {
   encounterChecked?: boolean;
   lastArrivedAt?: number; // timestamp in ms when arrived from transit (2 min cooldown for travel)
   customImageUrl?: string;
-  mood: 'happy' | 'sleepy' | 'hungry' | 'chill' | 'excited' | 'zapped';
-  stamina: number; // 0 - 100
-  hunger: number; // 0 - 100
-  happiness: number; // 0 - 100
   monologue: string;
   equippedItem: string | null;
   totalPlayTimeSec: number;
@@ -132,9 +128,6 @@ export interface GiftItem {
   category: 'snack' | 'goods' | 'ride' | 'drink';
   description: string;
   effectText: string;
-  hungerRecovery: number;
-  happinessGain: number;
-  staminaGain: number;
   specialNyanAffinity?: number[];
   icon: string;
   count: number;
@@ -149,7 +142,6 @@ export interface DiaryEntry {
   nyanId: number | null;
   nyanName: string | null;
   itemUsed: string | null;
-  mood: string;
   text: string;
 }
 

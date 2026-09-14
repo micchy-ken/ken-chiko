@@ -7,9 +7,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: 'ひとくちサイズのチョココーティングアイス。すのうにゃんの大好物。',
     effectText: 'けんちこが幸せそうにモグモグ頬張る！お腹が満たされた。',
-    hungerRecovery: 25,
-    happinessGain: 30,
-    staminaGain: 15,
+    
+    
+    
     specialNyanAffinity: [5, 37, 58],
     icon: 'IceCream',
     count: 3,
@@ -20,9 +20,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: 'シャトレーゼ名物のパリッパリチョコバー。溶けかけたしゃとれーぜにゃんも復活する。',
     effectText: 'パリッ！ゴリッ！小気味よい音を立てて30分間食べ続けた。',
-    hungerRecovery: 30,
-    happinessGain: 35,
-    staminaGain: 20,
+    
+    
+    
     specialNyanAffinity: [37, 58, 88],
     icon: 'Sparkles',
     count: 2,
@@ -33,9 +33,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: '笹の葉に乗ったふっくら煮穴子の極上寿司。せんじゅにゃん直伝。',
     effectText: '口の中でとろける極上の味！けんちこのテンションが最高潮に。',
-    hungerRecovery: 45,
-    happinessGain: 40,
-    staminaGain: 25,
+    
+    
+    
     specialNyanAffinity: [7, 15],
     icon: 'UtensilsCrossed',
     count: 1,
@@ -46,9 +46,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: 'せいろで蒸しあげたばかりのふかふかおやつ。むしぱにゃんも笑顔。',
     effectText: '素朴で優しい甘さ。なんだか昔を思い出してほっこりした。',
-    hungerRecovery: 20,
-    happinessGain: 25,
-    staminaGain: 10,
+    
+    
+    
     specialNyanAffinity: [61, 70],
     icon: 'Cake',
     count: 2,
@@ -59,9 +59,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: 'スパイシーでジューシーな骨付きチキン。8本足チキンの噂も…？',
     effectText: '指まで舐めちゃう美味しさ！お腹いっぱいで眠くなってきた。',
-    hungerRecovery: 50,
-    happinessGain: 30,
-    staminaGain: 20,
+    
+    
+    
     specialNyanAffinity: [17, 24],
     icon: 'Drumstick',
     count: 2,
@@ -72,9 +72,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: '香ばしいタレの匂いがたまらない串焼きうなぎ。スタミナ満点！',
     effectText: '精がつく贅沢なおやつ！けんちこの体力が全回復した。',
-    hungerRecovery: 60,
-    happinessGain: 45,
-    staminaGain: 50,
+    
+    
+    
     specialNyanAffinity: [36, 45],
     icon: 'Flame',
     count: 1,
@@ -85,9 +85,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: 'とよおかにゃんが守る特大の完熟ピンク桃。果汁たっぷり。',
     effectText: 'じゅわっと溢れる甘い果汁。ビタミン補給完了！',
-    hungerRecovery: 30,
-    happinessGain: 35,
-    staminaGain: 25,
+    
+    
+    
     specialNyanAffinity: [33, 51],
     icon: 'Apple',
     count: 2,
@@ -98,9 +98,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'snack',
     description: '出汁が染みたふわふわはんぺん。猫舌のおでんにゃんと一緒にフーフー冷ます。',
     effectText: 'フーフーしながらゆっくり食べた。心も体もぽかぽかに。',
-    hungerRecovery: 35,
-    happinessGain: 25,
-    staminaGain: 15,
+    
+    
+    
     specialNyanAffinity: [4, 9, 24],
     icon: 'Soup',
     count: 2,
@@ -111,9 +111,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'goods',
     description: 'へびにゃんが持っている可愛いトング。キャンプ場で大活躍。',
     effectText: 'トングをカチカチ鳴らして肉を焼く真似をした。',
-    hungerRecovery: 0,
-    happinessGain: 30,
-    staminaGain: 10,
+    
+    
+    
     specialNyanAffinity: [1, 24, 26],
     icon: 'Wrench',
     count: 1,
@@ -124,9 +124,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'goods',
     description: '鼻先にちょこんと乗せる老眼鏡。かけると知性度がアップする。',
     effectText: '人差し指でメガネをクイッと上げた！何かがわかった気がした。',
-    hungerRecovery: 0,
-    happinessGain: 35,
-    staminaGain: 15,
+    
+    
+    
     specialNyanAffinity: [47, 53, 70],
     icon: 'Glasses',
     count: 1,
@@ -137,9 +137,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'goods',
     description: 'みちこにゃんが愛用するピコピコ鳴るAirTag風タグ。',
     effectText: 'ピコピコ音を鳴らしながら歩き回った。迷子知らず！',
-    hungerRecovery: 0,
-    happinessGain: 25,
-    staminaGain: 10,
+    
+    
+    
     specialNyanAffinity: [53, 85],
     icon: 'Tag',
     count: 1,
@@ -150,9 +150,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'goods',
     description: '首元を28℃で冷やす快適リング。くびひえにゃんも太鼓判。',
     effectText: '首元がひんやりして猛暑でもスッキリ爽快！',
-    hungerRecovery: 0,
-    happinessGain: 30,
-    staminaGain: 30,
+    
+    
+    
     specialNyanAffinity: [6, 80],
     icon: 'Shield',
     count: 1,
@@ -163,9 +163,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'drink',
     description: '大人の燃料。しんかんせんにゃんやそーしゃるたわーにゃんのエネルギー源。',
     effectText: 'プシュッ！ゴクゴク…プハー！けんちこの気分がウキウキになった。',
-    hungerRecovery: 10,
-    happinessGain: 50,
-    staminaGain: 15,
+    
+    
+    
     specialNyanAffinity: [22, 28, 74, 79],
     icon: 'Beer',
     count: 2,
@@ -176,9 +176,9 @@ export const INITIAL_ITEMS: GiftItem[] = [
     category: 'drink',
     description: '温泉上がりに腰に手を当てて一気飲みする定番の瓶牛乳。',
     effectText: '腰に手を当ててグイッと飲み干した！ほっこり温泉気分。',
-    hungerRecovery: 15,
-    happinessGain: 40,
-    staminaGain: 25,
+    
+    
+    
     specialNyanAffinity: [73, 9, 67],
     icon: 'Milk',
     count: 2,
