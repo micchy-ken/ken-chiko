@@ -82,6 +82,7 @@ import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
 import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
+import { LoadingScreen } from './components/LoadingScreen';
 
 import {
   Eye,
@@ -165,7 +166,7 @@ export default function App() {
     saveDataRef.current = saveData;
   }, [saveData]);
 
-  const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(false);
+  const [isLoadingFirebase, setIsLoadingFirebase] = useState<boolean>(true);
   const [isFirebaseSynced, setIsFirebaseSynced] = useState<boolean>(false);
   const [isQuotaLimited, setIsQuotaLimited] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<FirebaseConnectionStatus>(getFirebaseConnectionStatus());
@@ -1765,6 +1766,25 @@ export default function App() {
               saveLocalBackup(next);
               return next;
             });
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Loading Screen: Displayed during initial boot synchronization or user profile switching
+  if (isLoadingFirebase || !isInitialSyncCompleted) {
+    return (
+      <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <LoadingScreen
+          customImageUrl={saveData.kenchiko.customImageUrl}
+          currentUserId={currentUserId}
+          masterStatus={masterStatus}
+          onSkip={() => {
+            setIsLoadingFirebase(false);
+            isInitialSyncCompletedRef.current = true;
+            setIsInitialSyncCompleted(true);
           }}
         />
       </div>
