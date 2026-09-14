@@ -1478,6 +1478,22 @@ export function recordFirestoreWrite(docName: string, count: number = 1): void {
 }
 
 /**
+ * Global audit recorder for any Firestore read across the application.
+ * Increments session read counter and emits an event for UI monitoring.
+ */
+export function recordFirestoreRead(docName: string, count: number = 1): void {
+  sessionDbReadCount += count;
+  console.log(`[FirestoreReadAudit] 📖 読込記録: ${docName} (+${count}件, セッション累計: ${sessionDbReadCount}回)`);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('kenchiko-firestore-read', {
+        detail: { docName, count, sessionReads: sessionDbReadCount },
+      })
+    );
+  }
+}
+
+/**
  * Cooldown between automatic routine cloud writes: 120 seconds (2 minutes).
  * LocalStorage updates at 0ms latency for 100% data safety.
  */

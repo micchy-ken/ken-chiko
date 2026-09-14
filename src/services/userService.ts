@@ -1,6 +1,6 @@
 // User management and persistence service for Multi-user support via query parameters (?user=yumi etc.)
 
-import { collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { GameSaveData, NyanCharacter, KenchikoAsobi, OuenItem, OuenCategory } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
@@ -11,12 +11,22 @@ import {
   reconstructGameSaveData,
   writeUserDocExplicit,
   deleteUserDocExplicit,
+  recordFirestoreRead,
 } from './firebaseSync';
 
 export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-master';
 export const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
 const ACTIVE_USER_STORAGE_KEY = 'kenchiko_active_user_id';
 const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
+
+/**
+ * Standard user accounts for the application:
+ * - default: "ken-chiko-user-default"
+ * - yumi: "ken-chiko-user-yumi" (最重要ユーザー)
+ * - ken: "ken-chiko-user-ken"
+ * - chiko: "ken-chiko-user-chiko"
+ */
+export const DEFAULT_USER_IDS = ['default', 'yumi', 'ken', 'chiko'] as const;
 
 /**
  * System and master data document IDs that must NEVER be treated as user accounts.
@@ -120,18 +130,19 @@ export interface UserDetailData {
 }
 
 /**
- * Gets the locally stored list of known user IDs
+ * Gets the locally stored list of known user IDs.
+ * Always includes the standard 3 users: default, ken, and chiko.
  */
 export function getKnownUserIds(): string[] {
-  if (typeof window === 'undefined') return ['default'];
+  if (typeof window === 'undefined') return [...DEFAULT_USER_IDS];
   try {
     const raw = localStorage.getItem(KNOWN_USERS_STORAGE_KEY);
-    if (!raw) return ['default'];
+    if (!raw) return [...DEFAULT_USER_IDS];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // Exclude empty and system document IDs
+      // Exclude empty and system document IDs, ensure default 3 users are always included
       const sanitizedList = Array.from(
-        new Set(['default', ...parsed.filter((id) => Boolean(id) && !isSystemUserId(id))])
+        new Set([...DEFAULT_USER_IDS, ...parsed.filter((id) => Boolean(id) && !isSystemUserId(id))])
       );
       // Automatically purge contaminated entries if system IDs were previously stored
       if (sanitizedList.length !== parsed.length) {
@@ -142,7 +153,7 @@ export function getKnownUserIds(): string[] {
   } catch {
     // Ignore error
   }
-  return ['default'];
+  return [...DEFAULT_USER_IDS];
 }
 
 /**
@@ -407,33 +418,38 @@ export async function fetchAllRegisteredUsers(
     }
   >();
 
-  // 1. Fetch from Firestore `kenchiko_world` collection if connected
+  // 1. Fetch from Firestore strictly by individual user documents (NO collection scanning!)
+  // ユーザー管理はユーザーデータ（ken-chiko-user-*）のみを直接ピンポイントで読む仕様
+  // 基本ユーザー（default, yumi, ken, chiko）＋追加ユーザーのみ取得するため、対象人数分しか読みません
   try {
     const db = getFirestoreDbInstance();
     if (db) {
-      const colRef = collection(db, 'kenchiko_world');
-      const snap = await getDocs(colRef);
-      console.log(`[CloudSync] 👥 ユーザー一覧の取得 [${snap.docs.length}件読込]: 管理画面のユーザー一覧表示`);
-      for (const docSnap of snap.docs) {
-        const docId = docSnap.id;
-        // Strictly skip all system metadata documents (only ken-chiko-user-* documents are users)
-        if (!docId.startsWith('ken-chiko-user-')) {
-          continue;
-        }
-
-        const uid = docId.slice('ken-chiko-user-'.length) || 'default';
-        if (isSystemUserId(uid)) continue;
-
-        const raw = docSnap.data();
-        const parsed = reconstructGameSaveData(raw, masterNyans);
-        userMap.set(uid, {
-          saveData: parsed,
-          source: 'firestore',
-          docId,
-          updatedAt: raw.updatedAt,
-        });
-        registerKnownUserId(uid);
-      }
+      const targetUserIds = getKnownUserIds();
+      console.log(`[CloudSync] 👥 ユーザーデータ読込 (${targetUserIds.length}件ピンポイント直接取得): コレクション走査を完全廃止`);
+      await Promise.all(
+        targetUserIds.map(async (uid) => {
+          if (isSystemUserId(uid)) return;
+          try {
+            const docId = getFirestoreDocIdForUser(uid);
+            const userDocRef = doc(db, 'kenchiko_world', docId);
+            const userSnap = await getDoc(userDocRef);
+            recordFirestoreRead(`ユーザー管理 [${uid}] (${docId})`, 1);
+            if (userSnap.exists()) {
+              const raw = userSnap.data();
+              const parsed = reconstructGameSaveData(raw, masterNyans);
+              userMap.set(uid, {
+                saveData: parsed,
+                source: 'firestore',
+                docId,
+                updatedAt: raw.updatedAt,
+              });
+              registerKnownUserId(uid);
+            }
+          } catch (docErr) {
+            console.warn(`Firestore read for user ${uid} note:`, docErr);
+          }
+        })
+      );
     }
   } catch (firestoreErr) {
     console.warn('Firestore fetchAllRegisteredUsers notice:', firestoreErr);
