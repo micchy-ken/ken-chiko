@@ -400,15 +400,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           cloudVersion: res.data.version || 1,
         });
         setInternalMasterError(null);
-        if (applyToDraft) {
+        // Automatically apply to draft if requested OR if local cache is empty/minimal (auto cloud sync)
+        const isLocalDraftEmptyOrMinimal = asobiList.length === 0 || (saveData.ouenList?.length || 0) <= 1;
+        if (applyToDraft || isLocalDraftEmptyOrMinimal) {
           if (res.data.asobiList) setAsobiList(res.data.asobiList);
           handleAdminUpdateSaveData(() => ({
             ...saveData,
             ...res.data,
             lastSaved: Date.now(),
           }), false);
-          setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに全件読み込みました！');
-          confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
+          setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに自動同期しました！');
+          if (applyToDraft) {
+            confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
+          }
         }
       } else {
         const errMsg = res.error || 'クラウドマスターが存在しません';

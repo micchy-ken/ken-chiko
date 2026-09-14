@@ -89,6 +89,175 @@ const SAMPLE_STORY_JSON = `{
   }
 }`;
 
+const GEMINI_WEEKLY_SAMPLE_JSON = JSON.stringify(
+  {
+    description: "どあとぅーごるふにゃん・せんじょうこうすいにゃん 全会話収録1週間分の物語JSON（2026年9月7日〜9月11日）",
+    week_info: {
+      week_title: "9月 第2週（2026/09/07 〜 2026/09/11）",
+      week_start: "2026-09-07",
+      week_end: "2026-09-11",
+      days: [
+        {
+          date_header: "2026年9月7日（月）",
+          messages: [
+            {
+              time: "07:22",
+              sender: "由美さん",
+              body: "ふはははー！\nさがのやきはいただいたー！\n\n…\nじょよだんです！\n電子レンジにいれときます！"
+            },
+            {
+              time: "07:39",
+              sender: "由美さん",
+              body: "きょよはくもってるー\nすずしーなー\n（しゅごごごごーーっ）\n\nしゅゆまつは\n…\nなんかちょっと\nたいへんだったなー\nでもたのしかったなー\n（しゅごごごごーーっ）\n\nうにゃにゃん\n\nきょよはだれ？\nなさすぎてぎゃくに\nよそうがつかない！\n\nえっ？\nどあとぅーごるふにゃん？\n\nあっ、いつもいろいろいるから\nそういえば\nはじめましてかもー\n\nにゃーうにゃーうにゃんにゃにゃ\n\nふんふん\nごるふは\nろうにゃくにゃんにょ\nたのしめる\nすばらしいすぽーつなのに\nちっとも\nとりあげられなくて\nふまんだった？\n\nあっ、うん\nたしかにかなり\nいってるのに\nはつとうじょうだったかも\nごるふの\nれんしゅうぐらいじゃなー\n\nうにゃんにゃうにゃーにゃん\n\nふんふん\nただのれんしゅうじょよじゃない？\nはいてくせつびの\nすーぱーれんしゅうじょう？？\n\nそこまで？\nたしかにえあこんとか\nといれとかそふぁーとか\nおんがくとか\nふつうのごるふじょうには\nないすぺっくではあるけど\n\nにゃーうにゃーうにゃんにゃにゃ\n\nふんふん\nそんなみてくれのとこじゃない？\nもっとすごいきのうが\nまんさいしてる？\n\nえー？\nどこにー？\nそんなのしらなーい\n\nうにゃんにゃにゃうにゃーにゃ\n\nふんふん\nこまんどをにゅうりょくすると\nうらめにゅーがでてくる？？\n\nうらこまんど？\nなんかのげーむ？\nごるふの\nれんしゅゆだよね？\n\nにゃんうにゃーうにゃーにゃ\n\nふんふん\nきーぼーどの\nうえをにかい\nひだりをいっかい\nしたをよんかいおすと\nろしあんるーれっとで\nぼーるがでてくる？\n\nいや、ちゃんと\nまいかいぼーるはだして！\nれんしゅうにならないよ！\n\nうにゃんにゃにゃーにゃうにゃ\n\nふんふん\nほかには\nきーぼーどの\nしたをさんかい\nひだりをにかい\nうえをにかいおすと\n\nつうじょう\nいっきゅうのところ\nなんと\nにきゅうづつでてくる？\n\nいや、いらないし\nあぶないよ！\n\nにゃんうにゃーうにゃんにゃにゃ\n\nふんふん\nさいきょうの\nこまんど\nうえうえしたした\nひだりみぎひだりみぎ\nびーえーをおすと\nうったたまが\nうちかえされて\nもどってくる！\n\nいや、めちゃくちゃ\nきけんだよ！\nけがするよ！\n\nうにゃにゃんにゃーにゃ\n\nふんふん\nうちかえしたら\nさらにこうとくてん？！\n\nいや、\nとくてんとかないから！\nふつうに\nれんしゅうさせて！\n\nあっ、けんちこさん\nれんしゅうは\nおちついてしたいよねー\nなんならかふぇが\nさいこうだよねー\nけーんちーこさーん"
+            },
+            {
+              time: "08:25",
+              sender: "健介さん",
+              body: "どきどきどきどき\n\nすぱーん\n（ないすしょっと！）\n\nすぱーん\n（かえってきた？！）\n\nすぱんっ\n（うちかえした！！）\n\nいやー\nすごいなー\nごるふとはおもえないすりる！\nあたらしいとびらをひらいたきがするなー\n\nほかにすごいこまんどないのー\nどあとぅーごるふにゃん！\nなまえながいな！\n\nえー、みぎ、した、みぎしたで\nかんきゃくがふえる？\nこまんどいれただけふやせる？\n\nさいだいごじうにん？？？\n\nいやー\nけんちこそんなににとがいたら\nきんちょうしちゃう…\n\nあ、あ、こまんどいれないで\nそんなてぎわよく\nれんぞくでいれないで\n\nあー…\n\nこんにちは…\n（ごじうにんぎゃりーがふえた）\n\nすぱーん\n（ないすしょっと！）\n\nないっしょー！！！\nわー！！！\n\nおおおおお\nわるくないかもー\n\nすぱっ\n（へんなほうこう）\n\n…\nくすくすくすくす\n\nいらないよ！\nかんじわるいよ！\nけしてよ！\n\nへらすには\nひだり、した、ひだりした、みぎした、ひだり、みぎ、した、みぎしたをいれる？？\n\nなんいどにさがありすぎるよ！\nああ、ひとりもけせない！\n\nかえってー！！！\n\nけんちこです\n\nげつよよびだー！\nおー！\nあさたのゆーきうを\nかちとれー！\n\nんでわいてきます！\n（きりり）\n\nちょーちょーちょーちょーちょーあいしてゆかやねー♥♥♥♥"
+            },
+            {
+              time: "19:57",
+              sender: "由美さん",
+              body: "帰ります！"
+            }
+          ]
+        },
+        {
+          date_header: "2026年9月8日（火）",
+          messages: []
+        },
+        {
+          date_header: "2026年9月9日（水）",
+          messages: [
+            {
+              time: "07:39",
+              sender: "由美さん",
+              body: "きょよはくもってるー\nふらないといいなー\n（しゅごごごごーーっ）\n\nきのーは\nきのー？\nきのー…\nなんかすごくいいひだった\nきがする…\n（しゅごごごごーーっ）\n\nうにゃにゃん\n\nあっ、どあとぅーごるふにゃん\nなんかびしょぬれで\nたいへんそう…\nだいじょぶー？\n\nにゃーうにゃーうにゃんにゃ\n\nふんふん\nあたらしい\nおきゃくさまが\nきにいって\nちょうじかん\nたいざいしてた？？\n\nへー、\nすごいねー\nはやってるねー\nで、なんで\nびしょぬれなのー？\n\nうにゃんにゃにゃうにゃーにゃ\n\nふんふん\nおきゃくさまがくると\nなぜか\nあめがひどくなって\nしんすいしそうになるから\nひっしで\nみずをかきだしてる？？\n\nえっ？\nなにそれ？\nおきゃくさまが\nあめをつれてくる？\nあめおとこ？？\n\nにゃんうにゃーうにゃんにゃん\n\nふんふん\nいまわだいの\nせんじょうこうすいにゃん？\n\nえっ？あの？\nでんせつの？\nせんじょうこうすいにゃん？\nやつがとおったあとには\nかわしかできないっていうあの！？\n\nえー\nすっごーい！\nゆうめいじんじゃん！\nさいんもらってきてー\nあっ、これしきしとぺんね！\nちゃんとゆせいにしてあるからー\n\nあっ、けんちこさん\nどあとぅーごるふにゃんに\nちょーゆうめいじんの\nおきゃくさんが！\nさいんほしーよねー\nけーんちーこさーん"
+            },
+            {
+              time: "08:20",
+              sender: "健介さん",
+              body: "あの…ずっとふぁんでした！\nきゃっ\n\nさいんくださーい\n\nあ、ちかづかないで\nそのままうごかないで\n\nきのーも\nもーこわくてこわくて\nすごいなーって\n\nふあんでふあんで\nずっとふあんでした…\n\nあ、さいんありがとう！\nへやにかざります！\n\nいましめとして…\n\nあ、ちかづかないで\nつよい\nあめつよいから\nいたいいたい\nはなれてー！\n\nふう\nそういえばきのー\nどあとぅごるふにゃん\nらいんくれてたよね\nなるべくくるなって\n\nあれはせんじょうこうすいたいにゃんがいたからかー\n\nあ、すっかりなかよくなった？\nそうなんだー\nでも、おおあめだとごるふできないよー\nおくないだからできてるけど\n\n…あ、きづいてなかったんだ\n\nびみょうなくうき！\n\nあー！\nあめがつよくなったー！！\nにげろー！\n\nけんちこです\n\nちょっとふられちゃったー\nかえりはだいじょぶだといーなー\n\nきょよもひるにふりそーだから\nきをつけてね！\n\nではいてきまーす\n\nちょーちょーちょーげきうるとらすんごいあいしてゆかやねー♥♥♥♥"
+            },
+            {
+              time: "12:17",
+              sender: "由美さん",
+              body: "やったー！\nあたったー！"
+            },
+            {
+              time: "12:18",
+              sender: "健介さん",
+              body: "すごーい！\nすきなときにつかってね！\nたのしい？たのしい？"
+            },
+            {
+              time: "12:20",
+              sender: "由美さん",
+              body: "ちょーたのしい！\nありがとーーっ！！\n\nちょー愛してるよ❤️❤️❤️"
+            },
+            {
+              time: "12:21",
+              sender: "健介さん",
+              body: "うれしい！\nたくさんまわしてね！\nしゅきー♥♥♥"
+            },
+            {
+              time: "12:21",
+              sender: "由美さん",
+              body: "いっぱいまわすんだー！\n\nしゅきーーーっ❤️"
+            },
+            {
+              time: "17:07",
+              sender: "由美さん",
+              body: "一等でたーーーーっ！！！\n\nあっ、遊んでないから！\nちょっとだけ休憩してただけだからー！！"
+            },
+            {
+              time: "17:09",
+              sender: "健介さん",
+              body: "おめでとー！！！\nねこのほん、かってあげるね！！"
+            },
+            {
+              time: "17:10",
+              sender: "由美さん",
+              body: "やったーーーっ！\n\nではしごとにもどります！\n（すちゃっ！）"
+            },
+            {
+              time: "21:13",
+              sender: "由美さん",
+              body: "お待たせしました！\n帰ります！"
+            }
+          ]
+        },
+        {
+          date_header: "2026年9月10日（木）",
+          messages: [
+            {
+              time: "07:41",
+              sender: "由美さん",
+              body: "きょよはくもってるー\nそしてちょっとさむーい\n（しゅごごごごーーっ）\n\nきのーはせんじょうこうすいにゃん\nさいんくれたけど\nべたべただったなー\nゆせいぺんが\nながれるほどの…\n（しゅごごごごーーっ）\n\nうにゃにゃにゃ\n\nあっ、どあとぅーごるふにゃん\nきょよはひとりなのー？\n\nにゃーうにゃーうにゃんにゃにゃ\n\nふんふん\nおきゃくさまから\nしんすいがひどくて\nごるふができないという\nくれーむがあいついだので\nしばらく\nきょりをおくことにした？\n\nあっ、うん\nごるふきにいってたのかなー\n\nせんじょうこうすいにゃんは\nなっとくしたのー？\n\nうにゃんにゃうにゃーにゃん\n\nふんふん\nかいひをはらってるんだから\nしようするけんりがあるって\nごねてた？\n\nあっ、おかねとってたんだ\nともだちじゃなかった\nたしかにかいいんさまなら\nだいじにしないと\n\nにゃーうにゃーうにゃんにゃにゃ\n\nふんふん\nひとりのかいひよりも\nそれいがいのひとの\nかいひのほうが\nあっとうてきにおおい？\n\nあっ、うん\nそれはまぁ、そうなんだけど…\nいがいとおかねに\nこだわるなー\n\nうにゃんにゃにゃうにゃーにゃ\n\nふんふん\nぎゃんぶるで\nつくったしゃっきんを\nかえさないと\nこわいひとたちが\nいえに…\n\nえっ？\nぎゃんぶる？\nしゃっきん？？\nなにしてるの？？\n\nにゃーうにゃーうにゃんにゃにゃ\n\nふんふん\nあきじかんに\nちょっとだけの\nぱちんこが？\nきがついたら\nばくだいな\nしゃっきんに！？\n\nなにやってるの？\nごるふとか\nなんかおしゃれな\nかんじかとおもったら\nまさかの\nぱちんかす？！\n\nうにゃんにゃにゃーにゃうにゃ\n\nふんふん\nでもいまは\nちょっとずつ\nちゃんと\nおかねをかえしてる？\n\nあっ、うんうん\nそっかー\nこころをいれかえて\nがんばってるんだねー\n\nてぃろりろりーん♪\n（めーるのちゃくしんおん）\n\nあれっ、どあとぅーごるふから\nめーるだー\nなんだろー\n\nふんふん\nこんげつのかいひが\nしはらわれてません？\n\n…\nえっ？\nあれっ？\nこんげつから\nげんきんの\nおしはらいになったって\nどあとぅーごるふにゃんに\nちょくせつ\nおかねわたしたよね？\n\nって、いない！？\nあんなところに！？\n\nこらーーーっ！\nまてーーーっ！！\n\nあっ、けんちこさん\nそのねこつかまえてー\nすてきなかんじで\nまじでやばいやつだったよー\nけーんちーこさーん"
+            },
+            {
+              time: "08:20",
+              sender: "健介さん",
+              body: "やべーやつだ！\nいっけんふつうなしんしが\nいちばんやっかいなさぎしなんだ！\n\nでもなんかー\nがっかりだなー\nどあとぅごるふにゃんがさぎしなんてー\nがっかりだなー\nあー、どあとぅごるふにゃん！\nうにちゃんのかいひをかえせー\n\nん？\nもらってない？\nうそだー\nげんきんでわたしたんだぞー\n\nほうほう\nさいきんどあとぅごるふにゃんのなをかたる\nにせものがいる？\nそんなばかなー\nみまちがえるものかー\n\nかってにげんきんでちょうしゅうして\nこまってる？？？\nそもそもしゃっきんなんかしてない？\n\nんー\nなんかー\nりあるだなー\n\nじゃ、いっしょにつかまえるか\n\nあ、あんなところに\nどあとぅごるふにゃんそっくりなねこが！\n（はやい）\n\nこらー\nだれかしらんが…\n？？？\nおなじひと？？\nあれ？\nどあとぅごるふにゃんがにひきいる？？\n\nそっちはめいえきてん？\nまさかのちぇーんてん？\nおれはやってない？？？\n\nああー\nもう\nなにがなんだかー！！\n\nけんちこです！\n\nもくよよびだー！\nまかせとけー！\n（なにを）\n\nきょよも\nねこでいやされますよよに！\n\nんでわいてくゆねー\n\nちょーちょーちょーちょーあいしてゆかやねー♥♥♥♥"
+            },
+            {
+              time: "20:56",
+              sender: "由美さん",
+              body: "お待たせしました！\n帰ります！"
+            }
+          ]
+        },
+        {
+          date_header: "2026年9月11日（金）",
+          messages: [
+            {
+              time: "08:26",
+              sender: "健介さん",
+              body: "いいですか？\n\nにゃー\n\nあなたたちのなかにさぎしがいます\n\nにゃー！にゃー！\n\nおちついてください。さわがないで\n\nにゃー\n\nはい、ひびのてんさん\n\nにゃー！\n\nたしかにね、あいちにそんなわるいやつがいるとはおもいたくないけどね\n\nにゃー！！\n\nはい、しぶやてんさん\n\nにゃーにゃー\n\nそうね、だからといってとうきょうにはんにんがいるとはかぎらないからね\n\nにゃー！！！\n\nおちついて！おちついてください！\nふう\nまさかぜんこくににひゃくてんぽもあるなんて\nこのなかにさぎしがいるはずなんだけどなー\n\nえ？しゅっせきしてないどあとぅごるふにゃんがいる？\nかすかべてん？？\n\nあやしい！\nあいにいかなきゃ！\n\nえ？\nうにさまがちょうどかすかべしゅっちょう？？？\n\nなんてぐうぜん！\nどあとぅごるふにゃんかすかべてんをしらべてきて！\nきをつけてねー！！\n\nけんちこです\n\nねこはまかせろー！\nよるはかなやままでむかえにいくかやね！\n\nんでわいてきまーす\n\nちょーちょーちょーあいしてゆかやねー♥♥♥♥"
+            },
+            {
+              time: "08:37",
+              sender: "由美さん",
+              body: "すごい！\nまさかつづきがよめるなんて！！\n\n今日は朝からごめがとう。\n健介さんも早起きさせてごめがとう。\n無理しないでね。\n\nはっ、けんちこさんから\nしれいが！？\n\nサギシカスカベテンカモ？\n\nさぎ？\nかも？\nとりにく？\nこんばんのおかず？？\n\nわかったー！\nきょよは\nとりにくたべたいんだー\n（かすかべてんは？？）\n\nよーし\nかすかべの\nしょしんしゃのもりで\nとりにくをさがすんだー\n（かすかべにもしょしんしゃのもりが？）\n\nいくぞー\nねこー！\n\nではひとかり\nいってくるねー\nけーんちーこさーん"
+            }
+          ]
+        }
+      ]
+    },
+    characters: {
+      "どあとぅーごるふにゃん": {
+        id: 265,
+        name: "どあとぅーごるふにゃん",
+        kana: "どあとぅーごるふにゃん",
+        motif: "インドアゴルフ「DOOR TO GOLF」・シミュレーションゴルフ・裏コマンド・全国チェーン",
+        debut_date: "2026/09/07",
+        voice: "にゃーうにゃーうにゃんにゃにゃ（すぱーん！）",
+        translation: "「DOOR TO GOLFでナイスショットにゃ！コマンド入力でギャラリーを50人増やすにゃ！」",
+        episode_summary: "会員制インドアゴルフ「DOOR TO GOLF」の猫。裏コマンド入力で観客を増やしたり打ち返したりできる。大雨を呼ぶ客（せんじょうこうすいにゃん）で店舗が浸水し揉めたり、パチンコ借金疑惑や現金会費徴収詐欺疑惑が浮上。全国200店舗（名駅店、日比野店、渋谷店、春日部店等）が存在する。",
+        prompt_ja: "シンプルなペン画の猫「どあとぅーごるふにゃん」。小さなサンバイザーをかぶり、ミニチュアのゴルフクラブ（ドライバー）を抱えて真顔で立っている脱力系ゴルファーマスコット。",
+        prompt_en: "minimalist golfer cat mascot named Door-to-Golf-nyan wearing a tiny sun visor and holding a miniature golf driver club with a funny deadpan face, clean pen lines --ar 1:1",
+        doc_link: "",
+        week_info: "9月 第2週（2026/09/07 〜 2026/09/11）"
+      },
+      "せんじょうこうすいにゃん": {
+        id: 269,
+        name: "せんじょうこうすいにゃん / せんじょうこうすいたいにゃん",
+        kana: "せんじょうこうすいにゃん",
+        motif: "線状降水帯・集中豪雨・伝説の有名人・油性ペン色紙サイン",
+        debut_date: "2026/09/09",
+        voice: "ざーーーーっ！（しゅごごごごっ）",
+        translation: "「伝説のせんじょうこうすいにゃんだにゃ！サインあげるけど雨でインクが全部流れるにゃ！」",
+        episode_summary: "通った後には川しか残らないと恐れられる伝説の有名猫。会員制インドアゴルフ「DOOR TO GOLF」を気に入り長時間滞在したため店舗が浸水危機に。由美さんに頼まれた健介さんが油性ペンと色紙を差し出してサインをもらうが、雨が激しすぎてインクがベタベタに流れてしまった。",
+        prompt_ja: "シンプルなペン画のぽてっとした猫「せんじょうこうすいにゃん」。頭の上に細長く連なる雨雲と激しい土砂降りの雨をまとわせ、インクのにじんだ色紙とペンを抱えてジト目の無表情で立っている脱力系マスコットイラスト。",
+        prompt_en: "minimalist cute cat mascot named Senjokosui-nyan with a long line of dark rain clouds above its head pouring heavy rain, holding a soggy signature board and pen with a deadpan stoic expression, simple black ink lines --ar 1:1",
+        doc_link: "",
+        week_info: "9月 第2週（2026/09/07 〜 2026/09/11）"
+      }
+    }
+  },
+  null,
+  2
+);
+
 export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
   characters,
   onUpdateCharacters,
@@ -424,7 +593,14 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     if (res.valid && res.stories.length > 0) {
       const initial: Record<number, { targetNo: number; updateName: boolean }> = {};
       res.stories.forEach((s, idx) => {
-        const charMatch = characters.find((c) => c.no === s.id);
+        const charMatch =
+          characters.find((c) => c.no === s.id) ||
+          characters.find(
+            (c) =>
+              c.name.trim() === s.name.trim() ||
+              c.name.includes(s.name) ||
+              s.name.includes(c.name)
+          );
         if (charMatch) {
           initial[idx] = { targetNo: charMatch.no, updateName: false };
         } else {
@@ -482,9 +658,12 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
       });
 
       if (res.success) {
+        const msg = res.writtenCount === 0
+          ? `✨ 全 ${res.totalUploaded} 件の物語は既に登録済・変更なしのため、Firestore書き込みは行われませんでした（書込0回・通信費ゼロ）`
+          : `🎉 ${res.totalUploaded} 件中 ${res.writtenCount} 件の差分物語をFirestoreに保存・更新しました！（未変更 ${res.skippedCount} 件はスキップ・書込2回のみ）`;
         setStatusMessage({
           type: 'success',
-          text: `🎉 ${res.totalUploaded} 件の物語をFirestoreに保存・更新しました！`,
+          text: msg,
         });
         setJsonInput('');
         setParsedPreview(null);
@@ -656,8 +835,18 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
         alert(parseRes.error || '無効なJSONフォーマットです');
         return;
       }
-      const story = parseRes.stories[0];
-      story.id = editingNyan.no; // Ensure ID matches
+      // If multiple stories exist in parsed JSON (e.g. GEMINI weekly format with multiple characters),
+      // smartly select the story corresponding to the currently edited nyan
+      const matchedStory =
+        parseRes.stories.find((s) => s.id === editingNyan.no) ||
+        parseRes.stories.find((s) => {
+          const sName = s.name.trim();
+          const nName = editingNyan.name.trim();
+          return sName === nName || sName.includes(nName) || nName.includes(sName);
+        }) ||
+        parseRes.stories[0];
+
+      const story = { ...matchedStory, id: editingNyan.no }; // Ensure ID matches this character
 
       setIsSavingSingleStory(true);
       const res = await saveSingleStoryToFirestore(story);
@@ -1224,17 +1413,27 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 物語JSONの一括登録・更新
               </h5>
               <p className="text-[11px] text-[#7A726A] mt-0.5">
-                JSONテキストを直接貼り付けるか、ファイルを選択してください。キー名形式（<code>&#123; "かがみもちにゃん": &#123; id: 1, ... &#125; &#125;</code>）や配列形式にも全対応しています。
+                JSONテキストを直接貼り付けるか、ファイルを選択してください。キー名形式（<code>&#123; "かがみもちにゃん": &#123; id: 1, ... &#125; &#125;</code>）、配列形式、およびGEMINIの週間形式（<code>week_info</code> + <code>characters</code>）にも完全対応しています。
               </p>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 onClick={() => setJsonInput(SAMPLE_STORY_JSON)}
                 className="px-3 py-1 bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#5A524A] rounded-lg text-xs font-bold transition flex items-center gap-1"
+                title="単一にゃんこ形式のサンプルを入力"
               >
                 <Sparkles className="w-3 h-3 text-[#D97543]" />
-                <span>サンプルJSONを入力</span>
+                <span>サンプルJSON</span>
+              </button>
+
+              <button
+                onClick={() => setJsonInput(GEMINI_WEEKLY_SAMPLE_JSON)}
+                className="px-3 py-1 bg-[#F5EBE1] hover:bg-[#EBDDCF] text-[#8C5A3E] border border-[#E3CDBC] rounded-lg text-xs font-bold transition flex items-center gap-1"
+                title="GEMINI週間会話・複数キャラクター形式（どあとぅーごるふ＆せんじょうこうすい）を入力"
+              >
+                <Sparkles className="w-3 h-3 text-[#C8744E]" />
+                <span>GEMINI週間JSON例</span>
               </button>
 
               <label className="px-3 py-1 bg-white hover:bg-[#FAF8F5] text-[#487560] border border-[#C6D8CD] rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1">
@@ -1313,8 +1512,8 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                     <UploadCloud className={`w-4 h-4 ${isUploading ? 'animate-bounce' : ''}`} />
                     <span>
                       {isUploading
-                        ? 'Firestoreへアップロード中...'
-                        : `${parsedPreview.stories.length}件を登録 (想定${parsedPreview.stories.length}回書込)`}
+                        ? 'Firestoreへ差分アップロード中...'
+                        : `${parsedPreview.stories.length}件を差分登録 (未変更はスキップ・最大2回書込)`}
                     </span>
                   </button>
                 </div>
@@ -1581,7 +1780,8 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                   )}
 
                   <p className="text-[11px] text-[#7A726A]">
-                    このにゃんこ専用の物語JSONです。メッセージのセリフや話数、登場人物などを直接編集して「保存」できます。
+                    このにゃんこ専用の物語JSONです。メッセージのセリフや話数を直接編集して「保存」できます。<br />
+                    <span className="text-[#8C5A3E] font-medium">※ GEMINIが生成した週間会話形式（<code>week_info</code> + <code>characters</code>）のJSONをそのまま貼り付けても、このにゃんこの物語（No.{editingNyan.no} {editingNyan.name}）を自動抽出して保存できます！</span>
                   </p>
                   <textarea
                     rows={13}

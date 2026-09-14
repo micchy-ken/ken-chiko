@@ -24,6 +24,7 @@ const storyMemoryCache = new Map<number, NyankoStory>();
 let cachedStoriesMeta: NyankoStoriesMeta | null = null;
 
 // Storage key prefixes
+const LOCAL_STORY_KEY_PREFIX = 'kenchiko_story_data_v1_';
 const SESSION_CACHE_KEY_PREFIX = 'kenchiko_story_cache_v2_';
 const LOCAL_STORIES_META_KEY = 'kenchiko_stories_meta_v1';
 const FIRESTORE_COLLECTION = 'kenchiko_world';
@@ -32,46 +33,74 @@ export const GLOBAL_STORIES_DOC_ID = 'ken-chiko-global-stories';
 export const GLOBAL_UNMAPPED_DOC_ID = 'ken-chiko-global-unmapped-stories';
 
 /**
- * Retrieves cached story from memory or sessionStorage
+ * Retrieves cached story from memory, sessionStorage, or localStorage (persistent)
  */
-function getFromLocalCache(nyanId: number): NyankoStory | null {
+export function getFromLocalCache(nyanId: number): NyankoStory | null {
   if (storyMemoryCache.has(nyanId)) {
     return storyMemoryCache.get(nyanId)!;
   }
-  if (typeof window !== 'undefined' && window.sessionStorage) {
-    try {
-      const raw = sessionStorage.getItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw) as NyankoStory;
-        storyMemoryCache.set(nyanId, parsed);
-        return parsed;
-      }
-    } catch {}
+  if (typeof window !== 'undefined') {
+    // 1. Check persistent localStorage
+    if (window.localStorage) {
+      try {
+        const raw = localStorage.getItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as NyankoStory;
+          storyMemoryCache.set(nyanId, parsed);
+          return parsed;
+        }
+      } catch {}
+    }
+    // 2. Check sessionStorage
+    if (window.sessionStorage) {
+      try {
+        const raw = sessionStorage.getItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw) as NyankoStory;
+          storyMemoryCache.set(nyanId, parsed);
+          return parsed;
+        }
+      } catch {}
+    }
   }
   return null;
 }
 
 /**
- * Saves story to memory and sessionStorage
+ * Saves story to memory, sessionStorage, and persistent localStorage
  */
-function saveToLocalCache(nyanId: number, story: NyankoStory): void {
+export function saveToLocalCache(nyanId: number, story: NyankoStory): void {
   storyMemoryCache.set(nyanId, story);
-  if (typeof window !== 'undefined' && window.sessionStorage) {
-    try {
-      sessionStorage.setItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
-    } catch {}
+  if (typeof window !== 'undefined') {
+    if (window.localStorage) {
+      try {
+        localStorage.setItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
+      } catch {}
+    }
+    if (window.sessionStorage) {
+      try {
+        sessionStorage.setItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
+      } catch {}
+    }
   }
 }
 
 /**
- * Removes story from local caches
+ * Removes story from all local caches
  */
-function removeFromLocalCache(nyanId: number): void {
+export function removeFromLocalCache(nyanId: number): void {
   storyMemoryCache.delete(nyanId);
-  if (typeof window !== 'undefined' && window.sessionStorage) {
-    try {
-      sessionStorage.removeItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
-    } catch {}
+  if (typeof window !== 'undefined') {
+    if (window.localStorage) {
+      try {
+        localStorage.removeItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
+      } catch {}
+    }
+    if (window.sessionStorage) {
+      try {
+        sessionStorage.removeItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
+      } catch {}
+    }
   }
 }
 
@@ -181,6 +210,56 @@ export function parseStoryInputJson(input: string | any): {
     }
 
     const result: NyankoStory[] = [];
+
+    // Case 0: GEMINI weekly format with shared week_info & characters dictionary or array
+    const charactersMap = parsed.characters || parsed.character_list || parsed.cats;
+    if (charactersMap && typeof charactersMap === 'object') {
+      const sharedWeekInfo = parsed.week_info && typeof parsed.week_info === 'object' ? parsed.week_info : undefined;
+
+      const charEntries: [string, any][] = Array.isArray(charactersMap)
+        ? charactersMap.map((c: any, idx: number) => [c?.name || `character_${idx}`, c])
+        : Object.entries(charactersMap);
+
+      for (const [key, val] of charEntries) {
+        if (!val || typeof val !== 'object') continue;
+        const charObj: any = val;
+
+        // If character's week_info is just a string (e.g. "9月 第2週..."), or missing/has no days, inherit sharedWeekInfo
+        let resolvedWeekInfo = charObj.week_info;
+        if (
+          typeof resolvedWeekInfo === 'string' ||
+          !resolvedWeekInfo ||
+          !Array.isArray(resolvedWeekInfo.days) ||
+          resolvedWeekInfo.days.length === 0
+        ) {
+          if (sharedWeekInfo) {
+            resolvedWeekInfo = {
+              ...sharedWeekInfo,
+              week_title:
+                typeof charObj.week_info === 'string'
+                  ? charObj.week_info
+                  : (sharedWeekInfo.week_title || ''),
+            };
+          }
+        }
+
+        const itemToNormalize = {
+          ...charObj,
+          name: charObj.name || charObj.character_name || key,
+          week_info: resolvedWeekInfo,
+        };
+
+        const validItem = normalizeStoryItem(itemToNormalize);
+        if (validItem) {
+          result.push(validItem);
+        }
+      }
+
+      if (result.length > 0) {
+        result.sort((a, b) => a.id - b.id);
+        return { valid: true, stories: result };
+      }
+    }
 
     const processObject = (obj: any, fallbackName?: string) => {
       if (!obj || typeof obj !== 'object') return;
@@ -387,58 +466,113 @@ export function preloadNyankoStory(nyanId: number): void {
 }
 
 /**
- * Uploads or updates stories from a raw JSON object to Firestore in a SINGLE atomic write operation.
- * Consolidates all stories into the global master document (exactly 1 Write, preventing hundreds of writes).
+ * Helper to compute whether two story objects are content-identical (excluding timestamps)
+ */
+function isStoryContentEqual(a: NyankoStory, b: NyankoStory): boolean {
+  if (!a || !b) return false;
+  if (a.id !== b.id) return false;
+  if (a.name !== b.name) return false;
+  if ((a.kana || '') !== (b.kana || '')) return false;
+  if ((a.motif || '') !== (b.motif || '')) return false;
+  if ((a.title || '') !== (b.title || '')) return false;
+  if ((a.storyOriginalName || '') !== (b.storyOriginalName || '')) return false;
+
+  const wA = a.week_info;
+  const wB = b.week_info;
+  if (!wA && !wB) return true;
+  if (!wA || !wB) return false;
+
+  if (wA.week_title !== wB.week_title) return false;
+  if (wA.week_start !== wB.week_start) return false;
+  if (wA.week_end !== wB.week_end) return false;
+
+  const daysA = wA.days || [];
+  const daysB = wB.days || [];
+  if (daysA.length !== daysB.length) return false;
+
+  for (let i = 0; i < daysA.length; i++) {
+    const dA = daysA[i];
+    const dB = daysB[i];
+    if (dA.date_header !== dB.date_header) return false;
+    const msgsA = dA.messages || [];
+    const msgsB = dB.messages || [];
+    if (msgsA.length !== msgsB.length) return false;
+    for (let j = 0; j < msgsA.length; j++) {
+      if (msgsA[j].time !== msgsB[j].time) return false;
+      if (msgsA[j].sender !== msgsB[j].sender) return false;
+      if (msgsA[j].body !== msgsB[j].body) return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Uploads or updates stories from a raw JSON object to Firestore.
+ * Performs differential synchronization:
+ *  - Compares against local cache or catalog to skip identical stories.
+ *  - If all incoming stories are identical to cached versions, 0 Firestore writes occur.
+ *  - Only altered or newly added stories are merged into the global document.
  */
 export async function uploadStoriesJsonToFirestore(
   jsonData: Record<string, any> | any[] | string,
   onProgress?: (progress: { current: number; total: number; percent: number }) => void
-): Promise<{ success: boolean; totalUploaded: number; error?: string }> {
+): Promise<{ success: boolean; totalUploaded: number; skippedCount: number; writtenCount: number; error?: string }> {
   try {
     const parseRes = parseStoryInputJson(jsonData);
     if (!parseRes.valid || parseRes.stories.length === 0) {
-      return { success: false, totalUploaded: 0, error: parseRes.error || 'データが空です' };
+      return { success: false, totalUploaded: 0, skippedCount: 0, writtenCount: 0, error: parseRes.error || 'データが空です' };
     }
 
     const db = getFirestoreDbInstance();
     if (!db) {
-      return { success: false, totalUploaded: 0, error: 'Firebase is not initialized' };
+      return { success: false, totalUploaded: 0, skippedCount: 0, writtenCount: 0, error: 'Firebase is not initialized' };
     }
 
     const stories = parseRes.stories;
     const total = stories.length;
 
     // Fetch or prepare current metadata
-    const currentMeta = (await fetchStoriesMeta(true)) || {
+    const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
       storyCount: 0,
       stories: {},
     };
 
-    // Prepare dictionary map of all stories
-    const storiesMap: Record<string, NyankoStory> = {};
+    // 1. Identify which stories actually need updating by checking cached story contents
+    const changedStoriesMap: Record<string, NyankoStory> = {};
+    let skippedCount = 0;
+
     for (let i = 0; i < total; i++) {
       const item = stories[i];
-      const cleanPayload: NyankoStory = JSON.parse(JSON.stringify({
-        ...item,
-        updatedAt: new Date().toISOString(),
-      }));
-      storiesMap[String(item.id)] = cleanPayload;
+      const existingCached = getFromLocalCache(item.id);
 
-      // Update meta map
-      currentMeta.stories[String(item.id)] = {
-        id: item.id,
-        name: item.name,
-        kana: item.kana,
-        motif: item.motif,
-        week_title: item.week_info?.week_title,
-        daysCount: item.week_info?.days?.length || 0,
-        updatedAt: new Date().toISOString(),
-      };
+      const isUnchanged = existingCached && isStoryContentEqual(existingCached, item);
 
-      // Update local memory cache immediately
-      saveToLocalCache(item.id, cleanPayload);
+      if (isUnchanged) {
+        skippedCount++;
+      } else {
+        const cleanPayload: NyankoStory = JSON.parse(JSON.stringify({
+          ...item,
+          updatedAt: new Date().toISOString(),
+        }));
+        changedStoriesMap[String(item.id)] = cleanPayload;
+
+        // Update local memory and persistent cache immediately
+        saveToLocalCache(item.id, cleanPayload);
+
+        // Update meta map for the changed story
+        currentMeta.stories[String(item.id)] = {
+          id: item.id,
+          name: item.name,
+          kana: item.kana,
+          motif: item.motif,
+          week_title: item.week_info?.week_title,
+          daysCount: item.week_info?.days?.length || 0,
+          updatedAt: new Date().toISOString(),
+        };
+      }
 
       if (onProgress && (i % 10 === 0 || i === total - 1)) {
         onProgress({
@@ -449,45 +583,70 @@ export async function uploadStoriesJsonToFirestore(
       }
     }
 
+    const changedCount = Object.keys(changedStoriesMap).length;
+
+    // If no stories were changed or added, completely skip Firestore write
+    if (changedCount === 0) {
+      console.log(`[NyankoStory] ⏭️ 全${total}件の物語データは変更なし（キャッシュと完全一致）。Firestore書込を0回でスキップしました。`);
+      return {
+        success: true,
+        totalUploaded: total,
+        skippedCount,
+        writtenCount: 0,
+      };
+    }
+
     currentMeta.storyCount = Object.keys(currentMeta.stories).length;
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
-    // Atomic Batch Write: commits both consolidated stories and metadata in a single atomic network operation
+    // Atomic Batch Write: commits only the differential changes and metadata in a single atomic operation
     const batch = writeBatch(db);
     const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
     batch.set(globalStoriesRef, {
       version: currentMeta.version,
       updatedAt: new Date().toISOString(),
       storyCount: currentMeta.storyCount,
-      stories: storiesMap,
+      stories: changedStoriesMap,
     }, { merge: true });
 
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
     batch.set(metaRef, currentMeta);
 
     await batch.commit();
-    recordFirestoreWrite('kenchiko_world/stories_batch', 2);
+    recordFirestoreWrite('kenchiko_world/stories_batch_diff', 2);
     setLocalStoriesMeta(currentMeta);
 
-    console.log(`[NyankoStory] 💾 全物語を一括保存完了 [writeBatchで完全アトミック一括保存]: ${total}件の物語を ${GLOBAL_STORIES_DOC_ID} に統合`);
+    console.log(`[NyankoStory] 💾 差分物語保存完了: 全${total}件中 ${changedCount}件更新 / ${skippedCount}件スキップ (書き込み2回: データ統合+目録)`);
 
-    return { success: true, totalUploaded: total };
+    return {
+      success: true,
+      totalUploaded: total,
+      skippedCount,
+      writtenCount: changedCount,
+    };
   } catch (err: any) {
     console.error('Failed to upload stories JSON:', err);
-    return { success: false, totalUploaded: 0, error: err?.message || 'アップロードに失敗しました' };
+    return { success: false, totalUploaded: 0, skippedCount: 0, writtenCount: 0, error: err?.message || 'アップロードに失敗しました' };
   }
 }
 
 /**
- * Saves a single story to Firestore and updates the metadata index.
- * Writes to consolidated global document (1 Write).
+ * Saves a single story to Firestore and updates the metadata index with differential check.
  */
 export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
   success: boolean;
+  skipped?: boolean;
   error?: string;
 }> {
   try {
+    // Check if unchanged
+    const existing = getFromLocalCache(story.id);
+    if (existing && isStoryContentEqual(existing, story)) {
+      console.log(`[NyankoStory] ⏭️ No.${story.id}「${story.name}」は変更がないためFirestore書き込みをスキップ`);
+      return { success: true, skipped: true };
+    }
+
     const db = getFirestoreDbInstance();
     if (!db) {
       return { success: false, error: 'Firebaseデータベースに接続できません' };
@@ -498,21 +657,8 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
       updatedAt: new Date().toISOString(),
     }));
 
-    // Write to consolidated global document in Firestore (1 Write)
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    await setDoc(globalStoriesRef, {
-      updatedAt: new Date().toISOString(),
-      stories: {
-        [String(story.id)]: cleanPayload,
-      },
-    }, { merge: true });
-    recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 1);
-
-    // Save to memory cache
-    saveToLocalCache(story.id, story);
-
     // Update metadata
-    const currentMeta = (await fetchStoriesMeta(true)) || {
+    const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
       storyCount: 0,
@@ -532,9 +678,27 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
+    // Atomic write to global stories document & meta document in 1 batch
+    const batch = writeBatch(db);
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    batch.set(globalStoriesRef, {
+      updatedAt: new Date().toISOString(),
+      stories: {
+        [String(story.id)]: cleanPayload,
+      },
+    }, { merge: true });
+
+    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+    batch.set(metaRef, currentMeta);
+
+    await batch.commit();
+    recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 2);
+
+    // Save to local cache
+    saveToLocalCache(story.id, story);
     setLocalStoriesMeta(currentMeta);
 
-    return { success: true };
+    return { success: true, skipped: false };
   } catch (err: any) {
     console.error('Failed to save single story:', err);
     return { success: false, error: err?.message || '保存に失敗しました' };
@@ -556,24 +720,17 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
 
     const batch = writeBatch(db);
 
-    // 1. Remove from global stories consolidated document
+    // 1. Remove from global stories consolidated document using deleteField()
     const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    const globalSnap = await getDoc(globalStoriesRef);
-    if (globalSnap.exists()) {
-      const gData = globalSnap.data();
-      const storiesMap = { ...(gData.stories || {}) };
-      delete storiesMap[String(nyanId)];
-      batch.set(globalStoriesRef, {
-        updatedAt: new Date().toISOString(),
-        storyCount: Object.keys(storiesMap).length,
-        stories: storiesMap,
-      });
-    }
+    batch.update(globalStoriesRef, {
+      updatedAt: new Date().toISOString(),
+      [`stories.${nyanId}`]: deleteField(),
+    });
 
     removeFromLocalCache(nyanId);
 
     // 2. Update metadata document in the same batch
-    const currentMeta = (await fetchStoriesMeta(true)) || {
+    const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
       storyCount: 0,
@@ -634,44 +791,76 @@ export async function rebuildStoriesMetaFromFirestore(
       };
     }
 
-    const storiesCol = collection(db, 'nyanko_stories');
-    const snapshot = await getDocs(storiesCol);
-
-    if (snapshot.empty) {
-      return {
-        success: true,
-        totalCount: 0,
-        syncedNyans: [],
-      };
-    }
-
-    const total = snapshot.size;
     const storiesMap: Record<string, StoryIndexItem> = {};
     const syncedNyans: { id: number; name: string; title: string; daysCount: number }[] = [];
 
-    let current = 0;
-    for (const docSnap of snapshot.docs) {
-      current++;
-      const data = docSnap.data();
-      const id = Number(data.id || docSnap.id);
-      const name = data.name || `にゃんこ No.${id}`;
-      const title = data.week_info?.week_title || data.title || '';
-      const daysCount = Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0;
+    // 1. Check consolidated global document first (1 single read)
+    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+    const globalSnap = await getDoc(globalStoriesRef);
+    if (globalSnap.exists()) {
+      const gData = globalSnap.data();
+      const globalStories = (gData.stories || {}) as Record<string, NyankoStory>;
+      const entries = Object.entries(globalStories);
+      let current = 0;
+      for (const [key, val] of entries) {
+        current++;
+        const id = Number(val.id || key);
+        if (isNaN(id)) continue;
+        const name = val.name || `にゃんこ No.${id}`;
+        const title = val.week_info?.week_title || val.title || '';
+        const daysCount = Array.isArray(val.week_info?.days) ? val.week_info.days.length : 0;
 
-      storiesMap[String(id)] = {
-        id,
-        name,
-        kana: data.kana,
-        motif: data.motif,
-        week_title: title,
-        daysCount,
-        updatedAt: data.updatedAt || new Date().toISOString(),
-      };
+        storiesMap[String(id)] = {
+          id,
+          name,
+          kana: val.kana,
+          motif: val.motif,
+          week_title: title,
+          daysCount,
+          updatedAt: val.updatedAt || new Date().toISOString(),
+        };
 
-      syncedNyans.push({ id, name, title, daysCount });
+        saveToLocalCache(id, val);
+        syncedNyans.push({ id, name, title, daysCount });
+        if (onProgress) {
+          onProgress({ id, name, current, total: entries.length });
+        }
+      }
+    }
 
-      if (onProgress) {
-        onProgress({ id, name, current, total });
+    // 2. Fallback to legacy collection if global document is empty
+    if (Object.keys(storiesMap).length === 0) {
+      const storiesCol = collection(db, 'nyanko_stories');
+      const snapshot = await getDocs(storiesCol);
+
+      if (!snapshot.empty) {
+        const total = snapshot.size;
+        let current = 0;
+        for (const docSnap of snapshot.docs) {
+          current++;
+          const data = docSnap.data();
+          const id = Number(data.id || docSnap.id);
+          const name = data.name || `にゃんこ No.${id}`;
+          const title = data.week_info?.week_title || data.title || '';
+          const daysCount = Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0;
+
+          storiesMap[String(id)] = {
+            id,
+            name,
+            kana: data.kana,
+            motif: data.motif,
+            week_title: title,
+            daysCount,
+            updatedAt: data.updatedAt || new Date().toISOString(),
+          };
+
+          saveToLocalCache(id, data as NyankoStory);
+          syncedNyans.push({ id, name, title, daysCount });
+
+          if (onProgress) {
+            onProgress({ id, name, current, total });
+          }
+        }
       }
     }
 
