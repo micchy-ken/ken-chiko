@@ -83,6 +83,8 @@ import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/image
 import { getActiveUserId, setActiveUserId } from './services/userService';
 import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
 import { LoadingScreen } from './components/LoadingScreen';
+import { FirestoreTrafficModal } from './components/FirestoreTrafficModal';
+import { getTrafficStats, isFirestoreQuotaExhausted } from './services/firestoreTrafficLogger';
 
 import {
   Eye,
@@ -99,6 +101,8 @@ import {
   WifiOff,
   CloudOff,
   X,
+  Activity,
+  ShieldAlert,
 } from 'lucide-react';
 import confetti from './utils/confetti';
 
@@ -212,6 +216,36 @@ export default function App() {
   const tutorialOpenTimestampRef = useRef<number | null>(null);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab | undefined>(undefined);
   const [newEncounterToast, setNewEncounterToast] = useState<NyanCharacter | null>(null);
+  const [showTrafficModal, setShowTrafficModal] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && (window.location.search.includes('traffic') || window.location.search.includes('audit'));
+  });
+  const [isCircuitBreakerTripped, setIsCircuitBreakerTripped] = useState<boolean>(false);
+  const [isQuotaExhausted, setIsQuotaExhausted] = useState<boolean>(() => isFirestoreQuotaExhausted());
+
+  useEffect(() => {
+    const handleBreakerTripped = () => {
+      setIsCircuitBreakerTripped(true);
+      setShowTrafficModal(true); // Automatically open modal to alert admin
+    };
+    const handleQuotaExhausted = () => {
+      setIsQuotaExhausted(true);
+    };
+    window.addEventListener('kenchiko-circuit-breaker-tripped', handleBreakerTripped);
+    window.addEventListener('kenchiko-quota-exhausted', handleQuotaExhausted);
+
+    // Check circuit breaker status periodically
+    const statusTimer = setInterval(() => {
+      const stats = getTrafficStats();
+      setIsCircuitBreakerTripped(stats.isBreakerTripped);
+      setIsQuotaExhausted(stats.isQuotaExhausted);
+    }, 1500);
+
+    return () => {
+      window.removeEventListener('kenchiko-circuit-breaker-tripped', handleBreakerTripped);
+      window.removeEventListener('kenchiko-quota-exhausted', handleQuotaExhausted);
+      clearInterval(statusTimer);
+    };
+  }, []);
 
   // Rewards & Garapon States
   const [showGaraponModal, setShowGaraponModal] = useState<boolean>(false);
@@ -1985,6 +2019,36 @@ export default function App() {
                 </span>
               </button>
             )}
+
+            {/* Circuit Breaker & Traffic Monitor Indicator */}
+            {isQuotaExhausted ? (
+              <button
+                onClick={() => setShowTrafficModal(true)}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white px-2.5 py-1 rounded-full text-xs font-bold animate-pulse shadow-md transition cursor-pointer"
+                title="Google Cloud無料枠上限によりローカル保護モードで稼働中。タップして詳細ログを確認"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>無料枠保護中</span>
+              </button>
+            ) : isCircuitBreakerTripped ? (
+              <button
+                onClick={() => setShowTrafficModal(true)}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-full text-xs font-bold animate-pulse shadow-md transition cursor-pointer"
+                title="サーキットブレーカー発動中！タップして詳細ログを確認"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>通信遮断中</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowTrafficModal(true)}
+                className="hidden sm:flex-shrink-0 sm:flex items-center gap-1 bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] px-2 py-1 sketch-tag border border-[#DDD7C8] text-[11px] font-bold shadow-xs transition cursor-pointer"
+                title="Firestore通信生ログ＆安全ブレーカー監視コンソールを開く"
+              >
+                <Activity className="w-3 h-3 text-[#487560]" />
+                <span>通信ログ</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2305,6 +2369,20 @@ export default function App() {
               <span className="font-handwriting">管理画面</span>
             </button>
 
+            {/* Firestore Traffic Log Button */}
+            <button
+              onClick={() => setShowTrafficModal(true)}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm px-3 py-2 sketch-card-subtle shadow-xs transition active:translate-y-0.5 cursor-pointer ${
+                isCircuitBreakerTripped
+                  ? 'bg-red-600 text-white animate-pulse'
+                  : 'bg-[#FAF8F4] hover:bg-white text-[#4A433D] hover:text-[#2E2824]'
+              }`}
+              title="Firestore通信生ログ＆サーキットブレーカー監視を開く"
+            >
+              <Activity className={`w-4 h-4 ${isCircuitBreakerTripped ? 'text-white' : 'text-[#487560]'}`} />
+              <span className="font-handwriting">通信ログ</span>
+            </button>
+
             {/* User Settings Button */}
             <button
               onClick={() => setShowUserSettingsModal(true)}
@@ -2424,6 +2502,12 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Firestore Traffic & Circuit Breaker Inspector Modal */}
+      <FirestoreTrafficModal
+        isOpen={showTrafficModal}
+        onClose={() => setShowTrafficModal(false)}
+      />
     </div>
   );
 }

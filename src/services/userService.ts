@@ -1,6 +1,7 @@
 // User management and persistence service for Multi-user support via query parameters (?user=yumi etc.)
 
-import { doc, getDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
+import { auditedGetDoc as getDoc, isFirestoreQuotaExhausted } from './firestoreTrafficLogger';
 import { GameSaveData, NyanCharacter, KenchikoAsobi, OuenItem, OuenCategory } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
@@ -403,10 +404,12 @@ function buildUserDetailData(
 let cachedUsersData: UserDetailData[] | null = null;
 let lastUsersFetchTime = 0;
 const USERS_CACHE_TTL = 60000; // 60 seconds (1 minute cache to avoid repeated Firestore collection reads)
+let inFlightUsersPromise: Promise<UserDetailData[]> | null = null;
 
 export function invalidateUsersCache(): void {
   cachedUsersData = null;
   lastUsersFetchTime = 0;
+  inFlightUsersPromise = null;
 }
 
 /**
@@ -421,55 +424,66 @@ export async function fetchAllRegisteredUsers(
     return cachedUsersData;
   }
 
-  const currentActiveId = getActiveUserId();
-  const userMap = new Map<
-    string,
-    {
-      saveData: GameSaveData;
-      source: 'firestore' | 'local' | 'both';
-      docId: string;
-      updatedAt?: string;
-    }
-  >();
-
-  const pureMasterNyans = cleanseMasterCharacters(masterNyans);
-
-  // 1. Fetch from Firestore strictly by individual user documents (NO collection scanning!)
-  // ユーザー管理はユーザーデータ（ken-chiko-user-*）のみを直接ピンポイントで読む仕様
-  // 基本ユーザー（default, yumi, ken, chiko）＋追加ユーザーのみ取得するため、対象人数分しか読みません
-  try {
-    const db = getFirestoreDbInstance();
-    if (db) {
-      const targetUserIds = getKnownUserIds();
-      console.log(`[CloudSync] 👥 ユーザーデータ読込 (${targetUserIds.length}件ピンポイント直接取得): コレクション走査を完全廃止`);
-      await Promise.all(
-        targetUserIds.map(async (uid) => {
-          if (isSystemUserId(uid)) return;
-          try {
-            const docId = getFirestoreDocIdForUser(uid);
-            const userDocRef = doc(db, 'kenchiko_world', docId);
-            const userSnap = await getDoc(userDocRef);
-            recordFirestoreRead(`ユーザー管理 [${uid}] (${docId})`, 1);
-            if (userSnap.exists()) {
-              const raw = userSnap.data();
-              const parsed = reconstructGameSaveData(raw, pureMasterNyans);
-              userMap.set(uid, {
-                saveData: parsed,
-                source: 'firestore',
-                docId,
-                updatedAt: raw.updatedAt,
-              });
-              registerKnownUserId(uid);
-            }
-          } catch (docErr) {
-            console.warn(`Firestore read for user ${uid} note:`, docErr);
-          }
-        })
-      );
-    }
-  } catch (firestoreErr) {
-    console.warn('Firestore fetchAllRegisteredUsers notice:', firestoreErr);
+  if (!forceRefresh && inFlightUsersPromise) {
+    return inFlightUsersPromise;
   }
+
+  inFlightUsersPromise = (async () => {
+    try {
+      const currentActiveId = getActiveUserId();
+      const userMap = new Map<
+        string,
+        {
+          saveData: GameSaveData;
+          source: 'firestore' | 'local' | 'both';
+          docId: string;
+          updatedAt?: string;
+        }
+      >();
+
+      const pureMasterNyans = cleanseMasterCharacters(masterNyans);
+
+      // 1. Fetch from Firestore strictly by individual user documents (NO collection scanning!)
+      // If Quota is exhausted, gracefully skip Firestore network completely to avoid quota errors
+      if (!isFirestoreQuotaExhausted()) {
+        try {
+          const db = getFirestoreDbInstance();
+          if (db) {
+            const targetUserIds = getKnownUserIds();
+            console.log(`[CloudSync] 👥 ユーザーデータ読込 (${targetUserIds.length}件ピンポイント順次取得): コレクション走査を完全廃止`);
+            
+            // Read sequentially with small spacing to prevent rate limit spikes
+            for (const uid of targetUserIds) {
+              if (isSystemUserId(uid)) continue;
+              try {
+                const docId = getFirestoreDocIdForUser(uid);
+                const userDocRef = doc(db, 'kenchiko_world', docId);
+                const userSnap = await getDoc(userDocRef, `fetchAllRegisteredUsers [${uid}]`);
+                recordFirestoreRead(`ユーザー管理 [${uid}] (${docId})`, 1);
+                if (userSnap.exists()) {
+                  const raw = userSnap.data();
+                  const parsed = reconstructGameSaveData(raw, pureMasterNyans);
+                  userMap.set(uid, {
+                    saveData: parsed,
+                    source: 'firestore',
+                    docId,
+                    updatedAt: raw.updatedAt,
+                  });
+                  registerKnownUserId(uid);
+                }
+              } catch (docErr) {
+                console.warn(`Firestore read for user ${uid} note:`, docErr);
+                // If quota exhausted during loop, break immediately to prevent spamming
+                if (isFirestoreQuotaExhausted()) break;
+              }
+            }
+          }
+        } catch (firestoreErr) {
+          console.warn('Firestore fetchAllRegisteredUsers notice:', firestoreErr);
+        }
+      } else {
+        console.log('[CloudSync] 🛡️ クォータ保護モード稼働中のため、全ユーザーデータをローカルキャッシュから即時復元します');
+      }
 
   // 2. Scan LocalStorage for default user backup and per-user backups
   if (typeof window !== 'undefined') {
@@ -582,8 +596,14 @@ export async function fetchAllRegisteredUsers(
   });
 
   cachedUsersData = sorted;
-  lastUsersFetchTime = Date.now();
-  return sorted;
+      lastUsersFetchTime = Date.now();
+      return sorted;
+    } finally {
+      inFlightUsersPromise = null;
+    }
+  })();
+
+  return inFlightUsersPromise;
 }
 
 /**

@@ -99,7 +99,10 @@ import {
   BookOpen,
   Users,
   Gamepad2,
+  Activity,
+  ShieldAlert,
 } from 'lucide-react';
+import { FirestoreTrafficModal } from './FirestoreTrafficModal';
 import confetti from '../utils/confetti';
 import {
   compressAndResizeImage,
@@ -274,6 +277,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   }, [initialTab]);
   const [dragActive, setDragActive] = useState(false);
+  const [showTrafficModal, setShowTrafficModal] = useState(false);
   const [avatarDragActive, setAvatarDragActive] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
   const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
@@ -1530,13 +1534,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={handleRequestClose}
-            className="p-1.5 mb-1 ml-2 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer shrink-0"
-            title="閉じる"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 ml-2 shrink-0 mb-1">
+            <button
+              type="button"
+              onClick={() => setShowTrafficModal(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer text-xs font-bold"
+              title="Firestore通信生ログ＆サーキットブレーカー"
+            >
+              <Activity className="w-3.5 h-3.5 text-[#487560]" />
+              <span className="hidden sm:inline">通信生ログ</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRequestClose}
+              className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer shrink-0"
+              title="閉じる"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Global Master Publish Feedback Message */}
@@ -3658,6 +3674,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         message={confirmModalConfig.message}
         onConfirm={confirmModalConfig.onConfirm}
         onCancel={() => setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Firestore Traffic & Circuit Breaker Inspector */}
+      <FirestoreTrafficModal
+        isOpen={showTrafficModal}
+        onClose={() => setShowTrafficModal(false)}
       />
     </div>
   );

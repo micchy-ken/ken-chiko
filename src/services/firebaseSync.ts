@@ -9,13 +9,15 @@ import {
   getFirestore,
   setLogLevel,
   doc,
-  setDoc,
-  getDoc,
   Firestore,
   collection,
   getDocs,
-  deleteDoc,
 } from 'firebase/firestore';
+import {
+  auditedSetDoc as setDoc,
+  auditedGetDoc as getDoc,
+  auditedDeleteDoc as deleteDoc,
+} from './firestoreTrafficLogger';
 import { GameSaveData, NyanCharacter, MasterNyanCharacter, UserNyanProgress, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState, OuenCategory, OuenItem } from '../types';
 import { UserRewardState, RewardTicket, GaraponHistoryEntry } from '../types/rewards';
 import { createInitialRewardState } from './rewardService';

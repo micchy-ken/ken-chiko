@@ -1,4 +1,11 @@
-import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, deleteField } from 'firebase/firestore';
+import { doc, collection, deleteField } from 'firebase/firestore';
+import {
+  auditedGetDoc as getDoc,
+  auditedSetDoc as setDoc,
+  auditedDeleteDoc as deleteDoc,
+  auditedWriteBatch as writeBatch,
+  isFirestoreQuotaExhausted,
+} from './firestoreTrafficLogger';
 import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
 
@@ -134,17 +141,24 @@ export function setLocalStoriesMeta(meta: NyankoStoriesMeta): void {
   }
 }
 
+let lastStoryMetaFetchTime = 0;
+const STORY_META_CACHE_TTL = 300000; // 5 minutes cache
+
 /**
  * Fetches the lightweight stories metadata index from Firestore (1 Read operation).
  * Tells the app exactly which nyans have registered stories across the entire roster.
  */
 export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoStoriesMeta | null> {
+  const now = Date.now();
   if (!force) {
     const local = getLocalStoriesMeta();
-    // If we have a valid cache with actual registered stories, return it instantly
-    if (local && local.storyCount > 0 && Object.keys(local.stories || {}).length > 0) {
+    if (local && (now - lastStoryMetaFetchTime < STORY_META_CACHE_TTL || (local.storyCount > 0 && Object.keys(local.stories || {}).length > 0))) {
       return local;
     }
+  }
+
+  if (isFirestoreQuotaExhausted()) {
+    return getLocalStoriesMeta();
   }
 
   try {
@@ -152,7 +166,8 @@ export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoSt
     if (!db) return getLocalStoriesMeta();
 
     const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    const snap = await getDoc(metaRef);
+    const snap = await getDoc(metaRef, 'fetchStoriesMeta');
+    lastStoryMetaFetchTime = Date.now();
     if (!snap.exists()) {
       return null;
     }

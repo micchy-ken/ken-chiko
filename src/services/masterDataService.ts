@@ -1,4 +1,5 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
+import { auditedGetDoc as getDoc, auditedSetDoc as setDoc } from './firestoreTrafficLogger';
 import { NyanCharacter, MasterNyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
