@@ -2557,3 +2557,5 @@ export default function App() {
   );
 }
 // Cache bust: Tue Sep 15 08:08:04 AM UTC 2026
+// Cache bust 2: $(date)
+// Deployment trigger: Safe sync hook added
