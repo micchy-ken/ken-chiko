@@ -12,10 +12,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Kaisei+Decol:wght@500;700&family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=Yomogi&family=Zen+Kurenaido&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <script>
+      // Global fallback for catastrophic chunk load errors before React boots
+      window.addEventListener('error', function(e) {
+        if (
+          e.message && (
+            e.message.indexOf('Failed to fetch dynamically imported module') > -1 ||
+            e.message.indexOf('Importing a module script failed') > -1 ||
+            e.message.indexOf('Unexpected token') > -1
+          )
+        ) {
+          if (!sessionStorage.getItem('fatal_chunk_reload')) {
+            sessionStorage.setItem('fatal_chunk_reload', 'true');
+            window.location.reload(true);
+          } else {
+            // Render a native fallback if it still fails
+            document.body.innerHTML = '<div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; background: #F5F2EA; padding: 20px; text-align: center;"><div style="background: white; padding: 30px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 400px; width: 100%; border: 2px solid #E8E4D8;"><h1 style="color: #4A433D; margin-top: 0;">アプリの更新が必要です</h1><p style="color: #736B63; margin-bottom: 24px; font-size: 14px;">古いキャッシュが残っているため起動できませんでした。</p><button onclick="sessionStorage.clear(); window.location.reload(true);" style="background: #487560; color: white; border: none; padding: 14px 24px; border-radius: 12px; font-weight: bold; font-size: 14px; width: 100%; cursor: pointer;">最新版に更新する</button></div></div>';
+          }
+        }
+      });
+    </script>
   </head>
   <body class="bg-[#F5F2EA] text-[#4A443F] antialiased selection:bg-[#D8E4DC] selection:text-[#3A342F] font-['M_PLUS_Rounded_1c',sans-serif]">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
