@@ -16,7 +16,7 @@ import {
   getDocs,
   deleteDoc,
 } from 'firebase/firestore';
-import { GameSaveData, NyanCharacter, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState, OuenCategory, OuenItem } from '../types';
+import { GameSaveData, NyanCharacter, MasterNyanCharacter, UserNyanProgress, NyanTransparencyOptions, GiftItem, DiaryEntry, KenchikoAsobi, KenchikoState, OuenCategory, OuenItem } from '../types';
 import { UserRewardState, RewardTicket, GaraponHistoryEntry } from '../types/rewards';
 import { createInitialRewardState } from './rewardService';
 import { DEFAULT_INITIAL_STATE } from './storage';
@@ -293,13 +293,23 @@ export function mergeRewardStates(
  */
 export function reconstructGameSaveData(
   remoteDoc: any,
-  masterNyans: NyanCharacter[] = INITIAL_NYANS
+  masterNyans: (NyanCharacter | MasterNyanCharacter)[] = INITIAL_NYANS
 ): GameSaveData {
   if (!remoteDoc) return DEFAULT_INITIAL_STATE;
 
+  const STARTER_NOS = new Set([1, 4, 5, 53, 88]);
   const charMap = new Map<number, NyanCharacter>();
   for (const master of masterNyans) {
-    charMap.set(master.no, { ...master });
+    const isStarter = STARTER_NOS.has(master.no);
+    charMap.set(master.no, {
+      ...master,
+      // CRITICAL: Master definition must NEVER bleed discovery state into a user's save data
+      discovered: isStarter,
+      discoveryDate: isStarter ? ((master as any).discoveryDate || '2026/08/31 12:00') : undefined,
+      playCount: 0,
+      friendshipLevel: 1,
+      lastMetAt: 0,
+    });
   }
 
   // 1. Legacy doc support: If remote doc has full `characters` array (only adopt individual progress)
@@ -307,10 +317,12 @@ export function reconstructGameSaveData(
     for (const remoteChar of remoteDoc.characters) {
       const base = charMap.get(remoteChar.no);
       if (base) {
+        const isStarter = STARTER_NOS.has(remoteChar.no);
+        const isBugged = !remoteDoc.sanitizedAt && !isStarter && remoteChar.discovered && (!remoteChar.playCount || remoteChar.playCount === 0);
         charMap.set(remoteChar.no, {
           ...base,
-          discovered: remoteChar.discovered !== undefined ? remoteChar.discovered : base.discovered,
-          discoveryDate: remoteChar.discoveryDate || base.discoveryDate,
+          discovered: isBugged ? false : (remoteChar.discovered !== undefined ? remoteChar.discovered : base.discovered),
+          discoveryDate: isBugged ? undefined : (remoteChar.discoveryDate || base.discoveryDate),
           lastMetAt: remoteChar.lastMetAt || base.lastMetAt,
           friendshipLevel: remoteChar.friendshipLevel !== undefined ? remoteChar.friendshipLevel : base.friendshipLevel,
           playCount: remoteChar.playCount !== undefined ? remoteChar.playCount : base.playCount,
@@ -327,8 +339,9 @@ export function reconstructGameSaveData(
       if (isNaN(no)) continue;
       const base = charMap.get(no);
       if (base) {
+        const isStarter = STARTER_NOS.has(no);
         // AUTO-REPAIR: If non-starter cat has discovered: true but 0 playCount, it's a bugged leak. Revert it.
-        const isBugged = no > 8 && prog.discovered && (!prog.playCount || prog.playCount === 0);
+        const isBugged = !remoteDoc.sanitizedAt && !isStarter && prog.discovered && (!prog.playCount || prog.playCount === 0);
         
         charMap.set(no, {
           ...base,
@@ -1394,7 +1407,27 @@ export async function fetchInitialFirebaseState(
     // ローカル側とリモート側の双方から進行度を抽出し、より進行している方を確実に保護
     const remoteProgress = extractProgressMap(userRaw?.nyanProgress || userBaseData.characters);
     const localProgress = extractProgressMap(localBackup?.characters);
-    const mergedProgress = mergeUserProgressSafely(localProgress, remoteProgress);
+
+    let mergedProgress: Record<number, UserNyanProgress>;
+    const isRemoteSanitized = Boolean(userRaw?.sanitizedAt);
+    if (isRemoteSanitized && userRaw?.nyanProgress) {
+      // クラウドデータが検証・正規化済みの場合は、発見状態の正本としてクラウドを完全優先する。
+      // ローカル側の古いゴースト猫（126匹や過去のバグ混入）が復活するのを物理的に遮断。
+      mergedProgress = { ...remoteProgress };
+      for (const [key, locVal] of Object.entries(localProgress)) {
+        const no = Number(key);
+        if (mergedProgress[no] && locVal) {
+          mergedProgress[no] = {
+            ...mergedProgress[no],
+            playCount: Math.max(mergedProgress[no].playCount || 0, locVal.playCount || 0),
+            friendshipLevel: Math.max(mergedProgress[no].friendshipLevel || 1, locVal.friendshipLevel || 1),
+            lastMetAt: Math.max(mergedProgress[no].lastMetAt || 0, locVal.lastMetAt || 0),
+          };
+        }
+      }
+    } else {
+      mergedProgress = mergeUserProgressSafely(localProgress, remoteProgress);
+    }
 
     const pureMasters = cleanseMasterCharacters(masterNyans);
     const mergedCharacters: NyanCharacter[] = composeCharacters(pureMasters, mergedProgress);

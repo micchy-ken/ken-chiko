@@ -13,6 +13,7 @@ import {
   deleteUserDocExplicit,
   recordFirestoreRead,
 } from './firebaseSync';
+import { cleanseMasterCharacters } from '../utils/dataSeparation';
 
 export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-master';
 export const USER_LOCAL_KEY_PREFIX = 'kenchiko_save_state_user_';
@@ -148,6 +149,7 @@ export function getKnownUserIds(): string[] {
           if (isSystemUserId(id)) return false;
           if (/^\d+$/.test(id)) return false;
           if (id.includes('[object')) return false;
+          if (id.includes('backup')) return false;
           if (id.length > 50) return false;
           // UUIDやキャラクターIDの混入を絶対に許さないため、
           // ken, yumi, chiko, default 以外の未知の長いIDは弾く
@@ -430,6 +432,8 @@ export async function fetchAllRegisteredUsers(
     }
   >();
 
+  const pureMasterNyans = cleanseMasterCharacters(masterNyans);
+
   // 1. Fetch from Firestore strictly by individual user documents (NO collection scanning!)
   // ユーザー管理はユーザーデータ（ken-chiko-user-*）のみを直接ピンポイントで読む仕様
   // 基本ユーザー（default, yumi, ken, chiko）＋追加ユーザーのみ取得するため、対象人数分しか読みません
@@ -448,7 +452,7 @@ export async function fetchAllRegisteredUsers(
             recordFirestoreRead(`ユーザー管理 [${uid}] (${docId})`, 1);
             if (userSnap.exists()) {
               const raw = userSnap.data();
-              const parsed = reconstructGameSaveData(raw, masterNyans);
+              const parsed = reconstructGameSaveData(raw, pureMasterNyans);
               userMap.set(uid, {
                 saveData: parsed,
                 source: 'firestore',
@@ -474,7 +478,7 @@ export async function fetchAllRegisteredUsers(
       const defRaw = localStorage.getItem('kenchiko_save_state_backup_v2');
       if (defRaw) {
         const parsed = JSON.parse(defRaw);
-        const reconstructed = reconstructGameSaveData(parsed, masterNyans);
+        const reconstructed = reconstructGameSaveData(parsed, pureMasterNyans);
         if (userMap.has('default')) {
           userMap.get('default')!.source = 'both';
         } else {
