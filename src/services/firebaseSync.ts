@@ -878,12 +878,7 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
       });
     }
 
-    // Suppress internal connection retry warning logs from polluting console
-    try {
-      setLogLevel('silent');
-    } catch {}
-
-    // Connect to database with in-memory cache and robust HTTP long-polling (prevents iframe WebChannel drops)
+    // Connect to database cleanly without long polling overhead
     if (!firestoreDb) {
       const dbId =
         activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
@@ -891,20 +886,9 @@ export function initFirebase(config: FirebaseCustomConfig = loadSavedFirebaseCon
           : undefined;
 
       try {
-        firestoreDb = initializeFirestore(
-          firebaseApp,
-          {
-            localCache: memoryLocalCache(),
-            experimentalForceLongPolling: true,
-          },
-          dbId
-        );
-      } catch (_cacheErr) {
-        try {
-          firestoreDb = getFirestore(firebaseApp, dbId);
-        } catch {
-          firestoreDb = getFirestore(firebaseApp);
-        }
+        firestoreDb = getFirestore(firebaseApp, dbId);
+      } catch {
+        firestoreDb = getFirestore(firebaseApp);
       }
     }
 
@@ -1468,7 +1452,7 @@ export async function fetchInitialFirebaseState(
     // Initialize content signature from freshly loaded remote state so startup triggers 0 echo writes
     try {
       const compactLoaded = extractUserProgress(mergedData);
-      lastWrittenContentString = getMeaningfulUserProgressHash(compactLoaded);
+      updateLastWrittenHash(getMeaningfulUserProgressHash(compactLoaded));
     } catch (_hashErr) {}
 
     const masterImagesCount = (masterNyans || []).filter(c => Boolean(c.customImageUrl)).length;
@@ -1530,9 +1514,22 @@ let pendingWriteTimeout: any = null;
 let latestPendingData: GameSaveData | null = null;
 let queuedImmediateData: GameSaveData | null = null;
 let isWritingToFirestore = false;
-let lastWrittenContentString: string = '';
+let lastWrittenContentString: string = (() => {
+  try {
+    return localStorage.getItem('kenchiko_last_synced_hash') || '';
+  } catch {
+    return '';
+  }
+})();
 let sessionDbReadCount: number = 0;
 let sessionDbWriteCount: number = 0;
+
+export function updateLastWrittenHash(hash: string): void {
+  lastWrittenContentString = hash;
+  try {
+    localStorage.setItem('kenchiko_last_synced_hash', hash);
+  } catch {}
+}
 
 /**
  * Global audit recorder for any Firestore write across the entire application.
@@ -1570,10 +1567,10 @@ export function recordFirestoreRead(docName: string, count: number = 1): void {
 }
 
 /**
- * Cooldown between automatic routine cloud writes: 120 seconds (2 minutes).
+ * Cooldown between automatic routine cloud writes: 180 seconds (3 minutes).
  * LocalStorage updates at 0ms latency for 100% data safety.
  */
-export const MIN_AUTO_SYNC_INTERVAL_MS = 120000;
+export const MIN_AUTO_SYNC_INTERVAL_MS = 180000;
 
 export interface FirebaseAccessStats {
   sessionReads: number;
@@ -1754,7 +1751,7 @@ export async function executeFirestoreWrite(
     sessionDbWriteCount++;
     incrementDailyWriteCount();
     recentWriteTimestamps.push(Date.now());
-    lastWrittenContentString = currentMeaningfulHash;
+    updateLastWrittenHash(currentMeaningfulHash);
 
     const limitInfo = isAdmin ? ' [管理画面: 150回制限解除済み・無制限]' : `/${MAX_DAILY_WRITES}`;
     console.log(`[CloudSync] 💾 Firestore書き込み完了 [1回]: ドキュメント=kenchiko_world/${userDocId} (本日累計: ${getDailyWriteStats().count}${limitInfo})`);

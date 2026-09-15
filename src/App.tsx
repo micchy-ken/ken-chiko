@@ -85,6 +85,12 @@ import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
 import { LoadingScreen } from './components/LoadingScreen';
 import { FirestoreTrafficModal } from './components/FirestoreTrafficModal';
 import { getTrafficStats, isFirestoreQuotaExhausted } from './services/firestoreTrafficLogger';
+import {
+  CURRENT_APP_VERSION,
+  CURRENT_BUILD_TIME,
+  checkAppVersion,
+  performAppReload,
+} from './version';
 
 import {
   Eye,
@@ -271,6 +277,33 @@ export default function App() {
 
   // Offline notice banner dismiss state (allows clean gameplay screen)
   const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState<boolean>(false);
+
+  // Version Check & Update Notification States (Cost: 0 Firestore Operations)
+  const [hasNewVersion, setHasNewVersion] = useState<boolean>(false);
+  const [newVersionInfo, setNewVersionInfo] = useState<{ latestVersion?: string; latestBuildTime?: string } | null>(null);
+  const [isCheckingVersion, setIsCheckingVersion] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Check static version on mount
+    checkAppVersion().then((res) => {
+      if (res.hasUpdate) {
+        setHasNewVersion(true);
+        setNewVersionInfo({ latestVersion: res.latestVersion, latestBuildTime: res.latestBuildTime });
+      }
+    });
+
+    // Periodically check version in the background every 5 minutes (0 Firestore reads)
+    const versionTimer = setInterval(() => {
+      checkAppVersion().then((res) => {
+        if (res.hasUpdate) {
+          setHasNewVersion(true);
+          setNewVersionInfo({ latestVersion: res.latestVersion, latestBuildTime: res.latestBuildTime });
+        }
+      });
+    }, 300000);
+
+    return () => clearInterval(versionTimer);
+  }, []);
 
   // Auto-dismiss new encounter toast after 12 seconds so it never lingers indefinitely
   useEffect(() => {
@@ -516,56 +549,6 @@ export default function App() {
       } else {
         nextEncounterCheckTimeRef.current = 0;
       }
-
-      // Background Master Data Refresh Check (Headless CMS pattern)
-      // Completely non-blocking: Runs in the background AFTER the game is fully visible and interactive.
-      setTimeout(async () => {
-        if (!isMounted) return;
-        try {
-          const currentCharacters = saveDataRef.current.characters;
-          const masterRes = await checkForMasterUpdateAndSync(currentCharacters);
-          if (!isMounted) return;
-          if (masterRes.updated) {
-            setSaveData((prev) => {
-              const nextData: GameSaveData = {
-                ...prev,
-                characters: masterRes.nyans,
-                asobiList:
-                  masterRes.masterData?.asobiList && masterRes.masterData.asobiList.length > 0
-                    ? masterRes.masterData.asobiList
-                    : prev.asobiList,
-                ouenCategories:
-                  masterRes.masterData?.ouenCategories && masterRes.masterData.ouenCategories.length > 0
-                    ? masterRes.masterData.ouenCategories
-                    : prev.ouenCategories,
-                ouenList:
-                  masterRes.masterData?.ouenList && masterRes.masterData.ouenList.length > 0
-                    ? masterRes.masterData.ouenList
-                    : prev.ouenList,
-                kounichan: masterRes.masterData?.kounichan || prev.kounichan,
-                googleDriveFolderUrl: masterRes.masterData?.googleDriveFolderUrl || prev.googleDriveFolderUrl,
-                kihonNyanCustomImageUrl: masterRes.masterData?.kihonNyanCustomImageUrl || prev.kihonNyanCustomImageUrl,
-                lastSaved: Date.now(),
-              };
-              saveLocalBackup(nextData);
-              return nextData;
-            });
-            if (masterRes.addedCount > 0) {
-              setRewardToastMessage(`🎉 新しいにゃんこが ${masterRes.addedCount} 体追加されました！`);
-            }
-          }
-        } catch (err) {
-          console.warn('Background master check note:', err);
-        }
-
-        // Background Stories Meta Refresh (1 Read to ensure latest stories catalog is cached locally)
-        try {
-          const { fetchStoriesMeta } = await import('./services/nyankoStoryService');
-          await fetchStoriesMeta(true);
-        } catch (metaErr) {
-          console.warn('Background stories meta sync note:', metaErr);
-        }
-      }, 1200);
     };
 
     runInitialBootSync();
@@ -623,7 +606,7 @@ export default function App() {
   // Master Data Refresh key
   const LAST_MASTER_CHECK_KEY = 'kenchiko_last_master_check_time_v2';
 
-  // 2-Minute Automatic Cloud Sync interval (when app is open and running)
+  // 3-Minute Automatic Cloud Sync interval (when app is open and running)
   useEffect(() => {
     if (!isInitialSyncCompleted || isStandaloneAdmin || showSyncModal) return;
 
@@ -631,7 +614,7 @@ export default function App() {
       if (saveDataRef.current) {
         saveOnUserAction(saveDataRef.current).catch(() => {});
       }
-    }, 120000); // exactly every 2 minutes
+    }, 180000); // exactly every 3 minutes
 
     return () => clearInterval(autoSyncInterval);
   }, [isInitialSyncCompleted, isStandaloneAdmin, showSyncModal]);
@@ -689,7 +672,7 @@ export default function App() {
         rewards: res.updatedState,
         lastSaved: Date.now(),
       };
-      saveOnUserAction(nextData);
+      saveOnUserAction(nextData, true);
       return nextData;
     });
 
@@ -714,7 +697,7 @@ export default function App() {
         rewards: res.updatedState,
         lastSaved: Date.now(),
       };
-      saveOnUserAction(nextData);
+      saveOnUserAction(nextData, true);
 
       setRewardToastMessage(`📖 物語読了ボーナス +20pt 獲得！(所持: ${res.updatedState.points}pt)`);
       try {
@@ -2053,6 +2036,36 @@ export default function App() {
         </div>
       </div>
 
+      {/* New Version Update Notification Banner (Cost: 0 Firestore Operations) */}
+      {hasNewVersion && (
+        <div className="bg-[#487560] text-white px-4 py-2.5 shadow-md border-b-2 border-[#345344]">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold flex-1">
+              <RefreshCw className="w-4 h-4 text-[#F3E5AB] animate-spin shrink-0" />
+              <span>
+                ✨ 新しいバージョン（{newVersionInfo?.latestVersion || '最新版'}）が公開されました！
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => performAppReload()}
+                className="bg-[#FAF8F4] hover:bg-white text-[#2E2824] px-3.5 py-1.5 rounded-lg shadow-sm font-black text-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-[#487560]" />
+                <span>今すぐ更新</span>
+              </button>
+              <button
+                onClick={() => setHasNewVersion(false)}
+                className="p-1 hover:bg-white/20 rounded-md text-white/80 hover:text-white transition cursor-pointer"
+                title="あとで"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Explicit Master Data Load Failure Warning Banner (Only when not already explained by offline banner) */}
       {masterFetchError && !connectionStatus.isOffline && (
         <div className="bg-[#FEF2F2] border-b-2 border-[#EF4444] px-4 py-2.5 shadow-sm">
@@ -2393,6 +2406,38 @@ export default function App() {
               <span className="font-handwriting">設定</span>
             </button>
           </div>
+        </div>
+
+        {/* Bottom Version Bar */}
+        <div className="max-w-6xl mx-auto mt-2 pt-2 border-t border-[#DDD7C8]/70 flex items-center justify-between text-[11px] text-[#8C837A]">
+          <button
+            onClick={async () => {
+              setIsCheckingVersion(true);
+              const res = await checkAppVersion();
+              setIsCheckingVersion(false);
+              if (res.hasUpdate) {
+                setHasNewVersion(true);
+                setNewVersionInfo({ latestVersion: res.latestVersion, latestBuildTime: res.latestBuildTime });
+                setRewardToastMessage(`✨ 新しいバージョンが見つかりました（${res.latestVersion}）！`);
+              } else {
+                setRewardToastMessage(`✅ 最新バージョン（${CURRENT_APP_VERSION}）をご利用中です！`);
+              }
+            }}
+            className="flex items-center gap-1 hover:text-[#4A433D] transition px-1.5 py-0.5 rounded hover:bg-[#FAF8F4]/80 cursor-pointer font-mono"
+            title="クリックして最新バージョンを確認（通信量: 0回）"
+          >
+            <RefreshCw className={`w-3 h-3 ${isCheckingVersion ? 'animate-spin text-[#487560]' : ''}`} />
+            <span>ver {CURRENT_APP_VERSION}</span>
+          </button>
+
+          {hasNewVersion && (
+            <button
+              onClick={() => performAppReload()}
+              className="text-[#487560] font-bold hover:underline flex items-center gap-1 cursor-pointer animate-pulse"
+            >
+              <span>🎉 新バージョンあり (タップして更新)</span>
+            </button>
+          )}
         </div>
       </footer>
 
