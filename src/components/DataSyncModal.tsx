@@ -389,14 +389,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   // Prevent accidental browser navigation/refresh when changes are unsaved
   useEffect(() => {
+    if (unsavedChangesCount > 0) {
+      setMasterPublishStatus(null);
+    }
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (unsavedChangesCount > 0) {
         e.preventDefault();
-        e.returnValue = '';
+        e.returnValue = "";
       }
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [unsavedChangesCount]);
 
   const diagnoseAndFetchCloudMaster = async (applyToDraft: boolean = false) => {
@@ -426,11 +429,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         if (shouldApply) {
           if (res.data.asobiList) setAsobiList(res.data.asobiList);
-          onUpdateSaveData((prev) => ({
-            ...prev,
-            ...res.data,
-            lastSaved: Date.now(),
-          }), false);
+          onUpdateSaveData((prev) => {
+            const mergedCharacters = res.data?.characters ? res.data.characters.map(masterChar => {
+              const existingProg = prev.characters.find(c => c.no === masterChar.no);
+              return {
+                ...masterChar,
+                discovered: existingProg?.discovered || false,
+                discoveryDate: existingProg?.discoveryDate,
+                lastMetAt: existingProg?.lastMetAt,
+                playCount: existingProg?.playCount || 0,
+                friendshipLevel: existingProg?.friendshipLevel || 1,
+              } as NyanCharacter;
+            }) : prev.characters;
+            return {
+              ...prev,
+              ...res.data,
+              characters: mergedCharacters,
+              lastSaved: Date.now(),
+            };
+          }, false);
           setUnsavedChangesCount(0);
           setModifiedTabs(new Set());
           setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに同期しました！');
