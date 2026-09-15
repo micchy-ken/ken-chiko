@@ -1793,8 +1793,37 @@ export default function App() {
   // No game screen or stage is rendered in the background! Nothing progresses!
   if (isStandaloneAdmin || showSyncModal) {
     return (
-      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+      <div className="min-h-screen bg-[#F4EFE6] text-[#2E2824] font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif] flex flex-col">
         <PencilSketchFilters />
+        {/* New Version Update Notification Banner */}
+        {hasNewVersion && (
+          <div className="bg-[#487560] text-white px-4 py-2.5 shadow-md border-b-2 border-[#345344] shrink-0">
+            <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-bold flex-1">
+                <RefreshCw className="w-4 h-4 text-[#F3E5AB] animate-spin shrink-0" />
+                <span>
+                  ✨ 新しいバージョン（{newVersionInfo?.latestVersion || '最新版'}）が公開されました！
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => performAppReload()}
+                  className="bg-[#FAF8F4] hover:bg-white text-[#2E2824] px-3.5 py-1.5 rounded-lg shadow-sm font-black text-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-[#487560]" />
+                  <span>今すぐ更新</span>
+                </button>
+                <button
+                  onClick={() => setHasNewVersion(false)}
+                  className="p-1 hover:bg-white/20 rounded-md text-white/80 hover:text-white transition cursor-pointer"
+                  title="あとで"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <DataSyncModal
           isStandalone={true}
           characters={saveData.characters}
@@ -1844,6 +1873,35 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
         <PencilSketchFilters />
+        {/* New Version Update Notification Banner */}
+        {hasNewVersion && (
+          <div className="bg-[#487560] text-white px-4 py-2.5 shadow-md border-b-2 border-[#345344] shrink-0">
+            <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-bold flex-1">
+                <RefreshCw className="w-4 h-4 text-[#F3E5AB] animate-spin shrink-0" />
+                <span>
+                  ✨ 新しいバージョン（{newVersionInfo?.latestVersion || '最新版'}）が公開されました！
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => performAppReload()}
+                  className="bg-[#FAF8F4] hover:bg-white text-[#2E2824] px-3.5 py-1.5 rounded-lg shadow-sm font-black text-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-[#487560]" />
+                  <span>今すぐ更新</span>
+                </button>
+                <button
+                  onClick={() => setHasNewVersion(false)}
+                  className="p-1 hover:bg-white/20 rounded-md text-white/80 hover:text-white transition cursor-pointer"
+                  title="あとで"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <DefaultUserPlaceholder
           customImageUrl={saveData.kenchiko.customImageUrl}
           masterStatus={masterStatus}

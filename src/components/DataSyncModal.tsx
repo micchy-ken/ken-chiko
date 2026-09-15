@@ -425,6 +425,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           (res.data.characters && res.data.characters.length > (saveData.characters?.length || 0)) ||
           (res.data.version && res.data.version > (masterMeta?.version || 1));
 
+        // When manually requested via button click (applyToDraft=true), force the application
+        // Otherwise only auto-apply if the local draft is empty/minimal
         const shouldApply = applyToDraft || isLocalDraftEmptyOrMinimal || (unsavedChangesCount === 0 && cloudHasMoreOrNewer);
 
         if (shouldApply) {
@@ -451,6 +453,9 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           setUnsavedChangesCount(0);
           setModifiedTabs(new Set());
           setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに同期しました！');
+          // Hide discrepancy banner by syncing internal state with just applied data
+          setCloudMasterDetail(prev => ({ ...prev, cloudAsobiCount: res.data.asobiList?.length || 0, cloudOuenCount: res.data.ouenList?.length || 0, cloudNyanCount: res.data.characters?.length || 0 }));
+          
           if (applyToDraft) {
             confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
           }
@@ -1630,7 +1635,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         )}
 
         {/* Master Discrepancy Helper: Cloud has data but local draft is minimal */}
-        {!initialMasterFetchError && !internalMasterError && cloudMasterDetail.checked && cloudMasterDetail.existsInCloud && (cloudMasterDetail.cloudAsobiCount > asobiList.length || cloudMasterDetail.cloudOuenCount > (saveData.ouenList?.length || 1)) && (
+        {!initialMasterFetchError && !internalMasterError && cloudMasterDetail.checked && cloudMasterDetail.existsInCloud && (cloudMasterDetail.cloudAsobiCount > asobiList.length || cloudMasterDetail.cloudOuenCount > (saveData.ouenList?.length || 1) || cloudMasterDetail.cloudNyanCount > (saveData.characters?.length || 0)) && (
           <div className="bg-[#EFF6FF] border-b border-[#BFDBFE] px-4 sm:px-6 py-2.5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-[#1E40AF] text-xs font-bold">
