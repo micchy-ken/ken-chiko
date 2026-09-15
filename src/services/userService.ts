@@ -142,8 +142,15 @@ export function getKnownUserIds(): string[] {
     if (Array.isArray(parsed)) {
       // Exclude empty and system document IDs, ensure default 3 users are always included
       const sanitizedList = Array.from(
-        new Set([...DEFAULT_USER_IDS, ...parsed.filter((id) => Boolean(id) && !isSystemUserId(id) && !/^\d+$/.test(String(id)))])
-      );
+        new Set([...DEFAULT_USER_IDS, ...parsed.filter((id) => {
+          if (!id || typeof id !== 'string') return false;
+          if (isSystemUserId(id)) return false;
+          if (/^\d+$/.test(id)) return false;
+          if (id.includes('[object')) return false;
+          if (id.length > 50) return false;
+          return true;
+        })])
+      ).slice(0, 30);
       // Automatically purge contaminated entries if system IDs were previously stored
       if (sanitizedList.length !== parsed.length) {
         localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(sanitizedList));
