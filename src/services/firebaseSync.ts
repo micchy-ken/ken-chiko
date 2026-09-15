@@ -685,10 +685,10 @@ export function incrementDailyWriteCount(): number {
 export function isCloudAutoSyncEnabled(): boolean {
   try {
     const val = localStorage.getItem(AUTO_SYNC_ENABLED_KEY);
-    // STRICT SAFETY: Default to false. Automatic background writes are disabled to completely eliminate quota consumption.
-    return val === 'true';
+    // 自動同期をデフォルトでONにする（ユーザーデータ更新のため）
+    return val !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -1226,6 +1226,33 @@ export async function fetchInitialFirebaseState(
             masterErrorDetail = 'Firestore上にマスタードキュメント (ken-chiko-global-master / global-state) が見つかりませんでした';
           }
         }
+
+        // Modular architecture support: If asobiList is not in legacy global master, fetch from isolated ken-chiko-master-asobi
+        if (!globalRaw?.asobiList || globalRaw.asobiList.length === 0) {
+          try {
+            const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
+            const asobiSnap = await getDoc(asobiDocRef);
+            sessionDbReadCount++;
+            if (asobiSnap.exists()) {
+              const aData = asobiSnap.data();
+              if (!globalRaw) globalRaw = {};
+              if (Array.isArray(aData.asobiList) && aData.asobiList.length > 0) {
+                globalRaw.asobiList = aData.asobiList;
+              }
+              if (Array.isArray(aData.ouenCategories) && aData.ouenCategories.length > 0) {
+                globalRaw.ouenCategories = aData.ouenCategories;
+              }
+              if (Array.isArray(aData.ouenList) && aData.ouenList.length > 0) {
+                globalRaw.ouenList = aData.ouenList;
+              }
+              if (aData.googleDriveFolderUrl) {
+                globalRaw.googleDriveFolderUrl = aData.googleDriveFolderUrl;
+              }
+            }
+          } catch (_aErr) {
+            // non-blocking fallback
+          }
+        }
       } catch (gErr: any) {
         if (isQuotaError(gErr)) {
           markQuotaExhausted(30 * 60 * 1000);
@@ -1279,14 +1306,20 @@ export async function fetchInitialFirebaseState(
       console.log(`[CloudSync] 📥 Firestore読込 [master=${masterDocIdUsed}, 成功=${masterFetched}, user=${userDocId}] (累計セッション読込: ${sessionDbReadCount}回)`);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
-    // Asobi list is strictly loaded from the Global Shared Master document (or local backup / initial defaults)
-    const globalAsobiList = sanitizeAsobiList(
-      globalRaw?.asobiList && globalRaw.asobiList.length > 0
-        ? globalRaw.asobiList
-        : (localBackup?.asobiList && localBackup.asobiList.length > 0
-            ? localBackup.asobiList
-            : INITIAL_ASOBI_LIST)
-    );
+    // Check locally cached master data as secondary fallback
+    let cachedLocalMaster: any = null;
+    try {
+      const raw = localStorage.getItem('kenchiko_global_master_data_v1');
+      if (raw) cachedLocalMaster = JSON.parse(raw);
+    } catch {}
+
+    const candidateAsobi =
+      (globalRaw?.asobiList && globalRaw.asobiList.length > 0 ? globalRaw.asobiList : null) ||
+      (cachedLocalMaster?.asobiList && cachedLocalMaster.asobiList.length > 0 ? cachedLocalMaster.asobiList : null) ||
+      (localBackup?.asobiList && localBackup.asobiList.length > 0 ? localBackup.asobiList : null) ||
+      INITIAL_ASOBI_LIST;
+
+    const globalAsobiList = sanitizeAsobiList(candidateAsobi);
 
     const globalKenchikoAvatar =
       globalRaw?.kenchiko?.customImageUrl ||
@@ -1305,21 +1338,21 @@ export async function fetchInitialFirebaseState(
       userRaw?.googleDriveFolderUrl ||
       '';
 
-    const globalOuenCategories: OuenCategory[] = mergeOuenCategories(
-      globalRaw?.ouenCategories && globalRaw.ouenCategories.length > 0
-        ? globalRaw.ouenCategories
-        : (localBackup?.ouenCategories && localBackup.ouenCategories.length > 0
-            ? localBackup.ouenCategories
-            : INITIAL_OUEN_CATEGORIES)
-    );
+    const candidateOuenCategories =
+      (globalRaw?.ouenCategories && globalRaw.ouenCategories.length > 0 ? globalRaw.ouenCategories : null) ||
+      (cachedLocalMaster?.ouenCategories && cachedLocalMaster.ouenCategories.length > 0 ? cachedLocalMaster.ouenCategories : null) ||
+      (localBackup?.ouenCategories && localBackup.ouenCategories.length > 0 ? localBackup.ouenCategories : null) ||
+      INITIAL_OUEN_CATEGORIES;
 
-    const globalOuenList: OuenItem[] = mergeOuenList(
-      globalRaw?.ouenList && globalRaw.ouenList.length > 0
-        ? globalRaw.ouenList
-        : (localBackup?.ouenList && localBackup.ouenList.length > 0
-            ? localBackup.ouenList
-            : INITIAL_OUEN_LIST)
-    );
+    const globalOuenCategories: OuenCategory[] = mergeOuenCategories(candidateOuenCategories);
+
+    const candidateOuenList =
+      (globalRaw?.ouenList && globalRaw.ouenList.length > 0 ? globalRaw.ouenList : null) ||
+      (cachedLocalMaster?.ouenList && cachedLocalMaster.ouenList.length > 0 ? cachedLocalMaster.ouenList : null) ||
+      (localBackup?.ouenList && localBackup.ouenList.length > 0 ? localBackup.ouenList : null) ||
+      INITIAL_OUEN_LIST;
+
+    const globalOuenList: OuenItem[] = mergeOuenList(candidateOuenList);
 
     const globalKounichanSettings: import('../types/kounichan').KounichanSettings =
       globalRaw?.kounichan && typeof globalRaw.kounichan === 'object'
@@ -1420,6 +1453,14 @@ export async function fetchInitialFirebaseState(
       error: masterErrorDetail || userErrorDetail,
       masterStatus,
     };
+
+    if (!userRaw && !getIsQuotaExhausted() && isCloudAutoSyncEnabled() && firestoreDb) {
+      console.log(`[CloudSync] ☁️ ユーザー (${activeUid}) のクラウドデータが未作成のため、初期データを自動同期します`);
+      setTimeout(() => {
+        executeFirestoreWrite(mergedData, config, false, true).catch(() => {});
+      }, 2000);
+    }
+
     lastInitialFetchTime = Date.now();
     lastInitialFetchUid = activeUid;
     lastInitialFetchResult = result;

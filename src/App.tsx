@@ -496,6 +496,21 @@ export default function App() {
               const nextData: GameSaveData = {
                 ...prev,
                 characters: masterRes.nyans,
+                asobiList:
+                  masterRes.masterData?.asobiList && masterRes.masterData.asobiList.length > 0
+                    ? masterRes.masterData.asobiList
+                    : prev.asobiList,
+                ouenCategories:
+                  masterRes.masterData?.ouenCategories && masterRes.masterData.ouenCategories.length > 0
+                    ? masterRes.masterData.ouenCategories
+                    : prev.ouenCategories,
+                ouenList:
+                  masterRes.masterData?.ouenList && masterRes.masterData.ouenList.length > 0
+                    ? masterRes.masterData.ouenList
+                    : prev.ouenList,
+                kounichan: masterRes.masterData?.kounichan || prev.kounichan,
+                googleDriveFolderUrl: masterRes.masterData?.googleDriveFolderUrl || prev.googleDriveFolderUrl,
+                kihonNyanCustomImageUrl: masterRes.masterData?.kihonNyanCustomImageUrl || prev.kihonNyanCustomImageUrl,
                 lastSaved: Date.now(),
               };
               saveLocalBackup(nextData);
@@ -1407,6 +1422,21 @@ export default function App() {
           const nextData: GameSaveData = {
             ...prev,
             characters: res.nyans,
+            asobiList:
+              res.masterData?.asobiList && res.masterData.asobiList.length > 0
+                ? res.masterData.asobiList
+                : prev.asobiList,
+            ouenCategories:
+              res.masterData?.ouenCategories && res.masterData.ouenCategories.length > 0
+                ? res.masterData.ouenCategories
+                : prev.ouenCategories,
+            ouenList:
+              res.masterData?.ouenList && res.masterData.ouenList.length > 0
+                ? res.masterData.ouenList
+                : prev.ouenList,
+            kounichan: res.masterData?.kounichan || prev.kounichan,
+            googleDriveFolderUrl: res.masterData?.googleDriveFolderUrl || prev.googleDriveFolderUrl,
+            kihonNyanCustomImageUrl: res.masterData?.kihonNyanCustomImageUrl || prev.kihonNyanCustomImageUrl,
             lastSaved: Date.now(),
           };
           saveLocalBackup(nextData);

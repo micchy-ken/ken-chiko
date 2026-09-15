@@ -47,6 +47,7 @@ import {
   publishMasterData,
   publishGlobalMasterData,
   fetchGlobalMasterDataWithStatus,
+  loadLocalMasterData,
   KenchikoMasterManifest,
 } from '../services/masterDataService';
 import { estimateMasterPublishCost, WriteCostEstimate } from '../services/writeCostEstimator';
@@ -302,7 +303,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [showPublishDetailModal, setShowPublishDetailModal] = useState<boolean>(false);
 
   // Asobi Editor State (declared early for live publish cost estimation)
-  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => saveData.asobiList || INITIAL_ASOBI_LIST);
+  const [asobiList, setAsobiList] = useState<KenchikoAsobi[]>(() => {
+    try {
+      const cached = loadLocalMasterData();
+      if (cached && Array.isArray(cached.asobiList) && cached.asobiList.length > (saveData.asobiList?.length || 0)) {
+        return cached.asobiList;
+      }
+    } catch {}
+    return saveData.asobiList || INITIAL_ASOBI_LIST;
+  });
   const [editingAsobiId, setEditingAsobiId] = useState<string | null>(null);
   const [asobiViewMode, setAsobiViewMode] = useState<'sheet' | 'cards' | 'batch'>('sheet');
   const [newTitle, setNewTitle] = useState('');
@@ -400,16 +409,27 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           cloudVersion: res.data.version || 1,
         });
         setInternalMasterError(null);
-        // Automatically apply to draft if requested OR if local cache is empty/minimal (auto cloud sync)
-        const isLocalDraftEmptyOrMinimal = asobiList.length === 0 || (saveData.ouenList?.length || 0) <= 1;
-        if (applyToDraft || isLocalDraftEmptyOrMinimal) {
+
+        // Automatically apply to draft if requested OR if local cache is empty/minimal OR if user has 0 unsaved edits and cloud has more complete data
+        const isLocalDraftEmptyOrMinimal = asobiList.length <= INITIAL_ASOBI_LIST.length && (saveData.ouenList?.length || 0) <= 2;
+        const cloudHasMoreOrNewer =
+          (res.data.asobiList && res.data.asobiList.length > asobiList.length) ||
+          (res.data.ouenList && res.data.ouenList.length > (saveData.ouenList?.length || 0)) ||
+          (res.data.characters && res.data.characters.length > (saveData.characters?.length || 0)) ||
+          (res.data.version && res.data.version > (masterMeta?.version || 1));
+
+        const shouldApply = applyToDraft || isLocalDraftEmptyOrMinimal || (unsavedChangesCount === 0 && cloudHasMoreOrNewer);
+
+        if (shouldApply) {
           if (res.data.asobiList) setAsobiList(res.data.asobiList);
-          handleAdminUpdateSaveData(() => ({
-            ...saveData,
+          onUpdateSaveData((prev) => ({
+            ...prev,
             ...res.data,
             lastSaved: Date.now(),
           }), false);
-          setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに自動同期しました！');
+          setUnsavedChangesCount(0);
+          setModifiedTabs(new Set());
+          setMasterPublishStatus('✅ クラウド上の公式マスターデータを管理画面ドラフトに同期しました！');
           if (applyToDraft) {
             confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 } });
           }

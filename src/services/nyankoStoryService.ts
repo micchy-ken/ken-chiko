@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs, deleteField } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, deleteField } from 'firebase/firestore';
 import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
 
@@ -828,42 +828,6 @@ export async function rebuildStoriesMetaFromFirestore(
       }
     }
 
-    // 2. Fallback to legacy collection if global document is empty
-    if (Object.keys(storiesMap).length === 0) {
-      const storiesCol = collection(db, 'nyanko_stories');
-      const snapshot = await getDocs(storiesCol);
-
-      if (!snapshot.empty) {
-        const total = snapshot.size;
-        let current = 0;
-        for (const docSnap of snapshot.docs) {
-          current++;
-          const data = docSnap.data();
-          const id = Number(data.id || docSnap.id);
-          const name = data.name || `にゃんこ No.${id}`;
-          const title = data.week_info?.week_title || data.title || '';
-          const daysCount = Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0;
-
-          storiesMap[String(id)] = {
-            id,
-            name,
-            kana: data.kana,
-            motif: data.motif,
-            week_title: title,
-            daysCount,
-            updatedAt: data.updatedAt || new Date().toISOString(),
-          };
-
-          saveToLocalCache(id, data as NyankoStory);
-          syncedNyans.push({ id, name, title, daysCount });
-
-          if (onProgress) {
-            onProgress({ id, name, current, total });
-          }
-        }
-      }
-    }
-
     // Sort syncedNyans by id ascending
     syncedNyans.sort((a, b) => a.id - b.id);
 
@@ -930,40 +894,9 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
       return { success: true, stories: list };
     }
 
-    // Fallback to legacy collection if consolidated doc does not exist yet
-    const colRef = collection(db, 'nyanko_stories_unmapped');
-    const legacySnap = await getDocs(colRef);
-    const storiesMapToMigrate: Record<string, any> = {};
-    const list = legacySnap.docs.map((d) => {
-      const data = d.data();
-      storiesMapToMigrate[d.id] = data;
-      return {
-        oldId: d.id,
-        name: data.name || '',
-        motif: data.motif || '',
-        title: data.week_info?.week_title || data.title || '',
-        daysCount: Array.isArray(data.week_info?.days) ? data.week_info.days.length : 0,
-      };
-    });
-
-    list.sort((a, b) => Number(a.oldId) - Number(b.oldId));
-
-    // Auto-migrate legacy docs into the consolidated global document (1 Write) to permanently eliminate getDocs
-    if (list.length > 0) {
-      try {
-        await setDoc(docRef, {
-          updatedAt: new Date().toISOString(),
-          count: list.length,
-          stories: storiesMapToMigrate,
-        }, { merge: true });
-        recordFirestoreWrite(`kenchiko_world/${GLOBAL_UNMAPPED_DOC_ID}`, 1);
-        console.log(`[NyankoStory] 💾 未紐づけ物語の目録（統合ドキュメント）を自動生成しました: ${list.length}件を ${GLOBAL_UNMAPPED_DOC_ID} に統合`);
-      } catch (migrateErr) {
-        console.warn('Failed to auto-migrate unmapped stories to global index:', migrateErr);
-      }
-    }
-
-    return { success: true, stories: list };
+    // If global unmapped index does not exist or is empty, return empty list.
+    // Legacy collection fallback logic has been disabled to prevent runaway reads.
+    return { success: true, stories: [] };
   } catch (err: any) {
     console.error('Failed to fetch unmapped stories archive:', err);
     return { success: false, stories: [], error: err?.message || '取得に失敗しました' };

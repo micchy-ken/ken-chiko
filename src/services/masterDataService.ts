@@ -531,6 +531,7 @@ export async function checkForMasterUpdateAndSync(
   version: number;
   nyans: NyanCharacter[];
   addedCount: number;
+  masterData?: GameMasterData;
   error?: string;
 }> {
   try {
@@ -577,6 +578,7 @@ export async function checkForMasterUpdateAndSync(
       version: manifest.version,
       nyans: mergedNyans,
       addedCount,
+      masterData: masterRes.data,
     };
   } catch (err: any) {
     console.warn('checkForMasterUpdateAndSync warning:', err);
