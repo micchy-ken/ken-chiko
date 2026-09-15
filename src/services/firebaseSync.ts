@@ -327,10 +327,13 @@ export function reconstructGameSaveData(
       if (isNaN(no)) continue;
       const base = charMap.get(no);
       if (base) {
+        // AUTO-REPAIR: If non-starter cat has discovered: true but 0 playCount, it's a bugged leak. Revert it.
+        const isBugged = no > 8 && prog.discovered && (!prog.playCount || prog.playCount === 0);
+        
         charMap.set(no, {
           ...base,
-          discovered: prog.discovered !== undefined ? prog.discovered : base.discovered,
-          discoveryDate: prog.discoveryDate || base.discoveryDate,
+          discovered: isBugged ? false : (prog.discovered !== undefined ? prog.discovered : base.discovered),
+          discoveryDate: isBugged ? undefined : (prog.discoveryDate || base.discoveryDate),
           lastMetAt: prog.lastMetAt || base.lastMetAt,
           friendshipLevel: prog.friendshipLevel !== undefined ? prog.friendshipLevel : base.friendshipLevel,
           playCount: prog.playCount !== undefined ? prog.playCount : base.playCount,

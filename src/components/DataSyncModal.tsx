@@ -504,9 +504,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setIsPublishingMaster(true);
     setMasterPublishStatus(`🚀 分割マスター（${currentPublishEstimate.docWrites}ドキュメント書込 / 計${currentPublishEstimate.kb} KB）をFirestoreへ保存中...`);
     
+    const cleanCharacters = (saveData.characters || characters).map((c) => ({
+      ...c,
+      discovered: c.no <= 8 ? true : false,
+      discoveryDate: undefined,
+      lastMetAt: undefined,
+      friendshipLevel: 1,
+      playCount: 0,
+    }));
+
     const masterPayload: GameMasterData = {
       version: masterMeta?.version || 1,
-      characters: saveData.characters || characters,
+      characters: cleanCharacters,
       asobiList: asobiList,
       ouenCategories: mergeOuenCategories(saveData.ouenCategories),
       ouenList: mergeOuenList(saveData.ouenList),
