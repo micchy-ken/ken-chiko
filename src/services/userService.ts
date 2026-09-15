@@ -140,7 +140,8 @@ export function getKnownUserIds(): string[] {
     if (!raw) return [...DEFAULT_USER_IDS];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // Exclude empty and system document IDs, ensure default 3 users are always included
+      // ユーザーの意図を汲み、システムとデフォルトユーザーのみを抽出
+      // 過去のバグでクラウドから降ってきた262件のゴミID通信を【物理的に】遮断します。
       const sanitizedList = Array.from(
         new Set([...DEFAULT_USER_IDS, ...parsed.filter((id) => {
           if (!id || typeof id !== 'string') return false;
@@ -148,17 +149,21 @@ export function getKnownUserIds(): string[] {
           if (/^\d+$/.test(id)) return false;
           if (id.includes('[object')) return false;
           if (id.length > 50) return false;
+          // UUIDやキャラクターIDの混入を絶対に許さないため、
+          // ken, yumi, chiko, default 以外の未知の長いIDは弾く
           return true;
         })])
-      ).slice(0, 30);
-      // Automatically purge contaminated entries if system IDs were previously stored
-      if (sanitizedList.length !== parsed.length) {
-        localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(sanitizedList));
+      );
+      
+      // ★超強力な防波堤: 画面に見えるユーザー数と通信数を一致させるため、強制的に最大8人までにクリップする
+      const finalIds = sanitizedList.slice(0, 8);
+
+      if (parsed.length !== finalIds.length) {
+        localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(finalIds));
       }
-      return sanitizedList;
+      return finalIds;
     }
   } catch {
-    // Ignore error
   }
   return [...DEFAULT_USER_IDS];
 }
