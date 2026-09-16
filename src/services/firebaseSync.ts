@@ -225,7 +225,7 @@ export function deduplicateDiary(diary: DiaryEntry[]): DiaryEntry[] {
 
 /**
  * Safely merges cloud rewards state with local backup rewards state,
- * preventing point loss, ticket loss, or duplicate ticket IDs.
+ * preventing point rollback, ticket loss, or duplicate ticket IDs.
  */
 export function mergeRewardStates(
   cloudRewards?: UserRewardState,
@@ -237,7 +237,7 @@ export function mergeRewardStates(
   if (!cloudRewards) return localRewards || createInitialRewardState();
   if (!localRewards) return cloudRewards;
 
-  // Merge tickets avoiding duplicates by ID
+  // Merge tickets avoiding duplicates by ID, preserving isUsed and usedAt flags
   const ticketMap = new Map<string, RewardTicket>();
   for (const t of localRewards.tickets || []) {
     ticketMap.set(t.id, t);
@@ -261,7 +261,7 @@ export function mergeRewardStates(
     new Set([...(cloudRewards.readStoryIds || []), ...(localRewards.readStoryIds || [])])
   );
 
-  // Merge history avoiding duplicates by ID
+  // Merge history avoiding duplicates by ID, sorted newest first
   const historyMap = new Map<string, GaraponHistoryEntry>();
   for (const h of localRewards.history || []) {
     historyMap.set(h.id, h);
@@ -273,9 +273,52 @@ export function mergeRewardStates(
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 50);
 
+  // Timestamp of latest reward action
+  const cloudTime = cloudRewards.lastUpdated || 0;
+  const localTime = localRewards.lastUpdated || 0;
+
+  // Latest history timestamp fallback
+  const latestCloudHistory = cloudRewards.history?.[0]?.timestamp || 0;
+  const latestLocalHistory = localRewards.history?.[0]?.timestamp || 0;
+
+  const effectiveCloudTime = Math.max(cloudTime, latestCloudHistory);
+  const effectiveLocalTime = Math.max(localTime, latestLocalHistory);
+
+  let mergedPoints: number;
+  let mergedLastUpdated: number;
+
+  if (effectiveLocalTime > effectiveCloudTime) {
+    // Local performed newer action (e.g. spun garapon, claimed bonus)
+    mergedPoints = localRewards.points ?? 0;
+    mergedLastUpdated = effectiveLocalTime;
+  } else if (effectiveCloudTime > effectiveLocalTime) {
+    // Cloud has newer action
+    mergedPoints = cloudRewards.points ?? 0;
+    mergedLastUpdated = effectiveCloudTime;
+  } else {
+    // If times are identical or unset, check which side has more garapon spin history (more spent)
+    const localSpins = (localRewards.history || []).length;
+    const cloudSpins = (cloudRewards.history || []).length;
+    if (localSpins > cloudSpins) {
+      mergedPoints = localRewards.points ?? 0;
+    } else if (cloudSpins > localSpins) {
+      mergedPoints = cloudRewards.points ?? 0;
+    } else {
+      // In ambiguous tie with no timestamp, preserve the lower point amount to honor consumption
+      mergedPoints = Math.min(cloudRewards.points ?? 0, localRewards.points ?? 0);
+    }
+    mergedLastUpdated = Math.max(cloudTime, localTime, Date.now());
+  }
+
+  const mergedLifetime = Math.max(
+    cloudRewards.lifetimePoints || 0,
+    localRewards.lifetimePoints || 0,
+    mergedPoints
+  );
+
   return {
-    points: Math.max(cloudRewards.points || 0, localRewards.points || 0),
-    lifetimePoints: Math.max(cloudRewards.lifetimePoints || 0, localRewards.lifetimePoints || 0),
+    points: Math.max(0, mergedPoints),
+    lifetimePoints: mergedLifetime,
     hasClaimedInitialDiscoveryBonus: Boolean(
       cloudRewards.hasClaimedInitialDiscoveryBonus || localRewards.hasClaimedInitialDiscoveryBonus
     ),
@@ -287,6 +330,7 @@ export function mergeRewardStates(
     readStoryIds: readStories,
     tickets: Array.from(ticketMap.values()),
     history: mergedHistory,
+    lastUpdated: mergedLastUpdated,
   };
 }
 
@@ -1648,7 +1692,7 @@ export function getMeaningfulUserProgressHash(doc: UserProgressDoc): string {
 
   const assetsStr = `${doc.kenchiko?.customImageUrl || ''}|${doc.kihonNyanCustomImageUrl || ''}|${doc.googleDriveFolderUrl || ''}|${doc.kenchiko?.equippedItem || ''}|${doc.kenchiko?.currentLocation || ''}`;
 
-  const rewardsStr = `${doc.rewards?.points || 0}:${(doc.rewards?.tickets || []).length}:${(doc.rewards?.tickets || []).filter((t) => t.isUsed).length}`;
+  const rewardsStr = `${doc.rewards?.points || 0}:${doc.rewards?.lifetimePoints || 0}:${(doc.rewards?.tickets || []).length}:${(doc.rewards?.tickets || []).filter((t) => t.isUsed).length}:${(doc.rewards?.history || []).length}:${doc.rewards?.lastUpdated || 0}`;
 
   return `${nyanStr}#${invStr}#${diaryStr}#${statsStr}#${assetsStr}#${rewardsStr}`;
 }

@@ -35,6 +35,7 @@ export interface UserRewardState {
   readStoryIds: number[]; // Nyan numbers whose final story has been read
   tickets: RewardTicket[];
   history: GaraponHistoryEntry[];
+  lastUpdated?: number; // Timestamp of latest points/tickets modification
 }
 
 export const GARAPON_COST = 200;

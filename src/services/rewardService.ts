@@ -23,6 +23,7 @@ export function createInitialRewardState(): UserRewardState {
     readStoryIds: [],
     tickets: [],
     history: [],
+    lastUpdated: Date.now(),
   };
 }
 
@@ -48,6 +49,7 @@ export function grantInitialDiscoveryBonus(
     lifetimePoints: state.lifetimePoints + bonusAmount,
     hasClaimedInitialDiscoveryBonus: true,
     initialBonusAmount: bonusAmount,
+    lastUpdated: Date.now(),
   };
 
   return { updatedState, bonusAmount, granted: true };
@@ -65,6 +67,7 @@ export function addDiscoveryPoints(current: UserRewardState | undefined): UserRe
     ...state,
     points: state.points + POINTS_NEW_DISCOVERY,
     lifetimePoints: state.lifetimePoints + POINTS_NEW_DISCOVERY,
+    lastUpdated: Date.now(),
   };
 }
 
@@ -88,6 +91,7 @@ export function claimDailyPetPoints(
     points: state.points + POINTS_DAILY_PET,
     lifetimePoints: state.lifetimePoints + POINTS_DAILY_PET,
     lastPettedDate: todayStr,
+    lastUpdated: Date.now(),
   };
 
   return { updatedState, pointsAdded: POINTS_DAILY_PET, wasAwarded: true };
@@ -114,6 +118,7 @@ export function claimStoryCompletionPoints(
     points: state.points + POINTS_STORY_COMPLETE,
     lifetimePoints: state.lifetimePoints + POINTS_STORY_COMPLETE,
     readStoryIds: [...readIds, nyanNo],
+    lastUpdated: Date.now(),
   };
 
   return { updatedState, pointsAdded: POINTS_STORY_COMPLETE, wasAwarded: true };
@@ -315,6 +320,7 @@ export function spinGarapon(
     lifetimePoints: nextLifetime,
     tickets,
     history,
+    lastUpdated: Date.now(),
   };
 
   return {
@@ -350,6 +356,7 @@ export function markTicketAsUsed(
     updatedState: {
       ...current,
       tickets,
+      lastUpdated: Date.now(),
     },
     ticket: target,
   };

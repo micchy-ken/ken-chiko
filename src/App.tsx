@@ -752,6 +752,7 @@ export default function App() {
           }),
           points: currentPts + 10,
           lifetimePoints: currentLife + 10,
+          lastUpdated: Date.now(),
         };
         setRewardToastMessage('🛵 こうにちゃんからおこづかい（10pt）をもらいました！');
       } else if (type === 'cat' && cat) {
