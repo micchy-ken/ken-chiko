@@ -474,7 +474,7 @@ export default function App() {
 
         if (res.masterStatus) {
           setMasterStatus(res.masterStatus);
-          if (!res.masterStatus.fetchedFromCloud || res.masterStatus.errorDetail) {
+          if (res.masterStatus.errorDetail && !res.data) {
             setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
           } else {
             setMasterFetchError(null);
@@ -585,7 +585,7 @@ export default function App() {
       const res = await fetchInitialFirebaseState(undefined, true);
       if (res.masterStatus) {
         setMasterStatus(res.masterStatus);
-        if (!res.masterStatus.fetchedFromCloud || res.masterStatus.errorDetail) {
+        if (res.masterStatus.errorDetail && !res.data) {
           setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
           setIsFirebaseSynced(false);
         } else {

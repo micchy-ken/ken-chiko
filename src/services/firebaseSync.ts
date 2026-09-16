@@ -1227,7 +1227,31 @@ export async function fetchInitialFirebaseState(
             globalRaw = globalSnap.data();
             masterDocIdUsed = GLOBAL_SHARED_DOC_ID;
           } else {
-            masterErrorDetail = 'Firestore上にマスタードキュメント (ken-chiko-global-master / global-state) が見つかりませんでした';
+            // Auto-initialize standard master into Firestore so database is ready
+            try {
+              const defaultMaster = {
+                version: 1,
+                characters: INITIAL_NYANS,
+                asobiList: INITIAL_ASOBI_LIST,
+                ouenCategories: INITIAL_OUEN_CATEGORIES,
+                ouenList: INITIAL_OUEN_LIST,
+                lastUpdated: Date.now(),
+                note: '公式初期マスターデータ',
+              };
+              await setDoc(masterDocRef, defaultMaster, { merge: true });
+              globalRaw = defaultMaster;
+              masterDocIdUsed = 'ken-chiko-global-master';
+            } catch (_seedErr) {
+              // Local fallback without blocking error
+              globalRaw = {
+                version: 1,
+                characters: INITIAL_NYANS,
+                asobiList: INITIAL_ASOBI_LIST,
+                ouenCategories: INITIAL_OUEN_CATEGORIES,
+                ouenList: INITIAL_OUEN_LIST,
+              };
+              masterDocIdUsed = 'ken-chiko-global-master (ローカル標準)';
+            }
           }
         }
 
