@@ -141,6 +141,7 @@ export interface KenchikoState {
   monologue: string;
   equippedItem: string | null;
   totalPlayTimeSec: number;
+  hintLocation?: LocationId | null;
 }
 
 export interface GiftItem {

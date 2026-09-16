@@ -77,6 +77,7 @@ export interface KenchikoSyncState {
   monologue: string;
   equippedItem?: string | null;
   totalPlayTimeSec?: number;
+  hintLocation?: string | null;
 }
 
 /**
@@ -177,6 +178,7 @@ export function extractUserProgress(data: GameSaveData): UserProgressDoc {
     monologue: data.kenchiko?.monologue || '',
     equippedItem: data.kenchiko?.equippedItem || null,
     totalPlayTimeSec: data.kenchiko?.totalPlayTimeSec || 0,
+    hintLocation: data.kenchiko?.hintLocation || null,
   };
 
   const rawDoc: UserProgressDoc = {

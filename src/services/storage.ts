@@ -32,6 +32,7 @@ export const DEFAULT_USER_PROGRESS: UserProgressData = {
     monologue: '今日からけんちことのんびり生活がはじまるよ〜',
     equippedItem: null,
     totalPlayTimeSec: 0,
+    hintLocation: null,
   },
   discoveredNyanNos: [],
   nyanProgress: {},

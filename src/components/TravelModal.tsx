@@ -23,12 +23,18 @@ export const TravelModal: React.FC<TravelModalProps> = ({
     return allKeys.filter((locId) => locId !== kenchiko.currentLocation);
   }, [kenchiko.currentLocation]);
 
-  // Pick 3 unique random candidate locations
+  // Pick 3 unique random candidate locations (always includes hintLocation if active)
   const pick3RandomCandidates = useCallback((): LocationId[] => {
     const eligible = getEligibleLocations();
+    if (kenchiko.hintLocation && eligible.includes(kenchiko.hintLocation)) {
+      const remaining = eligible.filter((loc) => loc !== kenchiko.hintLocation);
+      const shuffledOthers = [...remaining].sort(() => 0.5 - Math.random());
+      const selected = [kenchiko.hintLocation, ...shuffledOthers.slice(0, 2)];
+      return selected.sort(() => 0.5 - Math.random());
+    }
     const shuffled = [...eligible].sort(() => 0.5 - Math.random());
     return shuffled.slice(0, 3);
-  }, [getEligibleLocations]);
+  }, [getEligibleLocations, kenchiko.hintLocation]);
 
   // 3 candidates state
   const [candidates, setCandidates] = useState<LocationId[]>([]);
@@ -214,6 +220,12 @@ export const TravelModal: React.FC<TravelModalProps> = ({
                       <span className="text-[10px] text-[#7A726A] font-bold bg-[#EFECE4] px-1.5 py-0.5 rounded-md font-handwriting">
                         {info.reading}
                       </span>
+                      {kenchiko.hintLocation === locId && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#FEF3C7] border border-[#F59E0B] text-[#B45309] text-[10px] font-black rounded-full font-handwriting shadow-2xs animate-pulse">
+                          <Sparkles className="w-3 h-3 text-[#D97706]" />
+                          <span>ここにいるかも！</span>
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-xs text-[#6A625A] mt-1 line-clamp-2 leading-relaxed font-handwriting">

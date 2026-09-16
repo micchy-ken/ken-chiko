@@ -200,10 +200,11 @@ export default function App() {
   const isRollingEncounterRef = useRef<boolean>(false);
   const lastCompletionTimestampRef = useRef<number>(0);
   const nextEncounterCheckTimeRef = useRef<number>(0);
+  const encounterCheckCountRef = useRef<number>(0);
 
   const getRandomEncounterIntervalMs = () => {
-    // 15 to 60 seconds (15000ms to 60000ms)
-    return Math.floor(Math.random() * (60000 - 15000 + 1) + 15000);
+    // 15 to 30 seconds (15000ms to 30000ms) for subsequent re-rolls
+    return Math.floor(Math.random() * (30000 - 15000 + 1) + 15000);
   };
 
   // Modal States
@@ -853,7 +854,11 @@ export default function App() {
       }));
   }, [saveData.characters, saveData.diary, saveData.kenchiko.currentCompanionNyanId]);
 
-  // Encounter Lottery Handler (Fires after 5s has elapsed, then every 15-60s at 30% chance. Once a cat appears, no more cats in this location)
+  // Encounter Lottery Handler:
+  // - First check: exactly 15s after arrival (60% flat, equal odds for all cats)
+  // - Subsequent checks: every 15-30s (30% chance, undiscovered cats get 1.5x weight)
+  // - On miss: 50% chance to tease "◯◯にいるかも！" hint (disabled if all cats discovered)
+  // - Guaranteed encounter: upon arrival at hinted location, 100% encounter with undiscovered cat and "本当にいた！" presentation
   const handleEncounterLottery = useCallback(() => {
     if (isDefaultUser || !isInitialSyncCompletedRef.current || isStandaloneAdmin || showSyncModal || showTutorialModalRef.current) return;
     if (isRollingEncounterRef.current) return;
@@ -879,20 +884,32 @@ export default function App() {
         const updatedStats = { ...prev.stats };
         let isNewlyDiscoveredNyan = false;
 
+        const isFirstCheck = encounterCheckCountRef.current === 0;
+        const undiscoveredNyans = updatedCharacters.filter((c) => !c.discovered);
+        const isGuaranteedHint = Boolean(
+          curK.hintLocation &&
+          curK.hintLocation === curK.currentLocation &&
+          undiscoveredNyans.length > 0
+        );
+
         const encounterRes = rollEncounterForActivity(
           curK.currentLocation,
           updatedCharacters,
           { type: curK.currentActivity, title: curK.currentActivityTitle },
-          prev.asobiList
+          prev.asobiList,
+          {
+            isFirstCheck,
+            isGuaranteedHintEncounter: isGuaranteedHint,
+          }
         );
 
         if (encounterRes.companionNyan) {
-          // HIT (30% success): A cat appeared!
+          // HIT: A cat appeared!
           const comp = encounterRes.companionNyan;
           const nextCompanionId = comp.no;
           const nextTitle = encounterRes.updatedTitle || curK.currentActivityTitle;
 
-          // Set check time to Infinity so no further checks happen at this location
+          // Set check time to Infinity so no further checks happen at this location stay
           nextEncounterCheckTimeRef.current = Infinity;
 
           if (curK.currentActivity === 'snacking') updatedStats.totalSnacksEaten += 1;
@@ -924,7 +941,11 @@ export default function App() {
 
               // Award +50pt Discovery Bonus
               updatedRewards = addDiscoveryPoints(updatedRewards);
-              setRewardToastMessage(`✨ 新にゃんこ「${updatedCharacters[charIndex].name}」発見！(+50pt 獲得)`);
+              if (isGuaranteedHint) {
+                setRewardToastMessage(`✨ 本当にいた！新にゃんこ「${updatedCharacters[charIndex].name}」発見！(+50pt 獲得)`);
+              } else {
+                setRewardToastMessage(`✨ 新にゃんこ「${updatedCharacters[charIndex].name}」発見！(+50pt 獲得)`);
+              }
 
               setNewEncounterToast(updatedCharacters[charIndex]);
               try {
@@ -949,10 +970,11 @@ export default function App() {
               nyanId: nextCompanionId,
               nyanName: comp.name,
               itemUsed: null,
-              
               text: encounterRes.diaryText,
             });
           }
+
+          const nextMonologue = encounterRes.customMonologue || curK.monologue;
 
           const nextData: GameSaveData = {
             ...prev,
@@ -966,19 +988,62 @@ export default function App() {
               currentCompanionNyanId: nextCompanionId,
               encounterChecked: true, // Marked as encountered at this location
               currentActivityTitle: nextTitle,
-              monologue: curK.monologue,
+              monologue: nextMonologue,
+              hintLocation: null, // Clear hint once fulfilled or once encounter occurs!
             },
           };
 
           saveLocalBackup(nextData);
-          // If a new cat was discovered, save immediately to Cloud Firestore!
           if (isNewlyDiscoveredNyan) {
             saveOnUserAction(nextData, true).catch(() => {});
           }
           return nextData;
         } else {
-          // MISS (70%): No cat appeared yet. Schedule next check in 15-60 seconds.
+          // MISS: No cat appeared.
+          encounterCheckCountRef.current += 1;
+          // Schedule next check in 15-30 seconds
           nextEncounterCheckTimeRef.current = Date.now() + getRandomEncounterIntervalMs();
+
+          // Further 50% lottery to trigger "◯◯にいるかも！" hint:
+          // Rule: Only if undiscovered cats still exist!
+          const remainingUndiscovered = updatedCharacters.filter((c) => !c.discovered);
+          if (remainingUndiscovered.length > 0) {
+            const shouldHint = Math.random() < 0.50;
+            if (shouldHint) {
+              const otherLocs = (Object.keys(LOCATIONS) as LocationId[]).filter(
+                (locId) => locId !== curK.currentLocation
+              );
+              if (otherLocs.length > 0) {
+                const chosenHintLoc = otherLocs[Math.floor(Math.random() * otherLocs.length)];
+                const locInfo = LOCATIONS[chosenHintLoc] || LOCATIONS.living;
+                const hintMonologue = `${locInfo.name}にいるかも！`;
+                setRewardToastMessage(`🐾 けんちこ「${locInfo.name}にいるかも！」`);
+
+                const hintedData: GameSaveData = {
+                  ...prev,
+                  kenchiko: {
+                    ...curK,
+                    hintLocation: chosenHintLoc,
+                    monologue: hintMonologue,
+                  },
+                };
+                saveLocalBackup(hintedData);
+                return hintedData;
+              }
+            }
+          } else {
+            // No undiscovered cats left - ensure hintLocation is cleared
+            if (curK.hintLocation) {
+              return {
+                ...prev,
+                kenchiko: {
+                  ...curK,
+                  hintLocation: null,
+                },
+              };
+            }
+          }
+
           return prev;
         }
       });
@@ -1018,7 +1083,8 @@ export default function App() {
         const nextLocation = curK.targetLocation;
         updatedStats.totalTrips += 1;
         setNewEncounterToast(null);
-        nextEncounterCheckTimeRef.current = 0; // Reset timer for new location
+        encounterCheckCountRef.current = 0; // Reset check count for new location
+        nextEncounterCheckTimeRef.current = Date.now() + 15000; // Schedule 1st check 15s after arrival
 
         const newAct = startNewActivity(nextLocation, prev.asobiList);
         nextRemainingSec = newAct.durationSec;
@@ -1056,7 +1122,10 @@ export default function App() {
         if (shouldMove) {
           setNewEncounterToast(null); // Clear toast when departing
           nextEncounterCheckTimeRef.current = 0;
-          const dest = pickRandomLocation(curK.currentLocation);
+          encounterCheckCountRef.current = 0;
+          const dest = (curK.hintLocation && curK.hintLocation !== curK.currentLocation)
+            ? curK.hintLocation
+            : pickRandomLocation(curK.currentLocation);
           const transport = pickRandomTransport();
           const transitInfo = startTransit(curK.currentLocation, dest, transport);
 
@@ -1086,6 +1155,8 @@ export default function App() {
         } else {
           // Case C: Start next activity at current location
           setNewEncounterToast(null);
+          encounterCheckCountRef.current = 0;
+          nextEncounterCheckTimeRef.current = Date.now() + 15000;
           const newAct = startNewActivity(curK.currentLocation, prev.asobiList);
           nextRemainingSec = newAct.durationSec;
 
@@ -1131,12 +1202,12 @@ export default function App() {
     handleActivityCompletionRef.current = handleActivityCompletion;
   }, [handleActivityCompletion]);
 
-  // Primary Simulation Tick Loop (UI countdown display & 15-60s encounter trigger)
+  // Primary Simulation Tick Loop (UI countdown display & encounter trigger)
   useEffect(() => {
     // Completely freeze simulation loop if default user, until initial sync is 100% complete, or if admin / sync modal / tutorial is open
     if (isDefaultUser || !isInitialSyncCompleted || isLoadingFirebase || isStandaloneAdmin || showSyncModal || showTutorialModal) return;
 
-    const TICK_INTERVAL_MS = 3000;
+    const TICK_INTERVAL_MS = 1000;
     const interval = setInterval(() => {
       let isCompleted = false;
 
@@ -1161,19 +1232,19 @@ export default function App() {
         return Math.floor(nextTime);
       });
 
-      // Encounter Check: After 5 seconds elapsed, then every 15-60s with 30% chance.
-      // Once a cat appears, no more cats appear in this location.
+      // Encounter Check: Exactly 15s after arrival for 1st check (60%), then every 15-30s (30%, undiscovered 1.5x).
+      // Once a cat appears, no more cats appear in this location stay.
       if (
         !isTransit &&
         curK.currentActivity !== 'cheering' &&
         !curK.encounterChecked &&
         curK.currentCompanionNyanId === null &&
-        isInitialSyncCompletedRef.current &&
-        elapsedSinceStart >= 5000
+        isInitialSyncCompletedRef.current
       ) {
         if (nextEncounterCheckTimeRef.current === 0) {
-          // Initialize first check time (15-60s from now)
-          nextEncounterCheckTimeRef.current = now + getRandomEncounterIntervalMs();
+          // Initialize first check time (15s after activity started)
+          const startedAt = curK.activityStartedAt || now;
+          nextEncounterCheckTimeRef.current = Math.max(now, startedAt + 15000);
         } else if (now >= nextEncounterCheckTimeRef.current) {
           handleEncounterLotteryRef.current();
         }
@@ -1198,14 +1269,14 @@ export default function App() {
         setRemainingTimeSec(remaining);
         remainingTimeSecRef.current = remaining;
 
-        // Check if encounter check should fire upon return
+        // Check if encounter check should fire upon return (15s after arrival)
         const now = Date.now();
         if (
           curK.currentActivity !== 'transit' &&
           curK.currentActivity !== 'cheering' &&
           !curK.encounterChecked &&
           curK.currentCompanionNyanId === null &&
-          elapsedSec >= 5 &&
+          elapsedSec >= 15 &&
           (nextEncounterCheckTimeRef.current === 0 || now >= nextEncounterCheckTimeRef.current)
         ) {
           handleEncounterLotteryRef.current();
@@ -1501,7 +1572,9 @@ export default function App() {
     ) {
       return;
     }
-    const destination = pickRandomLocation(saveData.kenchiko.currentLocation);
+    const destination = (saveData.kenchiko.hintLocation && saveData.kenchiko.hintLocation !== saveData.kenchiko.currentLocation)
+      ? saveData.kenchiko.hintLocation
+      : pickRandomLocation(saveData.kenchiko.currentLocation);
     const transport = pickRandomTransport();
     handleStartTravel(destination, transport);
   };
@@ -1518,6 +1591,7 @@ export default function App() {
 
     setNewEncounterToast(null);
     nextEncounterCheckTimeRef.current = 0;
+    encounterCheckCountRef.current = 0;
     const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
     const transitDuration = 20; // Strictly 20s for transit
     setRemainingTimeSec(transitDuration);
