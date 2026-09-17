@@ -240,7 +240,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
         </div>
 
         {/* Kenchiko Monologue Speech Bubble (Hand-drawn talk box with RPG/Novel paging) */}
-        <div className="relative z-20 w-full max-w-lg mb-2">
+        <div className="relative z-20 w-full mb-2 sm:max-w-lg">
           <div
             onClick={handleMonologueBoxClick}
             role="button"
@@ -270,16 +270,16 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between text-[11px] text-[#7A726A] font-bold mb-0.5 font-handwriting">
-                <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[200px] sm:max-w-[280px]">
-                  <span className="w-2 h-2 rounded-full bg-[#487560] shrink-0" />
-                  {kenchiko.currentActivityTitle || 'まったり中'}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-[#7A726A] font-bold mb-0.5 font-handwriting gap-1">
+                <span className="text-[#3E3833] flex items-start sm:items-center gap-1.5 break-words">
+                  <span className="w-2 h-2 rounded-full bg-[#487560] shrink-0 mt-1 sm:mt-0" />
+                  <span>{kenchiko.currentActivityTitle || 'まったり中'}</span>
                 </span>
                 <button
                   type="button"
                   onClick={handleRefreshMonologue}
                   title="新しいたいくつぶやきに更新する"
-                  className="text-[#487560] hover:underline flex items-center gap-1 shrink-0 px-1 py-0.5 rounded hover:bg-[#FAF8F4] transition ml-2"
+                  className="text-[#487560] self-end sm:self-auto hover:underline flex items-center gap-1 shrink-0 px-1 py-0.5 rounded hover:bg-[#FAF8F4] transition sm:ml-2"
                 >
                   <Sparkles className="w-3 h-3" /> つぶやき更新
                 </button>
@@ -289,7 +289,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
               <div className="min-h-[38px] flex items-center">
                 <p
                   key={`${kenchiko.monologue}_${monologuePage}`}
-                  className={`font-bold text-[#2E2824] leading-snug font-handwriting ${fontSizeClass} animate-fadeIn transition-opacity duration-150 line-clamp-2`}
+                  className={`font-bold text-[#2E2824] leading-snug font-handwriting break-words ${fontSizeClass} animate-fadeIn transition-opacity duration-150`}
                 >
                   「{currentPageText}」
                 </p>
@@ -349,9 +349,9 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                   className="w-full h-full"
                 />
               </div>
-              <div className="mt-1 flex items-center justify-center gap-0.5 text-[9px] sm:text-[11px] font-bold text-[#4A423B] font-handwriting truncate px-0.5">
+              <div className="mt-1 flex items-center justify-center gap-0.5 text-[9px] sm:text-[11px] font-bold text-[#4A423B] font-handwriting px-0.5 break-words text-center">
                 <MapPin className="w-2.5 h-2.5 text-[#D4736A] shrink-0" />
-                <span className="truncate">{locInfo.name}</span>
+                <span>{locInfo.name}</span>
               </div>
             </div>
           </div>
@@ -426,9 +426,9 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5 mt-1">
-              <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag shadow-sm flex items-center gap-1 font-handwriting">
+              <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag shadow-sm flex flex-wrap justify-center items-center gap-1 font-handwriting">
                 <span>けんちこ</span>
-                <span className="text-[10px] text-[#8C5A3E] font-normal">
+                <span className="text-[10px] text-[#8C5A3E] font-normal break-words">
                   ({kenchiko.currentActivity === 'nap'
                     ? '睡眠中'
                     : kenchiko.currentActivity === 'snacking'
@@ -447,21 +447,21 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           {companionNyan && (
             <div
               onClick={() => onSelectNyan(companionNyan)}
-              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn max-w-[240px] sm:max-w-[280px]"
+              className="cursor-pointer group flex flex-col items-center transition transform hover:scale-105 active:scale-95 animate-fadeIn max-w-[280px] sm:max-w-[320px]"
               title="図鑑を見る / 一緒に遊ぶ"
             >
               {/* Cat Speech Bubble (I列: セリフ, J列: 意味) */}
               {(companionNyan.dialogue || companionNyan.dialogueMeaning) ? (
-                <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3.5 py-2 shadow-sm text-center animate-fadeIn max-w-[230px] sm:max-w-[260px]">
+                <div className="relative mb-2 bg-[#FFFDF9] sketch-card-subtle px-3.5 py-2 shadow-sm text-center animate-fadeIn w-full max-w-[260px] sm:max-w-[300px]">
                   {companionNyan.dialogue && (
-                    <p className="text-xs sm:text-sm font-bold text-[#2E2824] leading-snug font-handwriting break-words line-clamp-3">
+                    <p className="text-xs sm:text-sm font-bold text-[#2E2824] leading-snug font-handwriting break-words">
                       {companionNyan.dialogue.startsWith('「') && companionNyan.dialogue.endsWith('」')
                         ? companionNyan.dialogue
                         : `「${companionNyan.dialogue}」`}
                     </p>
                   )}
                   {companionNyan.dialogueMeaning && (
-                    <p className="text-xs sm:text-[13px] text-[#3E3833] font-bold leading-snug font-handwriting mt-1 border-t border-[#EAE5D9] pt-1 break-words line-clamp-3">
+                    <p className="text-xs sm:text-[13px] text-[#3E3833] font-bold leading-snug font-handwriting mt-1 border-t border-[#EAE5D9] pt-1 break-words">
                       {companionNyan.dialogueMeaning}
                     </p>
                   )}
@@ -480,9 +480,9 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                 isDiscovered={true}
                 transparent={true}
               />
-              <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag mt-1 shadow-sm flex items-center gap-1 font-handwriting">
-                <span>{companionNyan.name}</span>
-                <span className="text-[10px] text-[#C85A53] font-bold">Lv.{companionNyan.friendshipLevel}</span>
+              <div className="bg-[#FAF8F4] text-[#2E2824] text-xs font-bold px-3 py-0.5 sketch-tag mt-1 shadow-sm flex flex-wrap justify-center items-center gap-1 font-handwriting">
+                <span className="break-words text-center">{companionNyan.name}</span>
+                <span className="text-[10px] text-[#C85A53] font-bold shrink-0">Lv.{companionNyan.friendshipLevel}</span>
               </div>
             </div>
           )}
@@ -504,12 +504,12 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
 
         {/* Activity Progress Bar Bottom (Pencil Line Progress) */}
         <div className="relative z-10 w-full max-w-lg mt-2 bg-[#FFFDF9] text-[#2E2824] sketch-card-subtle px-4 py-2.5">
-          <div className="flex items-center justify-between text-xs font-bold mb-1.5 font-handwriting">
-            <span className="text-[#3E3833] flex items-center gap-1.5 truncate max-w-[250px]">
-              <span className={`w-2 h-2 rounded-full ${progressDotColor} animate-ping shrink-0`} />
-              <span className="truncate">{kenchiko.currentActivityTitle}</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold mb-1.5 font-handwriting gap-1.5">
+            <span className="text-[#3E3833] flex items-start sm:items-center gap-1.5 break-words">
+              <span className={`w-2 h-2 rounded-full ${progressDotColor} animate-ping shrink-0 mt-1 sm:mt-0`} />
+              <span>{kenchiko.currentActivityTitle}</span>
             </span>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center self-end sm:self-auto gap-2 shrink-0">
               {isTransit ? (
                 <span className="text-[10px] bg-[#E8EEF5] text-[#2A4D69] px-2 py-0.5 rounded-full font-bold border border-[#BDD6EE] flex items-center gap-1">
                   <Footprints className="w-3 h-3" /> 移動中 ({effectiveRemainingTimeSec}s)

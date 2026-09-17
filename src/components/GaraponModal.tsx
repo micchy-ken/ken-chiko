@@ -314,10 +314,10 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
           </div>
 
           {/* Tabs */}
-          <div className="flex items-center gap-1.5 font-handwriting text-xs font-bold">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 font-handwriting text-xs font-bold overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto">
             <button
               onClick={() => setActiveTab('garapon')}
-              className={`px-3 py-1.5 rounded-xl border transition-all ${
+              className={`px-3 py-1.5 rounded-xl border transition-all shrink-0 whitespace-nowrap ${
                 activeTab === 'garapon'
                   ? 'bg-[#8C5A3E] text-white border-[#2E2824] shadow-[1px_1px_0px_#2E2824]'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-[#F2EDE4] border-[#7A726A]/40'
@@ -328,19 +328,19 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
 
             <button
               onClick={() => setActiveTab('tickets')}
-              className={`px-3 py-1.5 rounded-xl border transition-all flex items-center gap-1 ${
+              className={`px-3 py-1.5 rounded-xl border transition-all flex items-center gap-1 shrink-0 whitespace-nowrap ${
                 activeTab === 'tickets'
                   ? 'bg-[#8C5A3E] text-white border-[#2E2824] shadow-[1px_1px_0px_#2E2824]'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-[#F2EDE4] border-[#7A726A]/40'
               }`}
             >
-              <Ticket className="w-3.5 h-3.5" />
+              <Ticket className="w-3.5 h-3.5 shrink-0" />
               <span>チケット ({unusedTickets.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('rules')}
-              className={`px-3 py-1.5 rounded-xl border transition-all ${
+              className={`px-3 py-1.5 rounded-xl border transition-all shrink-0 whitespace-nowrap ${
                 activeTab === 'rules'
                   ? 'bg-[#8C5A3E] text-white border-[#2E2824] shadow-[1px_1px_0px_#2E2824]'
                   : 'bg-[#FAF8F4] text-[#5A524A] hover:bg-[#F2EDE4] border-[#7A726A]/40'
@@ -620,10 +620,10 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
             <div className="space-y-4">
               {/* Filter controls */}
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-1 bg-[#EAE3D2] p-1 rounded-xl border border-[#2E2824] font-handwriting text-xs font-bold">
+                <div className="flex items-center gap-1 bg-[#EAE3D2] p-1 rounded-xl border border-[#2E2824] font-handwriting text-xs font-bold w-full sm:w-auto overflow-x-auto">
                   <button
                     onClick={() => setTicketFilter('active')}
-                    className={`px-3 py-1 rounded-lg transition-all ${
+                    className={`px-3 py-1 rounded-lg transition-all shrink-0 whitespace-nowrap ${
                       ticketFilter === 'active'
                         ? 'bg-[#8C5A3E] text-white shadow-xs'
                         : 'text-[#5A524A] hover:text-[#2E2824]'
@@ -633,7 +633,7 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
                   </button>
                   <button
                     onClick={() => setTicketFilter('used')}
-                    className={`px-3 py-1 rounded-lg transition-all ${
+                    className={`px-3 py-1 rounded-lg transition-all shrink-0 whitespace-nowrap ${
                       ticketFilter === 'used'
                         ? 'bg-[#8C5A3E] text-white shadow-xs'
                         : 'text-[#5A524A] hover:text-[#2E2824]'
@@ -643,7 +643,7 @@ export const GaraponModal: React.FC<GaraponModalProps> = ({
                   </button>
                   <button
                     onClick={() => setTicketFilter('all')}
-                    className={`px-3 py-1 rounded-lg transition-all ${
+                    className={`px-3 py-1 rounded-lg transition-all shrink-0 whitespace-nowrap ${
                       ticketFilter === 'all'
                         ? 'bg-[#8C5A3E] text-white shadow-xs'
                         : 'text-[#5A524A] hover:text-[#2E2824]'

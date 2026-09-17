@@ -2098,9 +2098,9 @@ export default function App() {
                 福引 ({currentPoints}pt)
               </span>
               {unusedTicketCount > 0 && (
-                <span className="bg-[#EF4444] text-white font-mono text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 rounded-full border border-white font-bold animate-pulse absolute -top-1.5 -right-1.5 sm:static sm:top-auto sm:right-auto shadow-xs">
-                  <span className="sm:hidden">{unusedTicketCount}</span>
-                  <span className="hidden sm:inline">🎟️{unusedTicketCount}</span>
+                <span className="bg-[#EF4444] text-white font-mono text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border border-white font-bold animate-pulse absolute -top-1.5 -right-1 sm:static sm:top-auto sm:right-auto shadow-xs z-10 flex items-center justify-center min-w-[16px]">
+                  <span className="sm:hidden leading-none">{unusedTicketCount > 99 ? '99+' : unusedTicketCount}</span>
+                  <span className="hidden sm:inline leading-none">🎟️{unusedTicketCount}</span>
                 </span>
               )}
             </button>
