@@ -35,6 +35,7 @@ import {
   mergeUserProgressSafely,
 } from '../utils/dataSeparation';
 import { fetchFullMasterDataFromPostgrest } from './postgrestMasterService';
+import { fetchUserSaveFromPostgrest, saveUserSaveToPostgrest } from './postgrestUserService';
 import { isPostgrestEnabled } from './postgrestConfig';
 
 export const GLOBAL_SHARED_DOC_ID = DEFAULT_GLOBAL_DOC_ID;
@@ -1238,13 +1239,6 @@ export async function fetchInitialFirebaseState(
           },
         };
       }
-
-      // --- STEP 1: Fetch Common Shared Master Document (ken-chiko-global-master & fallback ken-chiko-global-state) ---
-      // けんちこの見た目（画像・名前）と遊びリスト、応援、図鑑マスターは全ユーザー共通の公式マスターから読み込む
-      let globalRaw: any = null;
-      let masterDocIdUsed = 'ken-chiko-global-master';
-      let masterErrorDetail: string | undefined = undefined;
-
       const isQuotaError = (err: any) => {
         if (!err) return false;
         const msg = String(err?.message || err?.code || err || '').toLowerCase();
@@ -1258,135 +1252,116 @@ export async function fetchInitialFirebaseState(
         );
       };
 
+      // --- STEP 1: Fetch Official Master Data from Synology NAS (PostgreSQL / PostgREST) ---
+      // 🐘 Firebase Firestoreとの接続を完全撤去し、自前サーバー（micchy.synology.me:9943）に1本化
+      let globalRaw: any = null;
+      let masterDocIdUsed = 'Synology PostgreSQL (micchy.synology.me)';
+      let masterErrorDetail: string | undefined = undefined;
+
       try {
-        // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
-        if (isPostgrestEnabled()) {
-          try {
-            const pgMaster = await fetchFullMasterDataFromPostgrest();
-            if (pgMaster && pgMaster.characters && pgMaster.characters.length > 0) {
-              globalRaw = {
-                version: pgMaster.version,
-                characters: pgMaster.characters,
-                asobiList: pgMaster.asobiList,
-                ouenCategories: pgMaster.ouenCategories,
-                ouenList: pgMaster.ouenList,
-                kounichan: pgMaster.kounichan,
-                kihonNyanCustomImageUrl: pgMaster.kihonNyanCustomImageUrl,
-                googleDriveFolderUrl: pgMaster.googleDriveFolderUrl,
-              };
-              masterDocIdUsed = 'synology_postgrest (PostgreSQL)';
-            }
-          } catch (pgErr) {
-            console.warn('[PostgREST] Fallback to Firestore for master doc:', pgErr);
-          }
-        }
-
-        if (!globalRaw) {
-          const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
-          const masterSnap = await getDoc(masterDocRef);
-          sessionDbReadCount++;
-          if (masterSnap.exists()) {
-            globalRaw = masterSnap.data();
-            masterDocIdUsed = 'ken-chiko-global-master';
-          } else {
-            const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-            const globalSnap = await getDoc(globalDocRef);
-            sessionDbReadCount++;
-            if (globalSnap.exists()) {
-              globalRaw = globalSnap.data();
-              masterDocIdUsed = GLOBAL_SHARED_DOC_ID;
-            } else {
-            // Auto-initialize standard master into Firestore so database is ready
-            try {
-              const defaultMaster = {
-                version: 1,
-                characters: INITIAL_NYANS,
-                asobiList: INITIAL_ASOBI_LIST,
-                ouenCategories: INITIAL_OUEN_CATEGORIES,
-                ouenList: INITIAL_OUEN_LIST,
-                lastUpdated: Date.now(),
-                note: '公式初期マスターデータ',
-              };
-              await setDoc(masterDocRef, defaultMaster, { merge: true });
-              globalRaw = defaultMaster;
-              masterDocIdUsed = 'ken-chiko-global-master';
-            } catch (_seedErr) {
-              // Local fallback without blocking error
-              globalRaw = {
-                version: 1,
-                characters: INITIAL_NYANS,
-                asobiList: INITIAL_ASOBI_LIST,
-                ouenCategories: INITIAL_OUEN_CATEGORIES,
-                ouenList: INITIAL_OUEN_LIST,
-              };
-              masterDocIdUsed = 'ken-chiko-global-master (ローカル標準)';
-            }
-          }
-        }
-      }
-
-        // Modular architecture support: If asobiList is not in legacy global master, fetch from isolated ken-chiko-master-asobi
-        if (!globalRaw?.asobiList || globalRaw.asobiList.length === 0) {
-          try {
-            const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
-            const asobiSnap = await getDoc(asobiDocRef);
-            sessionDbReadCount++;
-            if (asobiSnap.exists()) {
-              const aData = asobiSnap.data();
-              if (!globalRaw) globalRaw = {};
-              if (Array.isArray(aData.asobiList) && aData.asobiList.length > 0) {
-                globalRaw.asobiList = aData.asobiList;
-              }
-              if (Array.isArray(aData.ouenCategories) && aData.ouenCategories.length > 0) {
-                globalRaw.ouenCategories = aData.ouenCategories;
-              }
-              if (Array.isArray(aData.ouenList) && aData.ouenList.length > 0) {
-                globalRaw.ouenList = aData.ouenList;
-              }
-              if (aData.googleDriveFolderUrl) {
-                globalRaw.googleDriveFolderUrl = aData.googleDriveFolderUrl;
-              }
-            }
-          } catch (_aErr) {
-            // non-blocking fallback
-          }
-        }
-      } catch (gErr: any) {
-        if (isQuotaError(gErr)) {
-          markQuotaExhausted(30 * 60 * 1000);
-          masterErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
+        const pgMaster = await fetchFullMasterDataFromPostgrest();
+        if (pgMaster && pgMaster.characters && pgMaster.characters.length > 0) {
+          globalRaw = {
+            version: pgMaster.version,
+            characters: pgMaster.characters,
+            asobiList: pgMaster.asobiList,
+            ouenCategories: pgMaster.ouenCategories,
+            ouenList: pgMaster.ouenList,
+            kounichan: pgMaster.kounichan,
+            kihonNyanCustomImageUrl: pgMaster.kihonNyanCustomImageUrl,
+            googleDriveFolderUrl: pgMaster.googleDriveFolderUrl,
+          };
+          masterDocIdUsed = 'Synology PostgreSQL (micchy.synology.me)';
+          console.log(`[Synology] 🐘 マスターデータをSynologyから正常に取得しました（ねこ: ${pgMaster.characters.length}匹）`);
         } else {
-          masterErrorDetail = `マスター読込エラー: ${gErr?.message || gErr?.code || String(gErr)}`;
+          // If offline or unreachable, fallback to local backup (0 Firestore reads)
+          const localMaster = loadLocalBackup();
+          if (localMaster && localMaster.characters && localMaster.characters.length > 0) {
+            globalRaw = {
+              version: localMaster.version,
+              characters: localMaster.characters,
+              asobiList: localMaster.asobiList,
+              ouenCategories: localMaster.ouenCategories,
+              ouenList: localMaster.ouenList,
+              kounichan: localMaster.kounichan,
+              kihonNyanCustomImageUrl: localMaster.kihonNyanCustomImageUrl,
+              googleDriveFolderUrl: localMaster.googleDriveFolderUrl,
+            };
+            masterDocIdUsed = 'ローカルキャッシュ (Synology未接続時保護)';
+          } else {
+            // Built-in initial master baseline
+            globalRaw = {
+              version: 1,
+              characters: INITIAL_NYANS,
+              asobiList: INITIAL_ASOBI_LIST,
+              ouenCategories: INITIAL_OUEN_CATEGORIES,
+              ouenList: INITIAL_OUEN_LIST,
+            };
+            masterDocIdUsed = 'アプリ内標準マスター';
+          }
         }
-        console.warn('Firestore global shared read note:', gErr);
+      } catch (synologyErr: any) {
+        masterErrorDetail = `Synology接続エラー: ${synologyErr?.message || String(synologyErr)}`;
+        console.warn('[Synology] Master fetch note:', synologyErr);
+        // Fallback to local without touching Firestore
+        const localMaster = loadLocalBackup();
+        if (localMaster) {
+          globalRaw = localMaster;
+          masterDocIdUsed = 'ローカルキャッシュ';
+        }
       }
 
       const masterFetched = Boolean(globalRaw);
 
-      // --- STEP 2: Fetch User-specific Progress Document (ken-chiko-user-ken, ken-chiko-user-chiko, etc.) ---
-      // 進行状況（ねこずかん・思い出絵日記・持ち物・統計）はユーザー個別DBから読み込む
+      // --- STEP 2: Fetch User-specific Progress from Synology PostgreSQL ---
+      // 🐘 進行状況（ねこずかん・思い出絵日記・持ち物・統計）はSynology NAS (PostgreSQL) から読み込む
       const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
 
       let userRaw: any = null;
       let userErrorDetail: string | undefined = undefined;
-      if (userDocId === GLOBAL_SHARED_DOC_ID) {
-        userRaw = globalRaw;
-      } else {
-        try {
-          const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
-          const userSnap = await getDoc(userDocRef);
-          sessionDbReadCount++;
-          if (userSnap.exists()) {
-            userRaw = userSnap.data();
+
+      // 1. Prioritize Synology PostgreSQL
+      try {
+        if (activeUid) {
+          const pgUser = await fetchUserSaveFromPostgrest(activeUid);
+          if (pgUser) {
+            userRaw = {
+              version: pgUser.version,
+              stats: pgUser.stats,
+              inventory: pgUser.inventory,
+              rewards: pgUser.rewards,
+              nyanProgress: pgUser.nyan_progress,
+              diary: pgUser.diary,
+              ...(pgUser.raw_save || {}),
+            };
+            console.log(`[Synology] 🐾 ユーザー "${activeUid}" のセーブデータをSynology PostgreSQLから正常読込しました（絵日記: ${pgUser.diary?.length || 0}件）`);
           }
-        } catch (uErr: any) {
-          if (isQuotaError(uErr)) {
-            markQuotaExhausted(30 * 60 * 1000);
-            userErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
-          } else {
-            userErrorDetail = `ユーザーデータ読込エラー: ${uErr?.message || uErr?.code || String(uErr)}`;
+        }
+      } catch (pgUserErr: any) {
+        console.warn('[Synology] User save fetch notice:', pgUserErr);
+      }
+
+      // 2. Legacy fallback to Firestore ONLY if not found in Synology
+      if (!userRaw && firestoreDb) {
+        if (userDocId === GLOBAL_SHARED_DOC_ID) {
+          userRaw = globalRaw;
+        } else {
+          try {
+            const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
+            const userSnap = await getDoc(userDocRef);
+            sessionDbReadCount++;
+            if (userSnap.exists()) {
+              userRaw = userSnap.data();
+            }
+          } catch (uErr: any) {
+            if (isQuotaError(uErr)) {
+              markQuotaExhausted(30 * 60 * 1000);
+              userErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
+            } else {
+              userErrorDetail = `ユーザーデータ読込エラー: ${uErr?.message || uErr?.code || String(uErr)}`;
+            }
+            console.warn('Firestore user progress read note:', uErr);
           }
-          console.warn('Firestore user progress read note:', uErr);
         }
       }
 
@@ -1832,6 +1807,13 @@ export async function executeFirestoreWrite(
     }
 
     const activeUid = getActiveUserId();
+    // 🐘 1. Save to Synology PostgreSQL (PostgREST)
+    if (activeUid) {
+      saveUserSaveToPostgrest(activeUid, latestPendingData).catch((err) => {
+        console.warn('[Synology] Background user save warning:', err);
+      });
+    }
+
     const userDocId = config.syncDocId || getFirestoreDocIdForUser(activeUid);
     const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
 

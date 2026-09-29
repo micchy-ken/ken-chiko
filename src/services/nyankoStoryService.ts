@@ -424,62 +424,20 @@ export async function fetchNyankoStory(nyanId: number): Promise<{
     return { story: cached, fromCache: true };
   }
 
-  // 💡 1.5 Prioritize Synology PostgREST
+  // 🐘 Synology NAS (PostgreSQL / PostgREST) Exclusive Story Fetch
   try {
     const postgrestStory = await fetchStoryFromPostgrest(nyanId);
     if (postgrestStory) {
       saveToLocalCache(nyanId, postgrestStory);
       return { story: postgrestStory, fromCache: false };
     }
-  } catch (pgErr) {
-    console.warn(`[PostgREST] Fallback for story #${nyanId}:`, pgErr);
-  }
-
-  // 2. Fetch on-demand from Firestore
-  try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { story: null, fromCache: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
-    // A. Check consolidated global stories document first (1 single read loads all stories into memory)
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    const globalSnap = await getDoc(globalStoriesRef);
-    if (globalSnap.exists()) {
-      const gData = globalSnap.data();
-      const storiesMap = gData.stories || {};
-      // Populate memory cache for all loaded stories to eliminate future Firestore reads
-      for (const [key, val] of Object.entries(storiesMap)) {
-        const idNum = Number(key);
-        if (!isNaN(idNum) && val) {
-          saveToLocalCache(idNum, val as NyankoStory);
-        }
-      }
-
-      if (storiesMap[String(nyanId)]) {
-        const story = storiesMap[String(nyanId)] as NyankoStory;
-        saveToLocalCache(nyanId, story);
-        return { story, fromCache: false };
-      }
-    }
-
-    // B. Fallback to legacy single document if not found in consolidated master
-    const legacyDocRef = doc(db, 'nyanko_stories', String(nyanId));
-    const snap = await getDoc(legacyDocRef);
-
-    if (!snap.exists()) {
-      return { story: null, fromCache: false, error: 'このにゃんこの物語はまだ登録されていません' };
-    }
-
-    const data = snap.data() as NyankoStory;
-    saveToLocalCache(nyanId, data);
-    return { story: data, fromCache: false };
-  } catch (err: any) {
-    console.error(`Failed to fetch story for nyan #${nyanId}:`, err);
+    return { story: null, fromCache: false, error: 'このにゃんこの物語はまだSynologyデータベースに登録されていません' };
+  } catch (pgErr: any) {
+    console.error(`[Synology] Failed to fetch story for nyan #${nyanId}:`, pgErr);
     return {
       story: null,
       fromCache: false,
-      error: err?.message || '物語の取得に失敗しました',
+      error: `Synology物語取得エラー: ${pgErr?.message || String(pgErr)}`,
     };
   }
 }

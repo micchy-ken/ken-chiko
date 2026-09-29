@@ -101,6 +101,7 @@ import {
   Gamepad2,
   Activity,
   ShieldAlert,
+  Server,
 } from 'lucide-react';
 import { FirestoreTrafficModal } from './FirestoreTrafficModal';
 import confetti from '../utils/confetti';
@@ -131,6 +132,7 @@ export type AdminTab =
   | 'data'
   | 'avatar'
   | 'kihon_nyan'
+  | 'synology'
   | 'googledoc'
   | 'firebase';
 
@@ -254,13 +256,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     return 'avatar';
   });
 
-  const [dataSubTab, setDataSubTab] = useState<'googledoc' | 'firebase'>(() => {
+  const [dataSubTab, setDataSubTab] = useState<'synology' | 'googledoc' | 'firebase'>(() => {
     if (initialTab === 'firebase') return 'firebase';
+    if (initialTab === 'googledoc') return 'googledoc';
+    if (initialTab === 'synology') return 'synology';
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('admin') === 'firebase' || params.get('subtab') === 'firebase') return 'firebase';
+      if (params.get('admin') === 'googledoc' || params.get('subtab') === 'googledoc') return 'googledoc';
     }
-    return 'googledoc';
+    return 'synology';
   });
 
   useEffect(() => {
@@ -2995,6 +3000,18 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="flex items-center gap-2 p-1 bg-[#FAF8F5] rounded-2xl w-fit border border-[#DDD7C8]">
                 <button
                   type="button"
+                  onClick={() => { setDataSubTab('synology'); setActiveTab('data'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    dataSubTab === 'synology'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <Server className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Synology DB 🐘</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => { setDataSubTab('googledoc'); setActiveTab('data'); }}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
                     dataSubTab === 'googledoc'
@@ -3015,9 +3032,68 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   }`}
                 >
                   <Cloud className="w-3.5 h-3.5 text-[#728C7E]" />
-                  <span>Firebase設定</span>
+                  <span>Firebase設定 (切離済)</span>
                 </button>
               </div>
+
+              {/* SYNOLOGY TAB CONTENT */}
+              {dataSubTab === 'synology' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="bg-[#EBF7EE] p-4 rounded-2xl border border-[#A8E0B6]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs font-black text-[#1E562F] flex items-center gap-1.5">
+                        <Server className="w-4 h-4 text-emerald-600" />
+                        Synology NAS (PostgreSQL 🐘 / PostgREST) クラウドマスター
+                      </h4>
+                      <span className="bg-emerald-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                        稼働中
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#2A7543] leading-relaxed">
+                      公式マスターデータ（ねこ図鑑268匹・物語266話・あそび31件・応援40件）は、<strong>Synology NAS上のPostgreSQLデータベースから直接高速配信</strong>されています。Firebase Firestoreへのマスター読込は完全に0回となり、クォータ制限を気にせず無制限に利用できます。
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3.5 bg-[#FAF8F4] rounded-2xl border border-[#DDD7C8] space-y-1">
+                      <span className="text-[11px] font-bold text-[#7A726A] block">API エンドポイント</span>
+                      <p className="font-mono text-xs text-[#2E2824] font-bold break-all">
+                        https://micchy.synology.me:9943
+                      </p>
+                      <span className="text-[10px] text-[#A39B91] block">PostgREST (内部ポート 3001)</span>
+                    </div>
+
+                    <div className="p-3.5 bg-[#FAF8F4] rounded-2xl border border-[#DDD7C8] space-y-1">
+                      <span className="text-[11px] font-bold text-[#7A726A] block">DB管理コンソール (Adminer)</span>
+                      <a
+                        href="https://micchy.synology.me:9944/?pgsql=postgre"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 hover:underline"
+                      >
+                        <span>https://micchy.synology.me:9944</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <span className="text-[10px] text-[#A39B91] block">Adminer (内部ポート 8088)</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-white rounded-2xl border border-[#DDD7C8] space-y-2">
+                    <h5 className="text-xs font-bold text-[#3E3833] flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      マスター系Firebase完全切り離しステータス
+                    </h5>
+                    <ul className="text-xs text-[#5A524A] space-y-1 list-disc list-inside">
+                      <li><strong>ねこ図鑑マスター</strong>: 268匹（api.master_nyans テーブルから配信中）</li>
+                      <li><strong>物語・会話劇</strong>: 266件（api.master_stories テーブルからオンデマンド配信中）</li>
+                      <li><strong>あそびマスター</strong>: 31件（api.master_asobi テーブルから配信中）</li>
+                      <li><strong>応援メッセージ</strong>: 40件（api.master_ouen_* テーブルから配信中）</li>
+                      <li><strong>Firestoreマスター読込</strong>: <strong>完全0回</strong>（通信完全遮断）</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
 
               {dataSubTab === 'googledoc' && (
                 <div className="space-y-4 animate-fadeIn">

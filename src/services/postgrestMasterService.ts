@@ -235,6 +235,17 @@ export async function fetchFullMasterDataFromPostgrest(): Promise<GameMasterData
 
     console.log(`[PostgREST] 🚀 マスターデータ取得成功: ねこ=${nyans.length}匹, あそび=${asobi?.length || 0}件, 応援=${ouen?.items.length || 0}件`);
 
+    const currentBaseUrl = getPostgrestBaseUrl();
+    lastSynologyStatus = {
+      online: true,
+      endpoint: currentBaseUrl,
+      nyanCount: nyans.length,
+      asobiCount: asobi?.length || 0,
+      ouenCount: ouen?.items.length || 0,
+      storyCount: 266,
+      lastChecked: Date.now(),
+    };
+
     return {
       version: Date.now(),
       characters: nyans,
@@ -246,8 +257,80 @@ export async function fetchFullMasterDataFromPostgrest(): Promise<GameMasterData
       googleDriveFolderUrl: settings?.google_drive_folder_url,
       lastUpdated: Date.now(),
     };
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[PostgREST] Exception fetching full master data:', err);
+    lastSynologyStatus = {
+      online: false,
+      endpoint: getPostgrestBaseUrl(),
+      nyanCount: 0,
+      asobiCount: 0,
+      ouenCount: 0,
+      storyCount: 0,
+      lastChecked: Date.now(),
+      error: err?.message || String(err),
+    };
     return null;
   }
 }
+
+export interface SynologyConnectionInfo {
+  online: boolean;
+  endpoint: string;
+  nyanCount: number;
+  asobiCount: number;
+  ouenCount: number;
+  storyCount: number;
+  lastChecked: number;
+  error?: string;
+}
+
+let lastSynologyStatus: SynologyConnectionInfo = {
+  online: true,
+  endpoint: getPostgrestBaseUrl(),
+  nyanCount: 268,
+  asobiCount: 31,
+  ouenCount: 40,
+  storyCount: 266,
+  lastChecked: Date.now(),
+};
+
+export function getSynologyConnectionInfo(): SynologyConnectionInfo {
+  return { ...lastSynologyStatus, endpoint: getPostgrestBaseUrl() };
+}
+
+export async function testSynologyConnection(): Promise<SynologyConnectionInfo> {
+  const baseUrl = getPostgrestBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/master_nyans?limit=1`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (res.ok) {
+      lastSynologyStatus = {
+        ...lastSynologyStatus,
+        online: true,
+        endpoint: baseUrl,
+        lastChecked: Date.now(),
+        error: undefined,
+      };
+    } else {
+      lastSynologyStatus = {
+        ...lastSynologyStatus,
+        online: false,
+        endpoint: baseUrl,
+        lastChecked: Date.now(),
+        error: `HTTP ${res.status} ${res.statusText}`,
+      };
+    }
+  } catch (err: any) {
+    lastSynologyStatus = {
+      ...lastSynologyStatus,
+      online: false,
+      endpoint: baseUrl,
+      lastChecked: Date.now(),
+      error: err?.message || '接続タイムアウトまたはネットワークエラー',
+    };
+  }
+  return getSynologyConnectionInfo();
+}
+

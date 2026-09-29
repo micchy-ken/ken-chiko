@@ -211,162 +211,40 @@ export async function fetchMasterManifest(): Promise<KenchikoMasterManifest | nu
  * 2. If cached versions match, SKIPS fetching unchanged modular docs entirely (0 reads!).
  * 3. Only downloads modified modules, saving 95%+ bandwidth and reads.
  */
-export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false): Promise<MasterFetchDetail> {
+export async function fetchGlobalMasterDataWithStatus(_forceAll: boolean = false): Promise<MasterFetchDetail> {
   try {
-    // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
-    if (isPostgrestEnabled()) {
-      try {
-        const postgrestData = await fetchFullMasterDataFromPostgrest();
-        if (postgrestData && postgrestData.characters && postgrestData.characters.length > 0) {
-          saveLocalMasterData(postgrestData);
-          return {
-            success: true,
-            data: postgrestData,
-            sourceDoc: 'synology_postgrest',
-            bytesRead: 0,
-            estimatedReads: 0,
-          };
-        }
-      } catch (pgErr) {
-        console.warn('[PostgREST] Fallback to Firestore due to error:', pgErr);
-      }
-    }
-
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, data: null, error: 'Firebaseデータベースインスタンスが見つかりません', sourceDoc: MASTER_MANIFEST_DOC_ID };
-    }
-
-    // Read manifest (1 read, ~200 bytes)
-    const remoteManifest = await fetchMasterManifest();
-    const localManifest = getCachedManifest();
-    const cachedMaster = loadLocalMasterData();
-
-    if (!remoteManifest) {
-      // If neither manifest nor legacy exists, return local draft
-      return { success: true, data: cachedMaster, sourceDoc: 'local' };
-    }
-
-    // Check if modular documents are active based on manifest
-    const isModular = remoteManifest && remoteManifest.charactersVersion !== undefined;
-
-    if (isModular) {
-      // --- MODULAR ARCHITECTURE DETECTED ---
-      const needChars = forceAll || !localManifest || remoteManifest.charactersVersion > (localManifest.charactersVersion || 0) || !cachedMaster.characters || cachedMaster.characters.length === 0;
-      const needAsobi = forceAll || !localManifest || remoteManifest.asobiVersion > (localManifest.asobiVersion || 0) || !cachedMaster.asobiList || cachedMaster.asobiList.length === 0;
-      const needAssets = forceAll || !localManifest || remoteManifest.assetsVersion > (localManifest.assetsVersion || 0);
-
-      console.log(`[MasterSync] 🚀 差分チェック結果: Characters更新必要=${needChars}, Asobi更新必要=${needAsobi}, Assets更新必要=${needAssets}`);
-
-      let finalCharacters = cachedMaster.characters || [];
-      let finalAsobiList = cachedMaster.asobiList || [];
-      let finalOuenCategories = cachedMaster.ouenCategories || [];
-      let finalOuenList = cachedMaster.ouenList || [];
-      let finalDriveUrl = cachedMaster.googleDriveFolderUrl;
-      let finalAssets: { customImages?: Record<number, any>; kihonNyanCustomImageUrl?: string; kounichan?: any } = {};
-
-      // 1. Fetch Characters ONLY if updated (Pure text - NO base64 images)
-      if (needChars) {
-        const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
-        const charSnap = await getDoc(charDocRef);
-        if (charSnap.exists()) {
-          const cData = charSnap.data();
-          if (Array.isArray(cData.characters)) {
-            finalCharacters = cData.characters;
-          }
-        }
-      }
-
-      // 2. Fetch Asobi if updated
-      if (needAsobi) {
-        const asobiSnap = await getDoc(doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID));
-        if (asobiSnap.exists()) {
-          const aData = asobiSnap.data();
-          finalAsobiList = Array.isArray(aData.asobiList) && aData.asobiList.length > 0 ? aData.asobiList : finalAsobiList;
-          finalOuenCategories = mergeOuenCategories(aData.ouenCategories || finalOuenCategories);
-          finalOuenList = mergeOuenList(aData.ouenList || finalOuenList);
-          finalDriveUrl = aData.googleDriveFolderUrl || finalDriveUrl;
-        }
-      }
-
-      // 3. Fetch Heavy Assets ONLY if updated
-      if (needAssets) {
-        const assetsSnap = await getDoc(doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID));
-        if (assetsSnap.exists()) {
-          finalAssets = assetsSnap.data() || {};
-        }
-      }
-
-      // If we downloaded new assets, merge custom images into characters
-      if (finalAssets.customImages) {
-        finalCharacters = finalCharacters.map((c) => {
-          const asset = finalAssets.customImages?.[c.no];
-          if (asset) {
-            return {
-              ...c,
-              customImageUrl: asset.customImageUrl || c.customImageUrl,
-              rawImageUrl: asset.rawImageUrl || c.rawImageUrl,
-              transparency: asset.transparency || c.transparency,
-            };
-          }
-          return c;
-        });
-      }
-
-      const mergedMaster: GameMasterData = {
-        version: remoteManifest.version,
-        characters: finalCharacters,
-        asobiList: finalAsobiList,
-        ouenCategories: finalOuenCategories,
-        ouenList: finalOuenList,
-        kounichan: finalAssets.kounichan || cachedMaster.kounichan,
-        kihonNyanCustomImageUrl: finalAssets.kihonNyanCustomImageUrl !== undefined ? finalAssets.kihonNyanCustomImageUrl : cachedMaster.kihonNyanCustomImageUrl,
-        googleDriveFolderUrl: finalDriveUrl,
-        lastUpdated: remoteManifest.updatedAt,
-      };
-
-      saveLocalMasterData(mergedMaster);
-      setCachedManifest(remoteManifest);
-      setCachedMasterNyans(finalCharacters);
-
+    // 🐘 Synology NAS (PostgreSQL / PostgREST) Exclusive Master Source
+    const postgrestData = await fetchFullMasterDataFromPostgrest();
+    if (postgrestData && postgrestData.characters && postgrestData.characters.length > 0) {
+      saveLocalMasterData(postgrestData);
       return {
         success: true,
-        data: mergedMaster,
-        sourceDoc: 'modular-firestore',
+        data: postgrestData,
+        sourceDoc: 'Synology PostgreSQL (micchy.synology.me)',
+        bytesRead: 0,
+        estimatedReads: 0,
       };
     }
 
-    // --- FALLBACK: Legacy monolithic document ---
-    const legacyDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    const snap = await getDoc(legacyDocRef);
-    if (!snap.exists()) {
-      return { success: true, data: cachedMaster, sourceDoc: 'local' };
-    }
-
-    const data = snap.data();
-    const masterData: GameMasterData = {
-      version: data.version || 1,
-      characters: Array.isArray(data.characters) ? data.characters : DEFAULT_MASTER_DATA.characters,
-      asobiList: Array.isArray(data.asobiList) ? data.asobiList : DEFAULT_MASTER_DATA.asobiList,
-      ouenCategories: Array.isArray(data.ouenCategories) ? data.ouenCategories : DEFAULT_MASTER_DATA.ouenCategories,
-      ouenList: Array.isArray(data.ouenList) ? data.ouenList : DEFAULT_MASTER_DATA.ouenList,
-      kounichan: data.kounichan || DEFAULT_MASTER_DATA.kounichan,
-      kihonNyanCustomImageUrl: data.kihonNyanCustomImageUrl,
-      googleDriveFolderUrl: data.googleDriveFolderUrl,
-      lastUpdated: data.lastUpdated || Date.now(),
+    // Local fallback if unreachable
+    const cachedMaster = loadLocalMasterData();
+    return {
+      success: true,
+      data: cachedMaster,
+      sourceDoc: 'ローカルキャッシュ (オフライン保護)',
+      bytesRead: 0,
+      estimatedReads: 0,
     };
 
-    saveLocalMasterData(masterData);
-    setCachedManifest(remoteManifest);
 
-    return { success: true, data: masterData, sourceDoc: GLOBAL_MASTER_DOC_ID };
   } catch (err: any) {
+    const cachedMaster = loadLocalMasterData();
     return {
-      success: false,
-      data: null,
-      error: `マスター取得失敗: ${err?.message || String(err)}`,
-      sourceDoc: MASTER_MANIFEST_DOC_ID,
+      success: true,
+      data: cachedMaster,
+      sourceDoc: 'ローカルキャッシュ (オフライン保護)',
+      bytesRead: 0,
+      estimatedReads: 0,
     };
   }
 }
@@ -557,72 +435,30 @@ export async function checkForMasterUpdateAndSync(
   error?: string;
 }> {
   try {
-    // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
-    if (isPostgrestEnabled()) {
-      try {
-        const postgrestMaster = await fetchFullMasterDataFromPostgrest();
-        if (postgrestMaster && postgrestMaster.characters && postgrestMaster.characters.length > 0) {
-          const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, postgrestMaster.characters);
-          const addedCount = Math.max(0, postgrestMaster.characters.length - currentNyans.length);
-          saveLocalMasterData(postgrestMaster);
-          setCachedMasterNyans(postgrestMaster.characters);
-          return {
-            updated: true,
-            version: postgrestMaster.version,
-            nyans: mergedNyans,
-            addedCount,
-            masterData: postgrestMaster,
-          };
-        }
-      } catch (pgErr) {
-        console.warn('[PostgREST] Launch sync fallback to Firestore:', pgErr);
-      }
-    }
-
-    const cachedManifest = getCachedManifest();
-    const manifest = await fetchMasterManifest();
-
-    if (!manifest) {
+    // 🐘 Synology NAS (PostgreSQL / PostgREST) Exclusive Master Sync
+    const postgrestMaster = await fetchFullMasterDataFromPostgrest();
+    if (postgrestMaster && postgrestMaster.characters && postgrestMaster.characters.length > 0) {
+      const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, postgrestMaster.characters);
+      const addedCount = Math.max(0, postgrestMaster.characters.length - currentNyans.length);
+      saveLocalMasterData(postgrestMaster);
+      setCachedMasterNyans(postgrestMaster.characters);
       return {
-        updated: false,
-        version: cachedManifest?.version || 1,
-        nyans: currentNyans,
-        addedCount: 0,
+        updated: true,
+        version: postgrestMaster.version,
+        nyans: mergedNyans,
+        addedCount,
+        masterData: postgrestMaster,
       };
     }
 
-    if (!options.force && cachedManifest && manifest.version <= cachedManifest.version && currentNyans.length >= manifest.nyanCount) {
-      return {
-        updated: false,
-        version: manifest.version,
-        nyans: currentNyans,
-        addedCount: 0,
-      };
-    }
-
-    const masterRes = await fetchGlobalMasterDataWithStatus(Boolean(options.force));
-    if (!masterRes.success || !masterRes.data || !masterRes.data.characters) {
-      return {
-        updated: false,
-        version: manifest.version,
-        nyans: currentNyans,
-        addedCount: 0,
-      };
-    }
-
-    const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, masterRes.data.characters);
-    const addedCount = Math.max(0, masterRes.data.characters.length - currentNyans.length);
-
-    const pureMasterNyans = cleanseMasterCharacters(masterRes.data.characters);
-    setCachedManifest(manifest);
-    setCachedMasterNyans(pureMasterNyans as any);
-
+    // Local fallback if offline (0 Firestore operations)
+    const localDraft = loadLocalMasterData();
     return {
-      updated: true,
-      version: manifest.version,
-      nyans: mergedNyans,
-      addedCount,
-      masterData: masterRes.data,
+      updated: false,
+      version: localDraft.version || 1,
+      nyans: currentNyans,
+      addedCount: 0,
+      masterData: localDraft,
     };
   } catch (err: any) {
     console.warn('checkForMasterUpdateAndSync warning:', err);

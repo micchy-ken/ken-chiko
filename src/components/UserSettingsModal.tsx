@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database, HelpCircle } from 'lucide-react';
+import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database, HelpCircle, Server } from 'lucide-react';
 import { getActiveUserId, setActiveUserId, isSystemUserId, sanitizeUserId } from '../services/userService';
 import {
   getSavedGoogleDocUrl,
@@ -293,47 +293,43 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Database Access Safety Monitor */}
-          {(() => {
-            const stats = getFirebaseAccessStats();
-            return (
-              <div className="p-3.5 bg-[#EBF5EE] rounded-2xl border border-[#BBDDC5] space-y-2 text-[#235836]">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-[#2E7D32]" />
-                    DBアクセス保護ガード：稼働中
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 border border-[#A5D6A7] font-mono">
-                    差分検知 & スロットル有効
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
-                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
-                    <span className="text-[#558B2F]">セッション読込</span>
-                    <div className="flex items-baseline justify-between mt-1">
-                      <span className="font-mono font-bold text-[#1B5E20] text-sm">{stats.sessionReads} 回</span>
-                      <span className="text-[9px] text-[#2E7D32]/80">（起動時2件のみ）</span>
-                    </div>
-                  </div>
-                  <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
-                    <span className="text-[#558B2F]">セッション書込</span>
-                    <div className="flex items-baseline justify-between mt-1">
-                      <span className="font-mono font-bold text-[#1B5E20] text-sm">{stats.sessionWrites} 回</span>
-                      <span className="text-[9px] text-[#2E7D32]/80">（重要進行時のみ）</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-0.5 pt-0.5 text-[10px] text-[#4E7A5A]">
-                  <p>
-                    📖 <strong>読み込み</strong>：ページ読み込み時に共通設定と個人データの<strong>計2件のみ</strong>読み込みます。プレイ中の定期自動読み込みは<strong>0回</strong>です。
-                  </p>
-                  <p>
-                    📊 <strong>無料枠の基準</strong>：Firestore無料枠は1日<strong>50,000回の読込</strong>・<strong>20,000回の書込</strong>が可能です。現在の利用量は無料枠の0.01%以下です。
-                  </p>
+          {/* Synology NAS Dedicated Cloud Server Monitor */}
+          <div className="p-3.5 bg-[#EBF5EE] rounded-2xl border border-[#BBDDC5] space-y-2 text-[#235836]">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="flex items-center gap-1.5">
+                <Server className="w-4 h-4 text-[#2E7D32]" />
+                クラウドサーバー：Synology NAS (PostgreSQL 🐘)
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 border border-[#A5D6A7] font-mono text-[#1B5E20] font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                稼働中 (micchy.synology.me)
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+              <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
+                <span className="text-[#558B2F]">図鑑・物語マスター</span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="font-mono font-bold text-[#1B5E20] text-sm">268匹 / 266話</span>
+                  <span className="text-[9px] text-[#2E7D32]/80 font-bold">全件直結</span>
                 </div>
               </div>
-            );
-          })()}
+              <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
+                <span className="text-[#558B2F]">マスターFirebase通信</span>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span className="font-mono font-bold text-[#1B5E20] text-sm">完全0回</span>
+                  <span className="text-[9px] text-[#2E7D32]/80 font-bold">切離し完了</span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-0.5 pt-0.5 text-[10px] text-[#4E7A5A]">
+              <p>
+                🐘 <strong>Synology 1本化</strong>：ねこ図鑑・あそび・応援・ストーリーは自前サーバー（Synology PostgREST）から直接読み込まれます。
+              </p>
+              <p>
+                🛡️ <strong>完全無料＆無制限</strong>：Firebaseの無料枠制限・クォータ制限を一切気にせず、高速かつ安定してプレイ可能です。
+              </p>
+            </div>
+          </div>
 
           {/* Admin / Dev Console Navigation */}
           {onOpenDevConsole && (

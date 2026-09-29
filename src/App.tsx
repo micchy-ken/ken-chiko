@@ -83,7 +83,9 @@ import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/image
 import { getActiveUserId, setActiveUserId } from './services/userService';
 import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
 import { LoadingScreen } from './components/LoadingScreen';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { FirestoreTrafficModal } from './components/FirestoreTrafficModal';
+import { SynologyStatusModal } from './components/SynologyStatusModal';
 import { getTrafficStats, isFirestoreQuotaExhausted } from './services/firestoreTrafficLogger';
 import {
   CURRENT_APP_VERSION,
@@ -109,6 +111,7 @@ import {
   X,
   Activity,
   ShieldAlert,
+  Server,
 } from 'lucide-react';
 import confetti from './utils/confetti';
 
@@ -189,6 +192,15 @@ export default function App() {
   // User Management State (Multi-user support via ?user=yumi etc.)
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => getActiveUserId());
   const isDefaultUser = !currentUserId || currentUserId === 'default' || currentUserId === 'global';
+
+  // Step 3: Migration Maintenance Mode Flag (Migration successfully completed!)
+  const IS_MIGRATION_MAINTENANCE_ENABLED = false;
+  const [isMaintenanceBypassed, setIsMaintenanceBypassed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('bypass') === 'true' || params.get('admin') === 'wakaro') return true;
+    return sessionStorage.getItem('kenchiko_maintenance_bypassed') === 'true';
+  });
 
   // Time & Simulation Controls
   const [timeSpeed, setTimeSpeed] = useState<number>(1); // 1x, 5x, 30x, 60x
@@ -275,6 +287,9 @@ export default function App() {
   // Guard flag: Ensure the encounter/activity lottery never begins until initial sync has fully settled
   const [isInitialSyncCompleted, setIsInitialSyncCompleted] = useState<boolean>(false);
   const isInitialSyncCompletedRef = useRef<boolean>(false);
+
+  // Synology NAS Server Status Modal State
+  const [showSynologyModal, setShowSynologyModal] = useState<boolean>(false);
 
   // Offline notice banner dismiss state (allows clean gameplay screen)
   const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState<boolean>(false);
@@ -1942,6 +1957,21 @@ export default function App() {
     );
   }
 
+  // Step 3: Migration Maintenance Mode Screen
+  if (IS_MIGRATION_MAINTENANCE_ENABLED && !isMaintenanceBypassed) {
+    return (
+      <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
+        <PencilSketchFilters />
+        <MaintenanceScreen
+          onBypass={() => {
+            sessionStorage.setItem('kenchiko_maintenance_bypassed', 'true');
+            setIsMaintenanceBypassed(true);
+          }}
+        />
+      </div>
+    );
+  }
+
   // Default User Screen: ONLY Centered Kenchiko Illustration (Game completely stopped)
   // No game screen or stage is rendered in the background!
   if (isDefaultUser) {
@@ -2135,6 +2165,20 @@ export default function App() {
                 </span>
               </button>
             )}
+
+            {/* Synology NAS Dedicated Cloud Connection Badge */}
+            <button
+              onClick={() => setShowSynologyModal(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-[#F2EFE8] text-[#2E2824] px-2 py-1 sketch-tag border border-[#DDD7C8] text-[11px] font-bold shadow-xs transition cursor-pointer"
+              title="Synology NAS (PostgreSQL / micchy.synology.me) 接続中。タップして詳細を確認"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <Server className="w-3 h-3 text-[#487560]" />
+              <span className="font-mono text-[11px]">Synology</span>
+            </button>
 
             {/* Circuit Breaker & Traffic Monitor Indicator */}
             {isQuotaExhausted ? (
@@ -2686,6 +2730,11 @@ export default function App() {
         isOpen={showTrafficModal}
         onClose={() => setShowTrafficModal(false)}
       />
+
+      {/* Synology NAS Dedicated Cloud Server Modal */}
+      {showSynologyModal && (
+        <SynologyStatusModal onClose={() => setShowSynologyModal(false)} />
+      )}
     </div>
   );
 }

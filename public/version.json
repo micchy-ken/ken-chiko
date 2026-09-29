@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.28-v1",
-  "buildTime": "2026-09-28 19:30",
-  "releaseNotes": "公式マスターデータ（全268匹のねこ図鑑、あそび、応援、ストーリー）のSynology PostgREST連携（ステップ2）に対応"
+  "version": "2026.09.28-v4",
+  "buildTime": "2026-09-28 22:30",
+  "releaseNotes": "全ユーザーデータ（ゆみ・健介）のSynology NAS移行完了＆マスター・セーブの自前サーバー完全1本化達成"
 }
