@@ -563,7 +563,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const handlePublishMaster = async (customNote?: string): Promise<boolean> => {
     setIsPublishingMaster(true);
-    setMasterPublishStatus(`🚀 分割マスター（${currentPublishEstimate.docWrites}ドキュメント書込 / 計${currentPublishEstimate.kb} KB）をFirestoreへ保存中...`);
+    setMasterPublishStatus('🚀 公式マスターデータをSynology PostgreSQLへ一括保存中...');
     
     const cleanCharacters = (saveData.characters || characters).map((c) => ({
       ...c,
@@ -588,7 +588,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     const res = await publishGlobalMasterData(
       masterPayload,
-      customNote || '管理画面より分割マスター保存',
+      customNote || '管理画面よりSynologyマスター一括保存',
       {
         syncCharacters,
         syncAsobi,
@@ -602,9 +602,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       setModifiedTabs(new Set());
       setHasUnsavedAsobi(false);
       setInternalMasterError(null);
-      const writesMsg = res.estimate ? ` (${res.estimate.docWrites}書込 / ${res.estimate.kb} KB)` : '';
       setMasterPublishStatus(
-        `🎉 保存完了！公式マスター v${res.version} をFirestoreに安全に保存しました${writesMsg}。（全端末で同期されます）`
+        `🎉 保存完了！公式マスター v${res.version} をSynology PostgreSQLに正常保存しました（全端末に即時反映されます）。`
       );
       loadCurrentMasterMeta();
       diagnoseAndFetchCloudMaster(false);

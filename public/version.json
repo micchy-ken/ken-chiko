@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.28-v10",
-  "buildTime": "2026-09-28 23:35",
-  "releaseNotes": "物語目録・会話劇をSynology PostgreSQL (api.master_stories) から直接高速同期し全267体の紐づけを完全復旧"
+  "version": "2026.09.29-v1",
+  "buildTime": "2026-09-29 00:05",
+  "releaseNotes": "公式マスター一括保存および全端末の初期同期をSynology PostgreSQL直結に完全統一"
 }

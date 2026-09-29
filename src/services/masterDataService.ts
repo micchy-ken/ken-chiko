@@ -286,32 +286,21 @@ export async function publishGlobalMasterData(
   }
 
   try {
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
     lastMasterPublishTime = now;
-
-    const currentManifest = await fetchMasterManifest();
-    const nextVersion = (currentManifest?.version || master.version || 0) + 1;
-    const nextCharVer = (currentManifest?.charactersVersion || 1) + 1;
-    const nextAsobiVer = (currentManifest?.asobiVersion || 1) + 1;
-    const nextAssetsVer = (currentManifest?.assetsVersion || 1) + 1;
+    const nextVersion = (master.version || 1) + 1;
 
     // Separate pure character text metadata from heavy Base64 image payloads
-    // ZERO user progress fields are included in pureCharacters!
     const pureCharacters: MasterNyanCharacter[] = [];
     const customImagesMap: Record<number, { customImageUrl?: string; rawImageUrl?: string; transparency?: any }> = {};
 
     for (const n of master.characters || []) {
-      // 1. Text metadata (Completely cleansed of any user progress)
       const cleanChar = cleanseMasterCharacter(n);
       cleanChar.hasCustomImage = Boolean(n.customImageUrl || n.hasCustomImage);
+      if (typeof n.hasStory === 'boolean') {
+        cleanChar.hasStory = n.hasStory;
+      }
       pureCharacters.push(cleanChar);
 
-      // 2. Separate heavy image data into assets map
       if (n.customImageUrl || n.rawImageUrl) {
         customImagesMap[n.no] = {
           customImageUrl: n.customImageUrl,
@@ -321,91 +310,102 @@ export async function publishGlobalMasterData(
       }
     }
 
-    // Measure write cost estimate
     const estimate = estimateMasterPublishCost(master, {
       includeCharactersText: options.syncCharacters !== false,
       includeAsobiOuen: options.syncAsobi !== false,
       includeAssets: options.syncAssets !== false,
     });
 
-    console.log(`[MasterPublish] 📊 書き込みドキュメント数: ${estimate.docWrites}件 (${estimate.kb} KB)`);
-
-    // 1. Save Isolated Characters Index doc
-    if (options.syncCharacters !== false) {
-      const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
-      await setDoc(charDocRef, sanitizeForFirestore({
-        version: nextCharVer,
-        updatedAt: now,
-        count: pureCharacters.length,
+    // 1. 🐘 Primary Authority: Save to Synology PostgreSQL (PostgREST)
+    let pgError: string | null = null;
+    if (isPostgrestEnabled()) {
+      const pgRes = await saveFullMasterDataToPostgrest({
+        ...master,
         characters: pureCharacters,
-      }));
-      recordFirestoreWrite(`kenchiko_world/${MASTER_CHARACTERS_DOC_ID}`, 1);
+      }, options);
+      if (pgRes.success) {
+        console.log('[MasterPublish] 🐘 Synology PostgreSQL マスターテーブル同期完了');
+      } else {
+        console.warn('[MasterPublish] 🐘 Synology PostgreSQL 保存警告:', pgRes.errors);
+        if (pgRes.errors.length > 0) {
+          pgError = pgRes.errors.join(' / ');
+        }
+      }
     }
 
-    // 2. Save Isolated Asobi & Ouen doc
-    if (options.syncAsobi !== false) {
-      const asobiDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID);
-      await setDoc(asobiDocRef, sanitizeForFirestore({
-        version: nextAsobiVer,
-        updatedAt: now,
-        asobiList: master.asobiList || [],
-        ouenCategories: mergeOuenCategories(master.ouenCategories),
-        ouenList: mergeOuenList(master.ouenList),
-        googleDriveFolderUrl: master.googleDriveFolderUrl || null,
-      }));
-      recordFirestoreWrite(`kenchiko_world/${MASTER_ASOBI_DOC_ID}`, 1);
-    }
-
-    // 3. Save Isolated Base64 Assets doc (ONLY if enabled)
-    if (options.syncAssets !== false) {
-      const assetsDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID);
-      await setDoc(assetsDocRef, sanitizeForFirestore({
-        version: nextAssetsVer,
-        updatedAt: now,
-        customImages: customImagesMap,
-        kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
-        kounichan: master.kounichan || null,
-      }));
-      recordFirestoreWrite(`kenchiko_world/${MASTER_ASSETS_DOC_ID}`, 1);
-    }
-
-    // 4. Save Version Manifest (Lightweight: < 1 KB)
+    // 2. Save to local cache immediately
     const newManifest: KenchikoMasterManifest = {
       version: nextVersion,
-      charactersVersion: options.syncCharacters !== false ? nextCharVer : (currentManifest?.charactersVersion || 1),
-      asobiVersion: options.syncAsobi !== false ? nextAsobiVer : (currentManifest?.asobiVersion || 1),
-      assetsVersion: options.syncAssets !== false ? nextAssetsVer : (currentManifest?.assetsVersion || 1),
+      charactersVersion: nextVersion,
+      asobiVersion: nextVersion,
+      assetsVersion: nextVersion,
       updatedAt: now,
       nyanCount: pureCharacters.length,
-      lastUpdatedNote: note || `管理画面より分離保存 (v${nextVersion})`,
+      lastUpdatedNote: note || `管理画面よりSynology保存 (v${nextVersion})`,
     };
-    const manifestDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
-    await setDoc(manifestDocRef, sanitizeForFirestore(newManifest));
-    recordFirestoreWrite(`kenchiko_world/${MASTER_MANIFEST_DOC_ID}`, 1);
-
-    // 🐘 Save to Synology PostgreSQL (PostgREST)
-    if (isPostgrestEnabled()) {
-      saveFullMasterDataToPostgrest(master, options).then((pgRes) => {
-        if (pgRes.success) {
-          console.log('[MasterPublish] 🐘 Synology PostgreSQL マスターテーブル同期完了');
-        } else {
-          console.warn('[MasterPublish] 🐘 Synology PostgreSQL 保存警告:', pgRes.errors);
-        }
-      }).catch((pgErr) => {
-        console.warn('[MasterPublish] 🐘 Synology PostgreSQL 保存エラー:', pgErr);
-      });
-    }
-
-    // Save to local cache
     setCachedManifest(newManifest);
     saveLocalMasterData({
       ...master,
+      characters: pureCharacters,
       version: nextVersion,
       lastUpdated: now,
     });
-    setCachedMasterNyans(master.characters);
+    setCachedMasterNyans(pureCharacters);
 
-    console.log(`[MasterPublish] ✅ 分離マスター保存完了: v${nextVersion}`);
+    // 3. Optional mirror to Firestore (if configured)
+    try {
+      initFirebase();
+      const db = getFirestoreDbInstance();
+      if (db) {
+        if (options.syncCharacters !== false) {
+          const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
+          await setDoc(charDocRef, sanitizeForFirestore({
+            version: nextVersion,
+            updatedAt: now,
+            count: pureCharacters.length,
+            characters: pureCharacters,
+          }));
+          recordFirestoreWrite(`kenchiko_world/${MASTER_CHARACTERS_DOC_ID}`, 1);
+        }
+
+        if (options.syncAsobi !== false) {
+          const asobiDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID);
+          await setDoc(asobiDocRef, sanitizeForFirestore({
+            version: nextVersion,
+            updatedAt: now,
+            asobiList: master.asobiList || [],
+            ouenCategories: mergeOuenCategories(master.ouenCategories),
+            ouenList: mergeOuenList(master.ouenList),
+            googleDriveFolderUrl: master.googleDriveFolderUrl || null,
+          }));
+          recordFirestoreWrite(`kenchiko_world/${MASTER_ASOBI_DOC_ID}`, 1);
+        }
+
+        if (options.syncAssets !== false) {
+          const assetsDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID);
+          await setDoc(assetsDocRef, sanitizeForFirestore({
+            version: nextVersion,
+            updatedAt: now,
+            customImages: customImagesMap,
+            kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
+            kounichan: master.kounichan || null,
+          }));
+          recordFirestoreWrite(`kenchiko_world/${MASTER_ASSETS_DOC_ID}`, 1);
+        }
+
+        const manifestDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
+        await setDoc(manifestDocRef, sanitizeForFirestore(newManifest));
+        recordFirestoreWrite(`kenchiko_world/${MASTER_MANIFEST_DOC_ID}`, 1);
+      }
+    } catch (fsErr) {
+      console.warn('[MasterPublish] Optional Firestore mirror note:', fsErr);
+    }
+
+    if (pgError && !isPostgrestEnabled()) {
+      return { success: false, error: pgError };
+    }
+
+    console.log(`[MasterPublish] ✅ マスター保存完了: v${nextVersion}`);
 
     return {
       success: true,

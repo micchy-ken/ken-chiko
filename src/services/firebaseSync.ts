@@ -1252,37 +1252,15 @@ export async function fetchInitialFirebaseState(
         };
       }
 
-      if (!firestoreDb) {
-        const initRes = initFirebase(config);
-        if (!initRes.success) {
-          notifyConnectionStatusChange(false, initRes.error);
-          return {
-            success: false,
-            data: localBackup || DEFAULT_INITIAL_STATE,
-            error: initRes.error,
-            masterStatus: {
-              fetchedFromCloud: false,
-              docId: 'ken-chiko-global-master',
-              errorDetail: initRes.error || 'Firebase初期化エラー',
-              timestamp,
-            },
-          };
+      // Optional Firebase initialization for background mirror (non-blocking)
+      try {
+        if (!firestoreDb) {
+          initFirebase(config);
         }
+      } catch (_fbErr) {
+        // Firebase failure is completely non-fatal since Synology PostgreSQL is the primary authority
       }
-      if (!firestoreDb) {
-        notifyConnectionStatusChange(false, 'Firestore is not ready');
-        return {
-          success: false,
-          data: localBackup || DEFAULT_INITIAL_STATE,
-          error: 'Firestore is not ready',
-          masterStatus: {
-            fetchedFromCloud: false,
-            docId: 'ken-chiko-global-master',
-            errorDetail: 'Firestoreのインスタンスを取得できませんでした',
-            timestamp,
-          },
-        };
-      }
+
       const isQuotaError = (err: any) => {
         if (!err) return false;
         const msg = String(err?.message || err?.code || err || '').toLowerCase();
