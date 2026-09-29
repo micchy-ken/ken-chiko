@@ -8,6 +8,7 @@ import {
 } from './firestoreTrafficLogger';
 import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
+import { fetchStoryFromPostgrest } from './postgrestMasterService';
 
 export interface StoryIndexItem {
   id: number;
@@ -421,6 +422,17 @@ export async function fetchNyankoStory(nyanId: number): Promise<{
   const cached = getFromLocalCache(nyanId);
   if (cached) {
     return { story: cached, fromCache: true };
+  }
+
+  // 💡 1.5 Prioritize Synology PostgREST
+  try {
+    const postgrestStory = await fetchStoryFromPostgrest(nyanId);
+    if (postgrestStory) {
+      saveToLocalCache(nyanId, postgrestStory);
+      return { story: postgrestStory, fromCache: false };
+    }
+  } catch (pgErr) {
+    console.warn(`[PostgREST] Fallback for story #${nyanId}:`, pgErr);
   }
 
   // 2. Fetch on-demand from Firestore

@@ -34,6 +34,8 @@ import {
   composeCharacters,
   mergeUserProgressSafely,
 } from '../utils/dataSeparation';
+import { fetchFullMasterDataFromPostgrest } from './postgrestMasterService';
+import { isPostgrestEnabled } from './postgrestConfig';
 
 export const GLOBAL_SHARED_DOC_ID = DEFAULT_GLOBAL_DOC_ID;
 
@@ -1257,20 +1259,43 @@ export async function fetchInitialFirebaseState(
       };
 
       try {
-        const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
-        const masterSnap = await getDoc(masterDocRef);
-        sessionDbReadCount++;
-        if (masterSnap.exists()) {
-          globalRaw = masterSnap.data();
-          masterDocIdUsed = 'ken-chiko-global-master';
-        } else {
-          const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-          const globalSnap = await getDoc(globalDocRef);
+        // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
+        if (isPostgrestEnabled()) {
+          try {
+            const pgMaster = await fetchFullMasterDataFromPostgrest();
+            if (pgMaster && pgMaster.characters && pgMaster.characters.length > 0) {
+              globalRaw = {
+                version: pgMaster.version,
+                characters: pgMaster.characters,
+                asobiList: pgMaster.asobiList,
+                ouenCategories: pgMaster.ouenCategories,
+                ouenList: pgMaster.ouenList,
+                kounichan: pgMaster.kounichan,
+                kihonNyanCustomImageUrl: pgMaster.kihonNyanCustomImageUrl,
+                googleDriveFolderUrl: pgMaster.googleDriveFolderUrl,
+              };
+              masterDocIdUsed = 'synology_postgrest (PostgreSQL)';
+            }
+          } catch (pgErr) {
+            console.warn('[PostgREST] Fallback to Firestore for master doc:', pgErr);
+          }
+        }
+
+        if (!globalRaw) {
+          const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
+          const masterSnap = await getDoc(masterDocRef);
           sessionDbReadCount++;
-          if (globalSnap.exists()) {
-            globalRaw = globalSnap.data();
-            masterDocIdUsed = GLOBAL_SHARED_DOC_ID;
+          if (masterSnap.exists()) {
+            globalRaw = masterSnap.data();
+            masterDocIdUsed = 'ken-chiko-global-master';
           } else {
+            const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
+            const globalSnap = await getDoc(globalDocRef);
+            sessionDbReadCount++;
+            if (globalSnap.exists()) {
+              globalRaw = globalSnap.data();
+              masterDocIdUsed = GLOBAL_SHARED_DOC_ID;
+            } else {
             // Auto-initialize standard master into Firestore so database is ready
             try {
               const defaultMaster = {
@@ -1298,6 +1323,7 @@ export async function fetchInitialFirebaseState(
             }
           }
         }
+      }
 
         // Modular architecture support: If asobiList is not in legacy global master, fetch from isolated ken-chiko-master-asobi
         if (!globalRaw?.asobiList || globalRaw.asobiList.length === 0) {

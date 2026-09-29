@@ -6,6 +6,8 @@ import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeO
 import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
 import { cleanseMasterCharacter, cleanseMasterCharacters, composeCharacters, extractProgressMap } from '../utils/dataSeparation';
+import { fetchFullMasterDataFromPostgrest } from './postgrestMasterService';
+import { isPostgrestEnabled } from './postgrestConfig';
 
 export interface KenchikoMasterManifest {
   version: number;
@@ -211,6 +213,25 @@ export async function fetchMasterManifest(): Promise<KenchikoMasterManifest | nu
  */
 export async function fetchGlobalMasterDataWithStatus(forceAll: boolean = false): Promise<MasterFetchDetail> {
   try {
+    // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
+    if (isPostgrestEnabled()) {
+      try {
+        const postgrestData = await fetchFullMasterDataFromPostgrest();
+        if (postgrestData && postgrestData.characters && postgrestData.characters.length > 0) {
+          saveLocalMasterData(postgrestData);
+          return {
+            success: true,
+            data: postgrestData,
+            sourceDoc: 'synology_postgrest',
+            bytesRead: 0,
+            estimatedReads: 0,
+          };
+        }
+      } catch (pgErr) {
+        console.warn('[PostgREST] Fallback to Firestore due to error:', pgErr);
+      }
+    }
+
     initFirebase();
     const db = getFirestoreDbInstance();
     if (!db) {
@@ -536,6 +557,28 @@ export async function checkForMasterUpdateAndSync(
   error?: string;
 }> {
   try {
+    // 💡 1. Prioritize Synology PostgREST (PostgreSQL)
+    if (isPostgrestEnabled()) {
+      try {
+        const postgrestMaster = await fetchFullMasterDataFromPostgrest();
+        if (postgrestMaster && postgrestMaster.characters && postgrestMaster.characters.length > 0) {
+          const mergedNyans = mergeMasterWithCurrentProgress(currentNyans, postgrestMaster.characters);
+          const addedCount = Math.max(0, postgrestMaster.characters.length - currentNyans.length);
+          saveLocalMasterData(postgrestMaster);
+          setCachedMasterNyans(postgrestMaster.characters);
+          return {
+            updated: true,
+            version: postgrestMaster.version,
+            nyans: mergedNyans,
+            addedCount,
+            masterData: postgrestMaster,
+          };
+        }
+      } catch (pgErr) {
+        console.warn('[PostgREST] Launch sync fallback to Firestore:', pgErr);
+      }
+    }
+
     const cachedManifest = getCachedManifest();
     const manifest = await fetchMasterManifest();
 
