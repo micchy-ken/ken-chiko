@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, Sparkles, ArrowRight, Cloud, RefreshCw } from 'lucide-react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
-import { MasterFetchStatus } from '../services/firebaseSync';
+import { MasterFetchStatus } from '../services/cloudSync';
 
 interface LoadingScreenProps {
   message?: string;

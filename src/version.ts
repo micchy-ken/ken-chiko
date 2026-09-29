@@ -4,11 +4,11 @@ export interface AppVersionInfo {
   releaseNotes?: string;
 }
 
-export const CURRENT_APP_VERSION = '2026.09.29-v3';
-export const CURRENT_BUILD_TIME = '2026-09-29 17:35';
+export const CURRENT_APP_VERSION = '2026.09.29-v4';
+export const CURRENT_BUILD_TIME = '2026-09-29 20:55';
 
 /**
- * Checks static /version.json hosted on the web server (Cost: 0 Firestore reads/writes)
+ * Checks static /version.json hosted on the web server (Cost: 0 DB reads/writes)
  * Adds a timestamp query param to bust aggressive browser / PWA caching.
  */
 export async function checkAppVersion(): Promise<{

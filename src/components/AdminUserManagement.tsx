@@ -752,7 +752,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                     )}
                   </div>
                   <div className="text-[11px] text-[#7A726A] font-mono">
-                    Firestore ID: {selectedUser.docId} • 最終更新: {formatDateTime(selectedUser.lastSaved)}
+                    アカウントID: @{selectedUser.userId} • 最終更新: {formatDateTime(selectedUser.lastSaved)}
                   </div>
                 </div>
               </div>

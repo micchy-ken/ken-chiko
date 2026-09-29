@@ -9,7 +9,6 @@ import {
   GoogleDocSyncInfo,
   DEFAULT_GOOGLE_DOC_URL,
 } from '../services/googleDocSync';
-import { getFirebaseAccessStats } from '../services/firebaseSync';
 import { NyanCharacter } from '../types';
 
 interface UserSettingsModalProps {

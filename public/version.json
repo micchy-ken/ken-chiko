@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.29-v3",
-  "buildTime": "2026-09-29 17:35",
-  "releaseNotes": "ユーザー管理一覧をSynology PostgreSQL (api.user_saves) 直結に刷新。ハードコードされていたユーザーID（ken）を是正し、サーバーの実データ（kensuke, yumi, chiko, default）を自動取得・削除・初期化できるよう改修。"
+  "version": "2026.09.29-v4",
+  "buildTime": "2026-09-29 20:55",
+  "releaseNotes": "Firebase依存と痕跡を完全パージし、Synology NAS (PostgreSQL / PostgREST) クラウドマスター同期に一本化。動作の安定性と完全独立化を完了しました。"
 }

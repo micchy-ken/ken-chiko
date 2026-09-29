@@ -296,7 +296,7 @@ export async function fetchStoriesMetaFromPostgrest(): Promise<{
 
 /**
  * High-level loader that pulls all master tables concurrently from PostgREST.
- * Returns null if PostgREST is disabled or unreachable, allowing transparent Firestore fallback.
+ * Returns null if PostgREST is disabled or unreachable, allowing local fallback.
  */
 export async function fetchFullMasterDataFromPostgrest(): Promise<GameMasterData | null> {
   if (!isPostgrestEnabled()) return null;
@@ -309,7 +309,7 @@ export async function fetchFullMasterDataFromPostgrest(): Promise<GameMasterData
     ]);
 
     if (!nyans || nyans.length === 0) {
-      console.warn('[PostgREST] No characters retrieved, falling back to Firestore');
+      console.warn('[PostgREST] No characters retrieved, falling back to local defaults');
       return null;
     }
 

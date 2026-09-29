@@ -46,7 +46,7 @@ export const ZukanDetailModal: React.FC<ZukanDetailModalProps> = ({
 
   const isStoryRead = readStoryIds.includes(nyan.no);
   // If storiesMeta is available and has populated catalog, check it.
-  // Otherwise default to true so players can directly open and read from Firestore!
+  // Otherwise default to true so players can directly open and read from Synology!
   const hasMetaStories = !!(storiesMeta && storiesMeta.stories && Object.keys(storiesMeta.stories).length > 0);
   const hasStory = nyan.hasStory ?? (hasMetaStories ? !!storiesMeta?.stories?.[String(nyan.no)] : true);
 

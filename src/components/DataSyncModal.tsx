@@ -832,10 +832,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   }, [saveData.asobiList, hasUnsavedAsobi]);
 
-  // Pull latest data directly from Firestore (Cloud-First)
+  // Pull latest data directly from Synology (Cloud-First)
   const handlePullFromCloud = async () => {
     setIsSyncingCloudAsobi(true);
-    setAsobiNotice('🔄 クラウド（Firebase）から最新のデータを取得中...');
+    setAsobiNotice('🔄 クラウド（Synology）から最新のデータを取得中...');
     try {
       const res = await fetchInitialFirebaseState();
       if (res.success && res.data) {
@@ -858,10 +858,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   };
 
-  // Push current asobi list to Firestore (EXCLUSIVELY to Global Shared Master DB, 1 single write)
+  // Push current asobi list to Synology (EXCLUSIVELY to Global Shared Master DB, 1 single write)
   const handlePushToCloud = async () => {
     setIsSyncingCloudAsobi(true);
-    setAsobiNotice('☁️ あそびマスターデータをクラウド（Firebase）へ送信中...');
+    setAsobiNotice('☁️ あそびマスターデータをクラウド（Synology）へ送信中...');
     try {
       const res = await saveGlobalAsobiList(asobiList);
       if (res.success) {
@@ -1053,10 +1053,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   };
 
-  // Firebase Manual Sync & Push
+  // Synology Manual Sync & Push
   const handleManualSyncFirebase = async (customSaveData?: GameSaveData) => {
     setIsSyncing(true);
-    setFbSyncStatus('Firebaseにクラウド同期中...');
+    setFbSyncStatus('Synology NASにクラウド同期中...');
     const config: FirebaseCustomConfig = {
       apiKey: fbApiKey.trim() || envFb.apiKey,
       projectId: fbProjectId.trim() || envFb.projectId,
@@ -1071,11 +1071,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setIsSyncing(false);
     if (res.success) {
       setFbSyncStatus(
-        `✅ Firebase（プロジェクト: ${config.projectId}）へデータを同期・更新しました！`
+        `✅ Synology PostgreSQLへセーブデータを同期・保存しました！`
       );
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
     } else {
-      setFbSyncStatus(`⚠️ Firebase接続エラー: ${res.error}`);
+      setFbSyncStatus(`⚠️ Synology接続エラー: ${res.error}`);
     }
   };
 
@@ -3537,10 +3537,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
                     </span>
                     <div>
                       <h4 className="text-xs font-black text-[#3A342F] flex items-center gap-1.5">
-                        全ユーザー向け公式マスター配信（Firestore Headless CMS）
+                        全ユーザー向け公式マスター配信（Synology Headless CMS）
                       </h4>
                       <p className="text-[10px] text-[#7D756D]">
-                        スプレッドシートやDriveから取り込んだ最新データをFirestoreへ一括公開し、全ユーザーへ高速配信します。
+                        スプレッドシートやDriveから取り込んだ最新データをSynology PostgreSQLへ一括公開し、全ユーザーへ高速配信します。
                       </p>
                     </div>
                   </div>
@@ -3590,7 +3590,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
                     onClick={() => {
                       openConfirm(
                         '公式マスターの配信確認',
-                        `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                        `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてSynology PostgreSQLに公開・配信します。よろしいですか？`,
                         () => handlePublishMaster(`スプレッドシート・画像連携更新 (${characters.length}体)`)
                       );
                     }}
@@ -3598,7 +3598,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
                     className="flex items-center justify-center gap-2 bg-[#728C7E] hover:bg-[#5E786A] text-white font-black text-xs px-5 py-2.5 rounded-xl shadow transition disabled:opacity-50"
                   >
                     <Rocket className={`w-4 h-4 ${isPublishingMaster ? 'animate-bounce' : ''}`} />
-                    <span>{isPublishingMaster ? 'Firestoreへ配信中...' : '全ユーザーへ公式マスターを公開（配信）'}</span>
+                    <span>{isPublishingMaster ? 'Synologyへ配信中...' : '全ユーザーへ公式マスターを公開（配信）'}</span>
                   </button>
                 </div>
 
@@ -3641,283 +3641,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
             </div>
               )}
 
-              {/* Firebase tab hidden from UI as master & user saves are migrated to Synology */}
-              {false && (
-                <div className="space-y-4 animate-fadeIn">
-              {/* Traffic Safeguard & Write Budget Box */}
-              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF] space-y-3">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <h4 className="text-xs font-black text-[#4A4036] flex items-center gap-1.5">
-                      🛡️ クラウド通信量セーフガード（管理画面: 150回上限解除中）
-                    </h4>
-                    <p className="text-[11px] text-[#7D756D] mt-0.5">
-                      一般プレイ時は意図しない過剰通信を防ぐため1日{MAX_DAILY_WRITES}回の上限で保護されていますが、<strong className="text-[#2F6B48]">管理画面（当パネル）からのデータ保存・同期・編集は150回の上限が解除（無制限）</strong>されています。
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold font-mono px-3 py-1.5 bg-white border border-[#D9CEBF] rounded-xl text-[#3D5447] shadow-sm flex items-center gap-1.5">
-                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      本日書き込み: {connectionStatus.dailyWriteCount || 0} 回
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded">
-                        管理画面: 制限なし
-                      </span>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Unlimited Mode Toggle */}
-                <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#E8DFD3]">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-[#4A4036] block">
-                        150回書き込み上限の解除（無制限モード）
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        管理画面は常時制限なし
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-[#8C8275]">
-                      {connectionStatus.isDailyLimitDisabled
-                        ? '無制限モードON: 管理画面・通常プレイ問わず、1日150回の上限チェックを完全解除中'
-                        : '現在: 管理画面からの操作は常時制限なし（ONにすると一般プレイ時の自動保存も含めて完全無制限になります）'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextVal = !connectionStatus.isDailyLimitDisabled;
-                      setDailyLimitDisabled(nextVal);
-                    }}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      connectionStatus.isDailyLimitDisabled ? 'bg-[#487560]' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        connectionStatus.isDailyLimitDisabled ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Cloud Auto-Sync Toggle */}
-                <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-[#E8DFD3]">
-                  <div>
-                    <span className="text-xs font-bold text-[#4A4036] block">
-                      クラウド自動書き込み（自動同期）
-                    </span>
-                    <span className="text-[10px] text-[#8C8275]">
-                      {connectionStatus.isAutoSyncEnabled
-                        ? 'ON: 新規にゃんこ発見などの重要進行時のみ同期（最低120秒間隔・重要差分検知付きで無駄な書き込みゼロ）'
-                        : 'OFF: クラウドへの自動書き込みを完全停止中。意図しない通信はゼロで、ローカルにのみ安全保存されます'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextVal = !connectionStatus.isAutoSyncEnabled;
-                      setCloudAutoSyncEnabled(nextVal);
-                    }}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      connectionStatus.isAutoSyncEnabled ? 'bg-[#487560]' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        connectionStatus.isAutoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Daily counter reset */}
-                <div className="flex items-center justify-between bg-[#F4EFE6] px-3 py-2 rounded-xl text-xs">
-                  <span className="text-[11px] text-[#6B5E51]">
-                    本日のFirestore書き込み累計: <strong className="font-mono text-[#2E2824]">{connectionStatus.dailyWriteCount || 0}</strong> 回（管理画面からは上限なしで実行可能）
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetDailyWriteCount();
-                    }}
-                    className="text-[11px] font-bold text-[#5A4E42] hover:text-[#2E2824] px-2.5 py-1 bg-white hover:bg-[#FAF8F5] border border-[#DDD4C5] rounded-lg transition shadow-xs"
-                  >
-                    本日のカウントを0にリセット
-                  </button>
-                </div>
-              </div>
-
-              {/* Connection Status Banner with Lamp */}
-              <div
-                className={`p-4 rounded-2xl border transition ${
-                  connectionStatus.isOffline
-                    ? 'bg-[#FFF2EE] border-[#F5A898]'
-                    : 'bg-[#EAF0EC] border-[#C6D8CD]'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2.5">
-                    {connectionStatus.isOffline ? (
-                      <span className="relative flex h-3.5 w-3.5 flex-shrink-0">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.9)] ring-2 ring-red-300"></span>
-                      </span>
-                    ) : (
-                      <span className="relative flex h-3.5 w-3.5 flex-shrink-0">
-                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-600 ring-2 ring-emerald-300"></span>
-                      </span>
-                    )}
-                    <h4
-                      className={`text-xs font-black flex items-center gap-1.5 ${
-                        connectionStatus.isOffline ? 'text-[#9A2214]' : 'text-[#3D5447]'
-                      }`}
-                    >
-                      {connectionStatus.isOffline
-                        ? 'オフラインモード（Firebase未接続 / メモリ上動作中）'
-                        : 'Firebase Firestore 常時接続（オンライン）'}
-                    </h4>
-                  </div>
-
-                  <span
-                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                      connectionStatus.isOffline
-                        ? 'bg-[#C0392B] text-white'
-                        : 'bg-[#5C7E6B] text-white'
-                    }`}
-                  >
-                    {connectionStatus.isOffline ? 'オフライン' : '接続稼働中'}
-                  </span>
-                </div>
-
-                <p
-                  className={`text-xs leading-relaxed ${
-                    connectionStatus.isOffline ? 'text-[#7D281F]' : 'text-[#5C7E6B]'
-                  }`}
-                >
-                  {connectionStatus.isOffline ? (
-                    <>
-                      現在Firebaseサーバーと通信できていません。ローカルメモリ上で継続動作し、再接続時に自動保存されます。
-                      {connectionStatus.lastError && (
-                        <span className="block mt-1 font-mono text-[11px] text-[#A93226]">
-                          エラー詳細: {connectionStatus.lastError}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      接続先プロジェクト: <strong className="font-mono text-[#3D5447]">{fbProjectId || 'gen-lang-client-0027333270'}</strong><br />
-                      Google Cloud コンソールのHTTPリファラー制限により、GitHub PagesおよびAI Studio環境から安全に直接通信されます。
-                    </>
-                  )}
-                </p>
-
-                <div className="mt-3 pt-2 border-t border-black/5 flex items-center justify-between">
-                  <span className="text-[10px] text-[#7D756D]">
-                    接続状態: {connectionStatus.isConnected ? '接続成功' : '切断中'}
-                  </span>
-                  <button
-                    onClick={async () => {
-                      setIsTestingConnection(true);
-                      const res = await testFirebaseConnection({
-                        apiKey: fbApiKey,
-                        projectId: fbProjectId,
-                        appId: fbAppId,
-                        firestoreDatabaseId: fbDatabaseId,
-                      });
-                      setIsTestingConnection(false);
-                      setFbSyncStatus(
-                        res.success
-                          ? '✅ Firebaseへの接続テストに成功しました！'
-                          : `⚠️ 接続テスト失敗: ${res.error || '通信エラー'}`
-                      );
-                    }}
-                    disabled={isTestingConnection}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition disabled:opacity-60 ${
-                      connectionStatus.isOffline
-                        ? 'bg-[#C0392B] hover:bg-[#A93226] text-white'
-                        : 'bg-[#5C7E6B] hover:bg-[#4A6657] text-white'
-                    }`}
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
-                    <span>{isTestingConnection ? '接続確認中...' : '接続テストを実行'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3 bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      Project ID
-                    </label>
-                    <input
-                      type="text"
-                      value={fbProjectId}
-                      onChange={(e) => setFbProjectId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                      Database ID
-                    </label>
-                    <input
-                      type="text"
-                      value={fbDatabaseId}
-                      onChange={(e) => setFbDatabaseId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
-                    API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={fbApiKey}
-                    onChange={(e) => setFbApiKey(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#728C7E]"
-                  />
-                </div>
-
-                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-                  <span className="text-[11px] text-[#7D756D]">
-                    最終同期: {new Date(saveData.lastSaved).toLocaleTimeString('ja-JP')}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handlePullFromCloud()}
-                      disabled={isSyncingCloudAsobi}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF8F5] hover:bg-[#EFECE4] text-[#4A4036] border border-[#DDD7C8] font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition disabled:opacity-50"
-                      title="Firestoreのデータを正本としてこの端末へ強制ダウンロード"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloudAsobi ? 'animate-spin' : ''}`} />
-                      <span>{isSyncingCloudAsobi ? '取得中...' : 'クラウドから端末へ読込'}</span>
-                    </button>
-                    <button
-                      onClick={() => handleManualSyncFirebase()}
-                      disabled={isSyncing}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#728C7E] hover:bg-[#5E786A] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
-                      title="この端末のデータをFirestoreへ保存"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                      <span>{isSyncing ? '保存中...' : 'クラウドへ保存'}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {fbSyncStatus && (
-                <div className="p-3 bg-[#FAF8F5] rounded-xl border border-[#DDD7C8] text-xs font-bold text-[#3A342F]">
-                  {fbSyncStatus}
-                </div>
-              )}
-            </div>
-              )}
             </div>
           )}
         </div>
@@ -3949,7 +3672,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
             </div>
 
             <p className="text-sm text-[#5A524A] leading-relaxed mb-6 font-medium">
-              Firestore（クラウド）に一括保存せずに管理画面を閉じると、ブラウザをリロードした際に編集内容が元に戻る可能性があります。
+              クラウド（Synology）に一括保存せずに管理画面を閉じると、ブラウザをリロードした際に編集内容が元に戻る可能性があります。
               <br /><br />
               一括保存してから画面を閉じますか？（<strong>書き込みはたった1回のみ</strong>です）
             </p>
@@ -4097,7 +3820,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
               {/* Total Estimated Cost Box */}
               <div className="p-3.5 bg-[#FFFDF9] rounded-xl border-2 border-[#487560] flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-black text-[#2E2824]">今回のFirestore書き込みドキュメント数:</span>
+                  <span className="text-xs font-black text-[#2E2824]">今回のSynology書き込みドキュメント数:</span>
                   <p className="text-[11px] text-[#7A726A]">
                     台帳（マニフェスト）＋選択されたモジュールの合計サイズ: {currentPublishEstimate.kb} KB
                   </p>

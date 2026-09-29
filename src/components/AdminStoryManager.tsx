@@ -910,7 +910,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
   // Delete single story
   const handleDeleteStory = async (nyanId: number, nyanName: string) => {
-    if (!window.confirm(`本当に No.${nyanId}「${nyanName}」の物語をFirestoreから削除しますか？`)) {
+    if (!window.confirm(`本当に No.${nyanId}「${nyanName}」の物語をSynologyデータベースから削除しますか？`)) {
       return;
     }
     try {
@@ -976,7 +976,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
             onClick={handleRebuildMeta}
             disabled={isRebuilding}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-[#8C5A3E] hover:bg-[#784A30] active:translate-y-0.5 text-white font-bold text-xs rounded-xl shadow-sm transition disabled:opacity-50 cursor-pointer"
-            title="Firestoreの全物語データを走査して目録を再同期します"
+            title="Synologyの全物語データを走査して目録を再同期します"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRebuilding ? 'animate-spin' : ''}`} />
             <span>{isRebuilding ? '走査・同期中...' : '🔄 目録を再同期'}</span>
@@ -997,7 +997,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
               onClick={handleSavePendingMeta}
               disabled={isSavingPendingMeta}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2E7D32] hover:bg-[#1B5E20] text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer animate-pulse"
-              title="作業した割り当て目録をFirestoreに一括確定保存します（1回の書き込みで完了）"
+              title="作業した割り当て目録をSynologyに一括確定保存します"
             >
               <Save className={`w-3.5 h-3.5 ${isSavingPendingMeta ? 'animate-spin' : ''}`} />
               <span>
@@ -1048,7 +1048,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
           <div className="flex items-center justify-between text-xs">
             <span className="font-bold text-[#8C5A3E] flex items-center gap-1.5">
               <RefreshCw className="w-4 h-4 animate-spin text-[#8C5A3E]" />
-              <span>Firestoreから物語目録を再同期中…</span>
+              <span>Synologyから物語目録を再同期中…</span>
             </span>
             <span className="font-mono font-bold text-[#8C5A3E]">
               {rebuildProgress.current} / {rebuildProgress.total || '?'} 体
@@ -1132,10 +1132,10 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 </span>
                 <div>
                   <h5 className="text-xs font-black text-[#5C381E]">
-                    Firestoreに登録済みの物語データ（263匹分）の目録が未同期です
+                    Synologyに登録済みの物語データ（263匹分）の目録が未同期です
                   </h5>
                   <p className="text-[11px] text-[#8C5A3E] mt-0.5">
-                    「目録を再同期」ボタンを押すと、Firestore内の全物語データを自動走査して目録を復元・同期します。
+                    「目録を再同期」ボタンを押すと、Synology内の全物語データを自動走査して目録を復元・同期します。
                   </p>
                 </div>
               </div>
@@ -1204,7 +1204,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                       ? 'bg-[#8C5A3E] text-white shadow-sm ring-1 ring-[#8C5A3E]'
                       : 'bg-[#FFF3E0] text-[#8C5A3E] border border-[#FFE0B2] hover:bg-[#FFE0B2]'
                   }`}
-                  title="現在の図鑑番号にまだ紐付いていないFirestore上の物語データです"
+                  title="現在の図鑑番号にまだ紐付いていないSynology上の物語データです"
                 >
                   <AlertCircle className="w-3 h-3 text-[#E65100]" />
                   <span>未紐付け物語 ({orphanStoriesCount})</span>
@@ -1413,7 +1413,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                         {hasStory && (
                           <button
                             onClick={() => handleDeleteStory(nyan.no, nyan.name)}
-                            title="Firestoreから物語を削除"
+                            title="Synologyから物語を削除"
                             className="p-1.5 bg-[#FDF2F0] hover:bg-[#FADCD8] text-[#A83226] border border-[#F5C2BA] rounded-lg transition"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1540,8 +1540,8 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                     <UploadCloud className={`w-4 h-4 ${isUploading ? 'animate-bounce' : ''}`} />
                     <span>
                       {isUploading
-                        ? 'Firestoreへ差分アップロード中...'
-                        : `${parsedPreview.stories.length}件を差分登録 (未変更はスキップ・最大2回書込)`}
+                        ? 'Synologyへ差分アップロード中...'
+                        : `${parsedPreview.stories.length}件を差分登録 (未変更はスキップ・直接書込)`}
                     </span>
                   </button>
                 </div>
@@ -1745,7 +1745,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
               {isLoadingSingleStory ? (
                 <div className="p-12 text-center text-xs text-[#7A726A] flex items-center justify-center gap-2">
                   <RefreshCw className="w-4 h-4 animate-spin text-[#487560]" />
-                  <span>Firestoreから現在の物語を読み込み中...</span>
+                  <span>Synologyから現在の物語を読み込み中...</span>
                 </div>
               ) : (
                 <>
@@ -1882,7 +1882,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                     同期したにゃんこ一覧（全{syncedNyansList.length}体）
                   </h4>
                   <p className="text-xs text-[#487560]">
-                    Firestoreから目録に同期・確認できたにゃんこの名前と話数です
+                    Synologyから目録に同期・確認できたにゃんこの名前と話数です
                   </p>
                 </div>
               </div>

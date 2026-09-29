@@ -323,7 +323,7 @@ export const fetchNyankoStory = fetchStoryById;
 /**
  * Uploads or updates stories from a raw JSON object to Synology PostgreSQL.
  */
-export async function uploadStoriesJsonToFirestore(
+export async function uploadStoriesJsonToSynology(
   jsonData: Record<string, any> | any[] | string,
   onProgress?: (progress: { current: number; total: number; percent: number }) => void
 ): Promise<{ success: boolean; totalUploaded: number; skippedCount: number; writtenCount: number; error?: string }> {
@@ -554,7 +554,7 @@ export interface RebuildResult {
 /**
  * Rebuilds metadata from local storage & Synology.
  */
-export async function rebuildStoriesMetaFromFirestore(
+export async function rebuildStoriesMetaFromSynology(
   onProgress?: (progress: RebuildProgress) => void
 ): Promise<RebuildResult> {
   const pgMeta = await fetchStoriesMeta(true);
@@ -762,3 +762,8 @@ export async function deleteFromUnmappedArchive(oldId: string): Promise<{ succes
     return { success: false, error: err?.message || '削除に失敗しました' };
   }
 }
+
+// Backward-compatibility aliases
+export const uploadStoriesJsonToFirestore = uploadStoriesJsonToSynology;
+export const rebuildStoriesMetaFromFirestore = rebuildStoriesMetaFromSynology;
+

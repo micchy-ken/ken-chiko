@@ -42,7 +42,7 @@ import {
   FirebaseConnectionStatus,
   deduplicateDiary,
   isCloudAutoSyncEnabled,
-} from './services/firebaseSync';
+} from './services/cloudSync';
 import {
   getSavedGoogleDocUrl,
   syncNyansFromGoogleDoc,
@@ -86,7 +86,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { FirestoreTrafficModal } from './components/FirestoreTrafficModal';
 import { SynologyStatusModal } from './components/SynologyStatusModal';
-import { getTrafficStats, isFirestoreQuotaExhausted } from './services/firestoreTrafficLogger';
+import { getTrafficStats, isFirestoreQuotaExhausted } from './services/cloudTrafficLogger';
 import {
   CURRENT_APP_VERSION,
   CURRENT_BUILD_TIME,
@@ -417,7 +417,7 @@ export default function App() {
         if (active) setCurrentUserId(active);
       }
 
-      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'firebase'];
+      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'synology'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
@@ -489,8 +489,8 @@ export default function App() {
 
         if (res.masterStatus) {
           setMasterStatus(res.masterStatus);
-          if (res.masterStatus.errorDetail && !res.data) {
-            setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
+          if (res.masterErrorDetail && !res.data) {
+            setMasterFetchError(res.masterErrorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
           } else {
             setMasterFetchError(null);
           }
@@ -520,13 +520,13 @@ export default function App() {
 
           activeData = mergedData;
           setSaveData(mergedData);
-          if (res.success && res.masterStatus?.fetchedFromCloud) {
+          if (res.success && res.masterStatus === 'synced') {
             setIsFirebaseSynced(true);
           }
         }
       } catch (err: any) {
-        console.warn('Firebase initial load note:', err);
-        setMasterFetchError(err?.message || 'Firestoreマスター読込中に例外が発生しました');
+        console.warn('[SynologySync] initial load note:', err);
+        setMasterFetchError(err?.message || 'クラウドマスター読込中に例外が発生しました');
       }
 
       if (!isMounted) return;
@@ -600,8 +600,8 @@ export default function App() {
       const res = await fetchInitialFirebaseState(undefined, true);
       if (res.masterStatus) {
         setMasterStatus(res.masterStatus);
-        if (res.masterStatus.errorDetail && !res.data) {
-          setMasterFetchError(res.masterStatus.errorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
+        if (res.masterErrorDetail && !res.data) {
+          setMasterFetchError(res.masterErrorDetail || res.error || 'クラウドマスターデータの取得に失敗しました');
           setIsFirebaseSynced(false);
         } else {
           setMasterFetchError(null);
@@ -2454,7 +2454,7 @@ export default function App() {
                 データ連携・全イベント編集コンソール
               </h2>
               <p className="text-xs text-[#7D756D]">
-                Firestoreクラウド同期、全イベント・あそびの編集、毎週更新される「◯◯にゃん」CSVの取り込み設定を行います。
+                Synologyクラウド同期、全イベント・あそびの編集、毎週更新される「◯◯にゃん」CSVの取り込み設定を行います。
               </p>
             </div>
 

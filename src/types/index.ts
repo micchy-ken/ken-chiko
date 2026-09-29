@@ -73,7 +73,7 @@ export interface NyankoStory {
 /**
  * Master Cat Definition (Pure Master Data)
  * ユーザー進行度（発見フラグ・親密度・遭遇日・遊んだ回数など）は一切含みません。
- * 公式マスター（GoogleスプレッドシートやFirestoreのマスタードキュメント）からのみ提供されます。
+ * 公式マスター（Synology PostgreSQL / Googleスプレッドシート）から提供されます。
  */
 export interface MasterNyanCharacter {
   no: number;
@@ -240,8 +240,8 @@ export interface GameSaveData {
   asobiList: KenchikoAsobi[]; // カスタムあそびリスト
   ouenCategories?: OuenCategory[]; // 応援カテゴリー（選択肢）
   ouenList?: OuenItem[]; // 応援メッセージリスト
-  kihonNyanCustomImageUrl?: string; // きほんのにゃんこ公式ベース透過画像 (Firebase / LocalStorage同期)
-  googleDriveFolderUrl?: string; // Google Drive画像フォルダURL (Firebase / LocalStorage同期)
+  kihonNyanCustomImageUrl?: string; // きほんのにゃんこ公式ベース透過画像 (Synology / LocalStorage同期)
+  googleDriveFolderUrl?: string; // Google Drive画像フォルダURL (Synology / LocalStorage同期)
   stats: {
     totalEncounters: number;
     totalSnacksEaten: number;

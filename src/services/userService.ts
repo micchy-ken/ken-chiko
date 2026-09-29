@@ -5,7 +5,7 @@ import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_ITEMS } from '../data/items';
-import { reconstructGameSaveData } from './firebaseSync';
+import { reconstructGameSaveData } from './cloudSync';
 import {
   fetchAllUsersFromPostgrest,
   saveUserSaveToPostgrest,

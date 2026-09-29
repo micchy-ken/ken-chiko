@@ -178,14 +178,14 @@ export const SynologyStatusModal: React.FC<SynologyStatusModalProps> = ({ onClos
             </div>
           </div>
 
-          {/* Firebase Separation Badge */}
+          {/* Synology NAS Dedicated Badge */}
           <div className="p-3.5 bg-[#F2F8F5] rounded-2xl border border-[#C5E3D2] space-y-1.5 text-[#215E39]">
             <div className="flex items-center gap-2 text-xs font-bold">
               <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-              <span>マスター系 Firebase 完全切り離し完了</span>
+              <span>Synology NAS 自前サーバー完全稼働</span>
             </div>
             <p className="text-[11px] leading-relaxed text-[#2D7349]">
-              図鑑・あそび・応援・ストーリーの読み取りはすべて <strong>Synology NAS (PostgreSQL)</strong> から直接行われています。Firebase Firestoreへのマスター読込リクエストは <strong>0回（費用0円・無料枠完全保護）</strong> です。
+              公式マスターデータ（図鑑・あそび・応援・ストーリー）および全ユーザーセーブデータはすべて <strong>Synology NAS (PostgreSQL / PostgREST)</strong> で保存・配信されています。外部クラウド依存ゼロで高速かつ無制限に稼働しています。
             </p>
           </div>
 

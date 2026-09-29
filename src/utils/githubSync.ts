@@ -40,11 +40,7 @@ jobs:
 
       - name: Build Application
         env:
-          VITE_FIREBASE_API_KEY: \${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_PROJECT_ID: \${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: \${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_AUTH_DOMAIN: \${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_DATABASE_ID: \${{ secrets.VITE_FIREBASE_DATABASE_ID }}
+          VITE_POSTGREST_URL: \${{ secrets.VITE_POSTGREST_URL }}
         run: npm run build
 
       - name: Setup Pages
@@ -58,49 +54,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-`;
-}
-
-export function generateFirebaseDeployYaml(projectId = '${{ secrets.FIREBASE_PROJECT_ID }}'): string {
-  return `name: Deploy to Firebase Hosting
-
-on:
-  push:
-    branches:
-      - main
-      - master
-  workflow_dispatch:
-
-jobs:
-  build_and_deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: |
-          npm install --legacy-peer-deps
-
-      - name: Build App
-        env:
-          VITE_FIREBASE_API_KEY: \${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_PROJECT_ID: \${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: \${{ secrets.VITE_FIREBASE_APP_ID }}
-        run: npm run build
-
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: \${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: \${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: \${{ secrets.FIREBASE_PROJECT_ID || '${projectId}' }}
 `;
 }
 

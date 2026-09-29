@@ -44,7 +44,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import confetti from '../../utils/confetti';
-import { saveGlobalKounichanSettings } from '../../services/firebaseSync';
+import { saveGlobalKounichanSettings } from '../../services/cloudSync';
 
 interface AdminKounichanEditorProps {
   saveData: GameSaveData;

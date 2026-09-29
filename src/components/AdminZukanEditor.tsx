@@ -96,12 +96,12 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
 
   const handlePublishMaster = async () => {
     setIsPublishingMaster(true);
-    setPublishStatus('🚀 Firestoreへ公式マスターを公開・配信中...');
+    setPublishStatus('🚀 Synologyへ公式マスターを公開・配信中...');
     const res = await publishMasterData(characters, `図鑑・画像編集より公開 (${characters.length}体)`);
     setIsPublishingMaster(false);
     if (res.success) {
       setPublishStatus(
-        `🎉 公開完了！ バージョン v${res.version} (全 ${res.count} 体) をFirestoreに配信しました。全ユーザーの次回アクセス時に自動配信されます。`
+        `🎉 公開完了！ バージョン v${res.version} (全 ${res.count} 体) をSynologyに配信しました。全ユーザーの次回アクセス時に自動配信されます。`
       );
       fetchMasterMeta().then(setMasterMeta).catch(() => {});
       confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
@@ -231,7 +231,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
       setFormRawImageUrl(processed);
       setFormUrlInput(processed);
       setIsProcessingImage(false);
-      setFormNotice('✨ 画像をセットしました。「保存してFirebaseに反映」を押して全環境に即時同期してください。');
+      setFormNotice('✨ 画像をセットしました。「保存してクラウドに反映」を押して全環境に即時同期してください。');
     } catch (err: any) {
       setIsProcessingImage(false);
       setFormNotice(`❌ 画像の処理に失敗しました: ${err.message}`);
@@ -311,7 +311,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     setFormCustomImageUrl('');
     setFormRawImageUrl('');
     setFormUrlInput('');
-    setFormNotice('🖌️ デフォルトイラストに戻しました。「保存してFirebaseに反映」を押すとFirestoreマスターからも旧画像が完全に解除されます。');
+    setFormNotice('🖌️ デフォルトイラストに戻しました。「保存してクラウドに反映」を押すとマスターからも旧画像が完全に解除されます。');
   };
 
   // Save Character Changes
@@ -362,7 +362,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     }
 
     try {
-      // Update save data locally (in memory & localStorage) - ZERO Firestore writes during draft editing!
+      // Update save data locally (in memory & localStorage) - ZERO network writes during draft editing!
       onUpdateSaveData((prev) => ({
         ...prev,
         characters: updatedCharacters,
@@ -583,7 +583,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
             onClick={() => {
               openConfirm(
                 '公式マスターの配信確認',
-                `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                `現在の図鑑データ（全${characters.length}体）を、全一般ユーザー向けの公式マスターとしてSynologyに公開・配信します。よろしいですか？`,
                 handlePublishMaster
               );
             }}
@@ -623,7 +623,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
           <div className="flex items-center gap-2">
             <Cloud className="w-3.5 h-3.5 text-[#728C7E]" />
             <span>
-              Firestore公開中マスター: <strong className="text-[#3A342F]">v{masterMeta.version}</strong> ({masterMeta.nyanCount}体)
+              Synology公開中マスター: <strong className="text-[#3A342F]">v{masterMeta.version}</strong> ({masterMeta.nyanCount}体)
             </span>
             <span className="text-[#A8A199]">|</span>
             <span>最終更新: {new Date(masterMeta.updatedAt).toLocaleString('ja-JP')}</span>
@@ -791,7 +791,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   onClick={() => {
                     openConfirm(
                       '画像反映マスターの配信確認',
-                      `Google Driveから同期された画像（${driveSyncResult.matchedCount}件）を含む最新図鑑データを、全一般ユーザー向けの公式マスターとしてFirestoreに公開・配信します。よろしいですか？`,
+                      `Google Driveから同期された画像（${driveSyncResult.matchedCount}件）を含む最新図鑑データを、全一般ユーザー向けの公式マスターとしてSynologyに公開・配信します。よろしいですか？`,
                       handlePublishMaster
                     );
                   }}
@@ -1077,7 +1077,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                       : `No.${formNo} ${formName || 'にゃんこ'} の修正・透過設定`}
                   </h3>
                   <p className="text-[11px] text-[#7D756D]">
-                    画像アップロード、背景自動透過・しきい値調整、名前・エピソードを保存・Firebase同期できます
+                    画像アップロード、背景自動透過・しきい値調整、名前・エピソードを保存・Synology同期できます
                   </p>
                 </div>
               </div>

@@ -2,7 +2,7 @@ import React from 'react';
 import { BookOpen, Settings, ShieldCheck, AlertTriangle, RefreshCw } from 'lucide-react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
-import { MasterFetchStatus } from '../services/firebaseSync';
+import { MasterFetchStatus } from '../services/cloudSync';
 
 interface DefaultUserPlaceholderProps {
   customImageUrl?: string;

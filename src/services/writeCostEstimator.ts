@@ -17,9 +17,7 @@ export interface WriteCostEstimate {
 }
 
 /**
- * Calculates byte size and actual Firestore document write units for an operation
- * Firestore Billing Rule: 1 document written = exactly 1 Write (regardless of document size up to 1MB).
- * The byte size represents network payload (Egress/Ingress bandwidth).
+ * Calculates byte size and actual database document write units for an operation
  */
 export function estimateObjectWriteCost(name: string, docId: string, obj: any): { name: string; docId: string; bytes: number; kb: number; docWrites: number } {
   try {
@@ -27,7 +25,6 @@ export function estimateObjectWriteCost(name: string, docId: string, obj: any): 
     // UTF-8 byte length
     const bytes = new TextEncoder().encode(json).length;
     const kb = parseFloat((bytes / 1024).toFixed(1));
-    // Firestore write units: 1 document written = exactly 1 Write
     const docWrites = 1;
     return { name, docId, bytes, kb, docWrites };
   } catch {
@@ -36,7 +33,7 @@ export function estimateObjectWriteCost(name: string, docId: string, obj: any): 
 }
 
 /**
- * Estimate the Firestore write cost for publishing master data split into modular documents
+ * Estimate the database write cost for publishing master data
  */
 export function estimateMasterPublishCost(
   master: GameMasterData,

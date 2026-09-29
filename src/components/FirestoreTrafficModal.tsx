@@ -110,26 +110,14 @@ export const FirestoreTrafficModal: React.FC<FirestoreTrafficModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold">Firestore 通信生ログ ＆ サーキットブレーカー</h2>
-                {stats.isQuotaExhausted ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-600 text-white animate-pulse">
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    🛑 無料枠上限発動 (ローカル保護中)
-                  </span>
-                ) : stats.isBreakerTripped ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white animate-pulse">
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    🚨 遮断中 (残り {Math.max(0, Math.ceil((stats.breakerTrippedUntil - Date.now()) / 1000))}秒)
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    正常稼働中 (安全弁 有効)
-                  </span>
-                )}
+                <h2 className="text-lg font-bold">Synology クラウド通信生ログ ＆ 監査モニター</h2>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Synology NAS 直結 (制限なし)
+                </span>
               </div>
               <p className="text-xs text-stone-400">
-                アプリから飛んだすべての生リクエストを完全追跡中（上限超過時は自動で物理遮断）
+                Synology PostgreSQL (PostgREST) への全リクエストを完全追跡中
               </p>
             </div>
           </div>

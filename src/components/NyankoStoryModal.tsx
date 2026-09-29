@@ -196,7 +196,7 @@ export const NyankoStoryModal: React.FC<NyankoStoryModalProps> = ({
               <div className="py-16 text-center space-y-3">
                 <Loader2 className="w-8 h-8 mx-auto text-[#8C5A3E] animate-spin" />
                 <p className="text-sm font-bold text-[#7A726A] font-handwriting">
-                  Firebaseから物語を読み込み中...
+                  クラウドから物語を読み込み中...
                 </p>
                 <p className="text-xs text-[#A8A096]">
                   （初回のみ数KBの通信で読み込み、次回以降はキャッシュで即時表示されます）

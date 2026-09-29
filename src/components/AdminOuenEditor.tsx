@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import { OuenCategory, OuenItem, GameSaveData } from '../types';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
-import { saveGlobalOuenList, fetchGlobalOuenList } from '../services/firebaseSync';
+import { saveGlobalOuenList, fetchGlobalOuenList } from '../services/cloudSync';
 import {
   Heart,
   Plus,
