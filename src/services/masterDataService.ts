@@ -1,9 +1,6 @@
-import { doc } from 'firebase/firestore';
-import { auditedGetDoc as getDoc, auditedSetDoc as setDoc } from './firestoreTrafficLogger';
 import { NyanCharacter, MasterNyanCharacter, GameMasterData } from '../types';
 import { DEFAULT_MASTER_DATA } from './storage';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from '../data/defaultOuen';
-import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
 import { cleanseMasterCharacter, cleanseMasterCharacters, composeCharacters, extractProgressMap } from '../utils/dataSeparation';
 import { fetchFullMasterDataFromPostgrest, saveFullMasterDataToPostgrest } from './postgrestMasterService';
@@ -162,39 +159,21 @@ export function setCachedMasterNyans(nyans: (MasterNyanCharacter | NyanCharacter
  */
 export async function fetchMasterManifest(): Promise<KenchikoMasterManifest | null> {
   try {
-    initFirebase();
-    const db = getFirestoreDbInstance();
-    if (!db) return null;
+    // 1. Check local cached manifest first
+    const cached = getCachedManifest();
+    if (cached) return cached;
 
-    // 1. Check isolated manifest document first
-    const manifestRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
-    const snap = await getDoc(manifestRef);
-    if (snap.exists()) {
-      const d = snap.data();
+    // 2. Fallback to local master data
+    const local = loadLocalMasterData();
+    if (local) {
       return {
-        version: d.version || 1,
-        charactersVersion: d.charactersVersion || d.version || 1,
-        asobiVersion: d.asobiVersion || d.version || 1,
-        assetsVersion: d.assetsVersion || d.version || 1,
-        updatedAt: d.updatedAt || Date.now(),
-        nyanCount: d.nyanCount || 0,
-        lastUpdatedNote: d.lastUpdatedNote || '',
-      };
-    }
-
-    // 2. Fallback to global master header if manifest does not exist yet
-    const masterDocRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_MASTER_DOC_ID);
-    const legacySnap = await getDoc(masterDocRef);
-    if (legacySnap.exists()) {
-      const d = legacySnap.data();
-      return {
-        version: d.version || 1,
-        charactersVersion: d.version || 1,
-        asobiVersion: d.version || 1,
-        assetsVersion: d.version || 1,
-        updatedAt: d.lastUpdated || Date.now(),
-        nyanCount: Array.isArray(d.characters) ? d.characters.length : 0,
-        lastUpdatedNote: d.note || '',
+        version: local.version || 1,
+        charactersVersion: local.version || 1,
+        asobiVersion: local.version || 1,
+        assetsVersion: local.version || 1,
+        updatedAt: local.lastUpdated || Date.now(),
+        nyanCount: Array.isArray(local.characters) ? local.characters.length : 0,
+        lastUpdatedNote: '',
       };
     }
 
@@ -333,6 +312,14 @@ export async function publishGlobalMasterData(
       }
     }
 
+    // If Synology write failed, return the error immediately so the user knows!
+    if (pgError) {
+      return {
+        success: false,
+        error: pgError,
+      };
+    }
+
     // 2. Save to local cache immediately
     const newManifest: KenchikoMasterManifest = {
       version: nextVersion,
@@ -351,59 +338,6 @@ export async function publishGlobalMasterData(
       lastUpdated: now,
     });
     setCachedMasterNyans(pureCharacters);
-
-    // 3. Optional mirror to Firestore (if configured)
-    try {
-      initFirebase();
-      const db = getFirestoreDbInstance();
-      if (db) {
-        if (options.syncCharacters !== false) {
-          const charDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_CHARACTERS_DOC_ID);
-          await setDoc(charDocRef, sanitizeForFirestore({
-            version: nextVersion,
-            updatedAt: now,
-            count: pureCharacters.length,
-            characters: pureCharacters,
-          }));
-          recordFirestoreWrite(`kenchiko_world/${MASTER_CHARACTERS_DOC_ID}`, 1);
-        }
-
-        if (options.syncAsobi !== false) {
-          const asobiDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASOBI_DOC_ID);
-          await setDoc(asobiDocRef, sanitizeForFirestore({
-            version: nextVersion,
-            updatedAt: now,
-            asobiList: master.asobiList || [],
-            ouenCategories: mergeOuenCategories(master.ouenCategories),
-            ouenList: mergeOuenList(master.ouenList),
-            googleDriveFolderUrl: master.googleDriveFolderUrl || null,
-          }));
-          recordFirestoreWrite(`kenchiko_world/${MASTER_ASOBI_DOC_ID}`, 1);
-        }
-
-        if (options.syncAssets !== false) {
-          const assetsDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_ASSETS_DOC_ID);
-          await setDoc(assetsDocRef, sanitizeForFirestore({
-            version: nextVersion,
-            updatedAt: now,
-            customImages: customImagesMap,
-            kihonNyanCustomImageUrl: master.kihonNyanCustomImageUrl || null,
-            kounichan: master.kounichan || null,
-          }));
-          recordFirestoreWrite(`kenchiko_world/${MASTER_ASSETS_DOC_ID}`, 1);
-        }
-
-        const manifestDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
-        await setDoc(manifestDocRef, sanitizeForFirestore(newManifest));
-        recordFirestoreWrite(`kenchiko_world/${MASTER_MANIFEST_DOC_ID}`, 1);
-      }
-    } catch (fsErr) {
-      console.warn('[MasterPublish] Optional Firestore mirror note:', fsErr);
-    }
-
-    if (pgError && !isPostgrestEnabled()) {
-      return { success: false, error: pgError };
-    }
 
     console.log(`[MasterPublish] ✅ マスター保存完了: v${nextVersion}`);
 

@@ -1,5 +1,6 @@
 import { GameSaveData, DiaryEntry } from '../types';
-import { getPostgrestBaseUrl, isPostgrestEnabled } from './postgrestConfig';
+import { getPostgrestBaseUrl, isPostgrestEnabled, getPostgrestHeaders } from './postgrestConfig';
+import { formatPostgrestError } from './postgrestMasterService';
 
 export interface UserSaveRecord {
   user_id: string;
@@ -96,17 +97,17 @@ export async function saveUserSaveToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/user_saves`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.warn(`[Synology] Save failed for ${userId}: HTTP ${res.status} - ${errText}`);
-      return { success: false, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, error: formatPostgrestError(res.status, errText, 'user_saves') };
     }
 
     console.log(`[Synology] 💾 ユーザー "${userId}" のセーブデータをSynology PostgreSQLに正常保存しました`);

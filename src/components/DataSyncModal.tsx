@@ -61,6 +61,7 @@ import {
   syncImagesFromGoogleDriveFolder,
   DriveSyncResult,
 } from '../services/googleDriveFolderSync';
+import { getPostgrestAuthToken, setPostgrestAuthToken } from '../services/postgrestConfig';
 import { estimateMasterPublishCost, WriteCostEstimate } from '../services/writeCostEstimator';
 import { GameMasterData } from '../types';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -286,6 +287,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [synologySaveNotice, setSynologySaveNotice] = useState<string | null>(null);
   const [isTestingSynology, setIsTestingSynology] = useState<boolean>(false);
   const [synologyTestResult, setSynologyTestResult] = useState<string | null>(null);
+  const [synologyToken, setSynologyToken] = useState<string>(() => getPostgrestAuthToken());
 
   // Google Drive Folder Sync State in Data Tab
   const [dataDriveUrl, setDataDriveUrl] = useState<string>(() => {
@@ -3225,8 +3227,51 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     </div>
 
                     {synologySaveNotice && (
-                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 animate-fadeIn">
-                        {synologySaveNotice}
+                      <div className={`p-3.5 rounded-2xl border text-xs font-bold animate-fadeIn ${
+                        synologySaveNotice.includes('エラー') || synologySaveNotice.includes('401') || synologySaveNotice.includes('42501')
+                          ? 'bg-rose-50 border-rose-200 text-rose-900'
+                          : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      }`}>
+                        <div className="whitespace-pre-wrap">{synologySaveNotice}</div>
+                        {(synologySaveNotice.includes('42501') || synologySaveNotice.includes('permission denied') || synologySaveNotice.includes('権限')) && (
+                          <div className="mt-3 p-3 bg-white border border-rose-300 rounded-xl space-y-2">
+                            <div className="text-[11px] font-bold text-rose-800 flex flex-wrap items-center justify-between gap-1.5">
+                              <span>🛠️ 解決手順: AdminerでPostgreSQL書き込み権限を付与してください</span>
+                              <a
+                                href="https://micchy.synology.me:9944/?pgsql=postgre"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold inline-flex items-center gap-1 shadow-sm"
+                              >
+                                Adminerを開く (ポート9944) <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                            <p className="text-[10px] text-[#6E645A] font-normal leading-relaxed">
+                              現在、Synology上のPostgreSQLにおいて anonymous（未認証）ユーザーのテーブル書き込み権限が制限されています。Adminerの「SQLコマンド」欄に以下を貼り付けて「実行」を押すと、即座に書き込みが可能になります：
+                            </p>
+                            <div className="relative">
+                              <pre className="p-2.5 bg-gray-900 text-emerald-400 font-mono text-[10.5px] rounded-lg overflow-x-auto select-all leading-relaxed">
+{`GRANT USAGE ON SCHEMA api TO public;
+GRANT ALL ON ALL TABLES IN SCHEMA api TO public;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA api TO public;
+ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON TABLES TO public;
+ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
+                              </pre>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(
+                                    "GRANT USAGE ON SCHEMA api TO public;\nGRANT ALL ON ALL TABLES IN SCHEMA api TO public;\nGRANT ALL ON ALL SEQUENCES IN SCHEMA api TO public;\nALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON TABLES TO public;\nALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;"
+                                  );
+                                  alert("SQLをクリップボードにコピーしました！Adminerの「SQLコマンド」に貼り付けて実行してください。");
+                                }}
+                                className="absolute top-2 right-2 px-2 py-0.5 bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold rounded shadow cursor-pointer"
+                              >
+                                コピー
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -3235,6 +3280,33 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                         {synologyTestResult}
                       </div>
                     )}
+                  </div>
+
+                  {/* Auth Token configuration */}
+                  <div className="p-3.5 bg-white rounded-2xl border border-[#DDD7C8] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-[#3E3833]">PostgREST 認証トークン (JWT / API Key)</span>
+                      <span className="text-[10px] text-[#8E8478]">※ 未設定の場合は匿名アクセス(anon)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        placeholder="Bearer トークンがある場合は入力"
+                        value={synologyToken}
+                        onChange={(e) => setSynologyToken(e.target.value)}
+                        className="flex-1 px-3 py-1.5 text-xs border border-[#DDD7C8] rounded-xl font-mono focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPostgrestAuthToken(synologyToken);
+                          setSynologySaveNotice('🔑 認証トークンをブラウザに保存しました');
+                        }}
+                        className="px-3.5 py-1.5 bg-[#4A4036] hover:bg-[#322A22] text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs"
+                      >
+                        保存
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

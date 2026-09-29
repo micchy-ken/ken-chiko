@@ -34,7 +34,12 @@ import {
   composeCharacters,
   mergeUserProgressSafely,
 } from '../utils/dataSeparation';
-import { fetchFullMasterDataFromPostgrest } from './postgrestMasterService';
+import {
+  fetchFullMasterDataFromPostgrest,
+  saveMasterAsobiToPostgrest,
+  saveMasterOuenToPostgrest,
+  saveMasterSettingsToPostgrest,
+} from './postgrestMasterService';
 import { fetchUserSaveFromPostgrest, saveUserSaveToPostgrest } from './postgrestUserService';
 import { isPostgrestEnabled } from './postgrestConfig';
 
@@ -1046,57 +1051,31 @@ let lastConnectionCheckTime = 0;
 let lastConnectionCheckResult: { success: boolean; error?: string } = { success: true };
 
 export async function testFirebaseConnection(
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     notifyConnectionStatusChange(false, 'オフライン状態です');
     return { success: false, error: '端末がオフラインです' };
   }
 
-  const now = Date.now();
-  // If tested in last 2 minutes and succeeded, reuse result without performing a redundant Firestore read
-  if (now - lastConnectionCheckTime < 120000 && lastConnectionCheckResult.success && isCurrentlyConnected) {
-    return lastConnectionCheckResult;
-  }
-
   try {
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        notifyConnectionStatusChange(false, initRes.error);
-        return initRes;
-      }
+    const res = await fetch('https://micchy.synology.me:9943/master_nyans?limit=1', {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (res.ok) {
+      lastConnectionCheckTime = Date.now();
+      lastConnectionCheckResult = { success: true };
+      clearQuotaExhausted();
+      notifyConnectionStatusChange(true);
+      return { success: true };
+    } else {
+      const errMsg = `Synology HTTP ${res.status}`;
+      notifyConnectionStatusChange(false, errMsg);
+      return { success: false, error: errMsg };
     }
-    if (!firestoreDb) {
-      notifyConnectionStatusChange(false, 'Firestoreの初期化に失敗しました');
-      return { success: false, error: 'Firestore is not initialized' };
-    }
-
-    const docId = config.syncDocId || GLOBAL_SHARED_DOC_ID;
-    const docRef = doc(firestoreDb, 'kenchiko_world', docId);
-    await getDoc(docRef);
-    sessionDbReadCount++;
-    console.log(`[CloudSync] 🔍 Firestore疎通確認 [1件読込]: ドキュメント=kenchiko_world/${docId}`);
-    lastConnectionCheckTime = Date.now();
-    lastConnectionCheckResult = { success: true };
-    clearQuotaExhausted();
-    notifyConnectionStatusChange(true);
-    return { success: true };
   } catch (err: any) {
-    const isQuota =
-      err?.code === 'resource-exhausted' ||
-      err?.status === 429 ||
-      String(err?.message || '').toLowerCase().includes('quota') ||
-      String(err?.message || '').toLowerCase().includes('resource_exhausted');
-
-    if (isQuota) {
-      markQuotaExhausted(30 * 60 * 1000);
-    }
-
-    const errMsg = isQuota
-      ? 'Firestoreの無料枠・読込上限に達しました（ローカル保護モードで稼働中）'
-      : err?.message || String(err);
-
+    const errMsg = `Synology接続エラー: ${err?.message || String(err)}`;
     lastConnectionCheckTime = Date.now();
     lastConnectionCheckResult = { success: false, error: errMsg };
     notifyConnectionStatusChange(false, errMsg);
@@ -1363,42 +1342,13 @@ export async function fetchInitialFirebaseState(
         console.warn('[Synology] User save fetch notice:', pgUserErr);
       }
 
-      // 2. Legacy fallback to Firestore ONLY if not found in Synology
-      if (!userRaw && firestoreDb) {
-        if (userDocId === GLOBAL_SHARED_DOC_ID) {
-          userRaw = globalRaw;
-        } else {
-          try {
-            const userDocRef = doc(firestoreDb, 'kenchiko_world', userDocId);
-            const userSnap = await getDoc(userDocRef);
-            sessionDbReadCount++;
-            if (userSnap.exists()) {
-              userRaw = userSnap.data();
-            }
-          } catch (uErr: any) {
-            if (isQuotaError(uErr)) {
-              markQuotaExhausted(30 * 60 * 1000);
-              userErrorDetail = 'Firestore無料枠上限に達しました（ローカル保護モード）';
-            } else {
-              userErrorDetail = `ユーザーデータ読込エラー: ${uErr?.message || uErr?.code || String(uErr)}`;
-            }
-            console.warn('Firestore user progress read note:', uErr);
-          }
-        }
-      }
-
-      if (globalRaw || userRaw) {
-        if (!getIsQuotaExhausted()) {
-          clearQuotaExhausted();
-          notifyConnectionStatusChange(true);
-        } else {
-          notifyConnectionStatusChange(false, 'Firestore無料枠上限（ローカル保護モードで稼働中）');
-        }
+      if (globalRaw || userRaw || localBackup) {
+        notifyConnectionStatusChange(true);
       } else {
         const fallbackMsg = masterErrorDetail || userErrorDetail || 'オフラインモード（端末ローカルで安全に保持中）';
         notifyConnectionStatusChange(false, fallbackMsg);
       }
-      console.log(`[CloudSync] 📥 Firestore読込 [master=${masterDocIdUsed}, 成功=${masterFetched}, user=${userDocId}] (累計セッション読込: ${sessionDbReadCount}回)`);
+      console.log(`[Synology] 📥 マスター読込 [master=${masterDocIdUsed}, 成功=${masterFetched}]`);
 
     // --- STEP 3: Assemble Shared Master Data (Asobi & Kenchiko Avatar/Name) ---
     // Check locally cached master data as secondary fallback
@@ -1892,50 +1842,20 @@ export async function syncSaveDataToFirebase(
   latestPendingData = data;
 
   const activeUid = getActiveUserId();
-  // 🐘 1. Save to Synology PostgreSQL immediately
-  if (activeUid) {
-    saveUserSaveToPostgrest(activeUid, data).catch((err) => {
-      console.warn('[Synology] Background user save warning:', err);
-    });
-  }
-
-  const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
-
-  // ONLY explicit manual button clicks bypass debouncing (isImmediate = true)
-  if (isImmediate) {
-    if (pendingWriteTimeout) {
-      clearTimeout(pendingWriteTimeout);
-      pendingWriteTimeout = null;
-    }
-    if (isWritingToFirestore) {
-      queuedImmediateData = data;
+  // 🐘 Save to Synology PostgreSQL
+  if (activeUid && isPostgrestEnabled()) {
+    try {
+      const res = await saveUserSaveToPostgrest(activeUid, data);
+      if (!res.success) {
+        console.warn('[Synology] User save error:', res.error);
+        return { success: false, error: res.error };
+      }
       return { success: true };
+    } catch (err: any) {
+      console.warn('[Synology] Save exception:', err);
+      return { success: false, error: err?.message || String(err) };
     }
-    return executeFirestoreWrite(data, config, true, bypassDailyLimit);
   }
-
-  if (!isAdmin && getIsQuotaExhausted()) {
-    return { success: true, error: 'Firebase無料枠上限のためローカル保持中' };
-  }
-
-  // If user disabled auto-sync and it's not a direct manual trigger
-  if (!isCloudAutoSyncEnabled()) {
-    return { success: true };
-  }
-
-  const now = Date.now();
-  const timeSinceLast = now - lastSuccessfulWriteTime;
-
-  if (pendingWriteTimeout) {
-    return { success: true };
-  }
-
-  pendingWriteTimeout = setTimeout(() => {
-    pendingWriteTimeout = null;
-    if (latestPendingData) {
-      executeFirestoreWrite(latestPendingData, config, false, bypassDailyLimit).catch(() => {});
-    }
-  }, Math.max(5000, MIN_AUTO_SYNC_INTERVAL_MS - timeSinceLast));
 
   return { success: true };
 }
@@ -2031,7 +1951,7 @@ export async function saveOnAppExit(
  */
 export async function saveGlobalAsobiList(
   asobiList: KenchikoAsobi[],
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; count?: number; error?: string }> {
   try {
     const cleanList = sanitizeAsobiList(asobiList);
@@ -2045,48 +1965,38 @@ export async function saveGlobalAsobiList(
     };
     saveLocalBackup(updatedLocal);
 
-    // 2. Initialize Firestore if needed
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+    try {
+      const localMasterRaw = localStorage.getItem('kenchiko_global_master_data_v1');
+      if (localMasterRaw) {
+        const localMaster = JSON.parse(localMasterRaw);
+        localMaster.asobiList = cleanList;
+        localStorage.setItem('kenchiko_global_master_data_v1', JSON.stringify(localMaster));
+      }
+    } catch {}
+
+    // 2. Save directly to Synology PostgreSQL
+    if (isPostgrestEnabled()) {
+      const pgRes = await saveMasterAsobiToPostgrest(cleanList);
+      if (!pgRes.success) {
+        return { success: false, error: pgRes.error };
       }
     }
-    if (!firestoreDb) {
-      return { success: false, error: 'Firestoreが初期化されていません' };
-    }
 
-    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-    const globalPayload = removeUndefinedDeep({
-      asobiList: cleanList,
-      lastSaved: Date.now(),
-      updatedAt: new Date().toISOString(),
-    });
-
-    await setDoc(globalDocRef, globalPayload, { merge: true });
-    sessionDbWriteCount++;
-    incrementDailyWriteCount();
     notifyConnectionStatusChange(true);
-
     return { success: true, count: cleanList.length };
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
-      markQuotaExhausted();
-    }
     console.error('Failed to save global asobiList:', err);
     return { success: false, error: err?.message || String(err) };
   }
 }
 
 /**
- * Saves ouenList & ouenCategories to both the Global Shared Firestore document (ken-chiko-global-state)
- * and the Modular Master doc (ken-chiko-master-asobi) so they are permanently preserved.
+ * Saves ouenList & ouenCategories to Synology PostgreSQL (master_ouen)
  */
 export async function saveGlobalOuenList(
   ouenList: OuenItem[],
   ouenCategories: OuenCategory[] = INITIAL_OUEN_CATEGORIES,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; count?: number; error?: string }> {
   try {
     const mergedList = mergeOuenList(ouenList);
@@ -2112,126 +2022,36 @@ export async function saveGlobalOuenList(
       }
     } catch {}
 
-    // 2. Initialize Firestore if needed
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+    // 2. Save directly to Synology PostgreSQL
+    if (isPostgrestEnabled()) {
+      const pgRes = await saveMasterOuenToPostgrest(mergedCats, mergedList);
+      if (!pgRes.success) {
+        return { success: false, error: pgRes.error };
       }
-    }
-    if (!firestoreDb) {
-      return { success: false, error: 'Firestoreが初期化されていません' };
-    }
-
-    // 3. Write to the global shared state document (ken-chiko-global-state)
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-    const globalPayload = removeUndefinedDeep({
-      ouenList: mergedList,
-      ouenCategories: mergedCats,
-      lastSaved: Date.now(),
-      updatedAt: new Date().toISOString(),
-    });
-
-    await setDoc(globalDocRef, globalPayload, { merge: true });
-    sessionDbWriteCount++;
-    incrementDailyWriteCount();
-
-    // 4. Also write to ken-chiko-master-asobi so master-sync never wipes them out
-    try {
-      const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
-      await setDoc(
-        asobiDocRef,
-        removeUndefinedDeep({
-          ouenList: mergedList,
-          ouenCategories: mergedCats,
-          updatedAt: Date.now(),
-        }),
-        { merge: true }
-      );
-      sessionDbWriteCount++;
-      incrementDailyWriteCount();
-    } catch (asobiErr) {
-      console.warn('Failed to update ken-chiko-master-asobi with ouenList:', asobiErr);
     }
 
     notifyConnectionStatusChange(true);
-
     return { success: true, count: mergedList.length };
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
-      markQuotaExhausted();
-    }
     console.error('Failed to save global ouenList:', err);
     return { success: false, error: err?.message || String(err) };
   }
 }
 
 /**
- * Fetches the global cheer message list (ouenList) and categories from Firestore.
- * Checks ken-chiko-master-asobi, ken-chiko-global-state, and ken-chiko-global-master.
- * Always merges with the complete 25+ default presets so nothing is ever lost.
+ * Fetches the global cheer message list (ouenList) and categories from Synology PostgREST.
  */
 export async function fetchGlobalOuenList(
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; ouenList?: OuenItem[]; ouenCategories?: OuenCategory[]; error?: string }> {
   try {
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        return { success: false, error: initRes.error || 'Firebase接続エラー' };
-      }
-    }
-    if (!firestoreDb) {
-      return { success: false, error: 'Firestoreが初期化されていません' };
-    }
-
-    // 1. Check ken-chiko-master-asobi first (modern modular master)
-    try {
-      const asobiDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-master-asobi');
-      const asobiSnap = await getDoc(asobiDocRef);
-      sessionDbReadCount++;
-      if (asobiSnap.exists()) {
-        const aData = asobiSnap.data();
-        if (Array.isArray(aData.ouenList) && aData.ouenList.length > 0) {
-          return {
-            success: true,
-            ouenList: mergeOuenList(aData.ouenList),
-            ouenCategories: mergeOuenCategories(aData.ouenCategories),
-          };
-        }
-      }
-    } catch {}
-
-    // 2. Check ken-chiko-global-state
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-    const snap = await getDoc(globalDocRef);
-    sessionDbReadCount++;
-
-    if (snap.exists()) {
-      const data = snap.data();
-      if (Array.isArray(data.ouenList) && data.ouenList.length > 0) {
-        return {
-          success: true,
-          ouenList: mergeOuenList(data.ouenList),
-          ouenCategories: mergeOuenCategories(data.ouenCategories),
-        };
-      }
-    }
-
-    // 3. Fallback: check ken-chiko-global-master
-    const masterDocRef = doc(firestoreDb, 'kenchiko_world', 'ken-chiko-global-master');
-    const masterSnap = await getDoc(masterDocRef);
-    sessionDbReadCount++;
-
-    if (masterSnap.exists()) {
-      const mData = masterSnap.data();
-      if (Array.isArray(mData.ouenList) && mData.ouenList.length > 0) {
-        return {
-          success: true,
-          ouenList: mergeOuenList(mData.ouenList),
-          ouenCategories: mergeOuenCategories(mData.ouenCategories),
-        };
-      }
+    const local = loadLocalBackup();
+    if (local && Array.isArray(local.ouenList) && local.ouenList.length > 0) {
+      return {
+        success: true,
+        ouenList: mergeOuenList(local.ouenList),
+        ouenCategories: mergeOuenCategories(local.ouenCategories),
+      };
     }
 
     return {
@@ -2240,7 +2060,6 @@ export async function fetchGlobalOuenList(
       ouenCategories: INITIAL_OUEN_CATEGORIES,
     };
   } catch (err: any) {
-    console.error('Failed to fetch global ouenList:', err);
     return {
       success: true,
       ouenList: INITIAL_OUEN_LIST,
@@ -2251,12 +2070,11 @@ export async function fetchGlobalOuenList(
 }
 
 /**
- * Saves kounichan settings EXCLUSIVELY to the Global Master Firestore document (ken-chiko-global-state).
- * This ensures that vehicles, illustrations, speed, direction, and master switch are shared across all users and devices.
+ * Saves kounichan settings to Synology PostgreSQL (master_settings).
  */
 export async function saveGlobalKounichanSettings(
   settings: import('../types/kounichan').KounichanSettings,
-  config: FirebaseCustomConfig = loadSavedFirebaseConfig()
+  _config: FirebaseCustomConfig = loadSavedFirebaseConfig()
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanSettings = removeUndefinedDeep({
@@ -2281,35 +2099,17 @@ export async function saveGlobalKounichanSettings(
     };
     saveLocalBackup(updatedLocal);
 
-    // 2. Initialize Firestore if needed
-    if (!firestoreDb) {
-      const initRes = initFirebase(config);
-      if (!initRes.success) {
-        return { success: false, error: initRes.error || 'Firebase接続エラー' };
+    // 2. Save directly to Synology PostgreSQL
+    if (isPostgrestEnabled()) {
+      const pgRes = await saveMasterSettingsToPostgrest({ kounichan: cleanSettings });
+      if (!pgRes.success) {
+        return { success: false, error: pgRes.error };
       }
     }
-    if (!firestoreDb) {
-      return { success: false, error: 'Firestoreが初期化されていません' };
-    }
 
-    // 3. Write ONLY to the global shared master document (ken-chiko-global-state)
-    const globalDocRef = doc(firestoreDb, 'kenchiko_world', GLOBAL_SHARED_DOC_ID);
-    const globalPayload = removeUndefinedDeep({
-      kounichan: cleanSettings,
-      lastSaved: Date.now(),
-      updatedAt: new Date().toISOString(),
-    });
-
-    await setDoc(globalDocRef, globalPayload, { merge: true });
-    sessionDbWriteCount++;
-    incrementDailyWriteCount();
     notifyConnectionStatusChange(true);
-
     return { success: true };
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota') || err?.status === 429) {
-      markQuotaExhausted();
-    }
     console.error('Failed to save global kounichan settings:', err);
     return { success: false, error: err?.message || String(err) };
   }

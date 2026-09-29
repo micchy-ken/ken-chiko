@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.29-v1",
-  "buildTime": "2026-09-29 00:05",
-  "releaseNotes": "公式マスター一括保存および全端末の初期同期をSynology PostgreSQL直結に完全統一"
+  "version": "2026.09.29-v2",
+  "buildTime": "2026-09-29 16:55",
+  "releaseNotes": "Firebase全撤去・Synology PostgreSQL単独化。書き込みエラー(42501)の詳細通知・AdminerワンクリックSQL権限付与UI・JWT認証設定を追加。"
 }

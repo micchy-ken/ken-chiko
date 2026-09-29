@@ -1,12 +1,3 @@
-import { doc, collection, deleteField } from 'firebase/firestore';
-import {
-  auditedGetDoc as getDoc,
-  auditedSetDoc as setDoc,
-  auditedDeleteDoc as deleteDoc,
-  auditedWriteBatch as writeBatch,
-  isFirestoreQuotaExhausted,
-} from './firestoreTrafficLogger';
-import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
 import {
   fetchStoryFromPostgrest,
@@ -34,7 +25,7 @@ export interface NyankoStoriesMeta {
   stories: Record<string, StoryIndexItem>; // Key is String(nyanId)
 }
 
-// In-memory runtime cache: prevents duplicate Firestore reads during the session
+// In-memory runtime cache: prevents duplicate network calls during the session
 const storyMemoryCache = new Map<number, NyankoStory>();
 let cachedStoriesMeta: NyankoStoriesMeta | null = null;
 
@@ -42,10 +33,7 @@ let cachedStoriesMeta: NyankoStoriesMeta | null = null;
 const LOCAL_STORY_KEY_PREFIX = 'kenchiko_story_data_v1_';
 const SESSION_CACHE_KEY_PREFIX = 'kenchiko_story_cache_v2_';
 const LOCAL_STORIES_META_KEY = 'kenchiko_stories_meta_v1';
-const FIRESTORE_COLLECTION = 'kenchiko_world';
-const STORIES_META_DOC_ID = 'nyanko_stories_meta';
-export const GLOBAL_STORIES_DOC_ID = 'ken-chiko-global-stories';
-export const GLOBAL_UNMAPPED_DOC_ID = 'ken-chiko-global-unmapped-stories';
+export const GLOBAL_UNMAPPED_STORAGE_KEY = 'kenchiko_unmapped_stories_v1';
 
 /**
  * Retrieves cached story from memory, sessionStorage, or localStorage (persistent)
@@ -58,20 +46,21 @@ export function getFromLocalCache(nyanId: number): NyankoStory | null {
     // 1. Check persistent localStorage
     if (window.localStorage) {
       try {
-        const raw = localStorage.getItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
-        if (raw) {
-          const parsed = JSON.parse(raw) as NyankoStory;
+        const item = window.localStorage.getItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
+        if (item) {
+          const parsed = JSON.parse(item);
           storyMemoryCache.set(nyanId, parsed);
           return parsed;
         }
       } catch {}
     }
+
     // 2. Check sessionStorage
     if (window.sessionStorage) {
       try {
-        const raw = sessionStorage.getItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
-        if (raw) {
-          const parsed = JSON.parse(raw) as NyankoStory;
+        const item = window.sessionStorage.getItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
+        if (item) {
+          const parsed = JSON.parse(item);
           storyMemoryCache.set(nyanId, parsed);
           return parsed;
         }
@@ -82,55 +71,48 @@ export function getFromLocalCache(nyanId: number): NyankoStory | null {
 }
 
 /**
- * Saves story to memory, sessionStorage, and persistent localStorage
+ * Saves a story to memory, sessionStorage, and localStorage (persistent)
  */
 export function saveToLocalCache(nyanId: number, story: NyankoStory): void {
   storyMemoryCache.set(nyanId, story);
   if (typeof window !== 'undefined') {
-    if (window.localStorage) {
-      try {
-        localStorage.setItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
-      } catch {}
-    }
     if (window.sessionStorage) {
       try {
-        sessionStorage.setItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
+        window.sessionStorage.setItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
+      } catch {}
+    }
+    if (window.localStorage) {
+      try {
+        window.localStorage.setItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`, JSON.stringify(story));
       } catch {}
     }
   }
 }
 
 /**
- * Removes story from all local caches
+ * Removes a story from memory, sessionStorage, and localStorage
  */
 export function removeFromLocalCache(nyanId: number): void {
   storyMemoryCache.delete(nyanId);
   if (typeof window !== 'undefined') {
-    if (window.localStorage) {
-      try {
-        localStorage.removeItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
-      } catch {}
-    }
-    if (window.sessionStorage) {
-      try {
-        sessionStorage.removeItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
-      } catch {}
-    }
+    try {
+      window.sessionStorage?.removeItem(`${SESSION_CACHE_KEY_PREFIX}${nyanId}`);
+      window.localStorage?.removeItem(`${LOCAL_STORY_KEY_PREFIX}${nyanId}`);
+    } catch {}
   }
 }
 
 /**
- * Retrieves cached stories metadata (synchronous fast access)
+ * Gets cached stories metadata index from localStorage
  */
 export function getLocalStoriesMeta(): NyankoStoriesMeta | null {
   if (cachedStoriesMeta) return cachedStoriesMeta;
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
-      const raw = localStorage.getItem(LOCAL_STORIES_META_KEY);
+      const raw = window.localStorage.getItem(LOCAL_STORIES_META_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as NyankoStoriesMeta;
-        cachedStoriesMeta = parsed;
-        return parsed;
+        cachedStoriesMeta = JSON.parse(raw);
+        return cachedStoriesMeta;
       }
     } catch {}
   }
@@ -138,13 +120,13 @@ export function getLocalStoriesMeta(): NyankoStoriesMeta | null {
 }
 
 /**
- * Sets local stories metadata
+ * Sets cached stories metadata index to localStorage and memory
  */
 export function setLocalStoriesMeta(meta: NyankoStoriesMeta): void {
   cachedStoriesMeta = meta;
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
-      localStorage.setItem(LOCAL_STORIES_META_KEY, JSON.stringify(meta));
+      window.localStorage.setItem(LOCAL_STORIES_META_KEY, JSON.stringify(meta));
     } catch {}
   }
 }
@@ -153,8 +135,7 @@ let lastStoryMetaFetchTime = 0;
 const STORY_META_CACHE_TTL = 300000; // 5 minutes cache
 
 /**
- * Fetches the lightweight stories metadata index from Firestore (1 Read operation).
- * Tells the app exactly which nyans have registered stories across the entire roster.
+ * Fetches stories metadata index from Synology PostgREST (or local cache).
  */
 export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoStoriesMeta | null> {
   const now = Date.now();
@@ -180,276 +161,146 @@ export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoSt
   }
 
   // 2. Local cache fallback
-  const local = getLocalStoriesMeta();
-  if (local && local.storyCount > 0) {
-    return local;
-  }
-
-  // 3. Fallback to Firestore (legacy archive)
-  try {
-    const db = getFirestoreDbInstance();
-    if (db) {
-      const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-      const snap = await getDoc(metaRef, 'fetchStoriesMeta');
-      lastStoryMetaFetchTime = Date.now();
-
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data && data.stories && Object.keys(data.stories).length > 0) {
-          const meta: NyankoStoriesMeta = {
-            version: data.version || 1,
-            updatedAt: data.updatedAt || Date.now(),
-            storyCount: Object.keys(data.stories).length,
-            stories: data.stories || {},
-          };
-          setLocalStoriesMeta(meta);
-          return meta;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('fetchStoriesMeta fallback warning:', err);
-  }
-
   return getLocalStoriesMeta();
 }
 
 /**
  * Parse input string or object into a verified list of NyankoStory objects.
- * Supports:
- * 1. Keyed object format: { "ほむらにゃん": { character_id: 176, ... } }
- * 2. Array format: [ { character_id: 176, ... }, ... ]
- * 3. Single object format: { character_name: "...", ... }
- * 4. Multi-object text format: { "ほむらにゃん": {...} }, { "まどかにゃん": {...} }
  */
-export function parseStoryInputJson(input: string | any): {
-  valid: boolean;
-  stories: NyankoStory[];
-  error?: string;
-} {
+export function parseStoryInputJson(raw: any): { valid: boolean; stories: NyankoStory[]; error?: string } {
   try {
-    let parsed: any = input;
-    if (typeof input === 'string') {
-      const trimmed = input.trim();
-      if (!trimmed) {
-        return { valid: false, stories: [], error: 'JSONデータが入力されていません' };
-      }
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch (firstErr) {
-        // Try wrapping comma-separated objects in array brackets: [ { ... }, { ... } ]
-        try {
-          parsed = JSON.parse(`[${trimmed.replace(/,\s*$/, '')}]`);
-        } catch {
-          throw firstErr;
-        }
-      }
+    let data = raw;
+    if (typeof raw === 'string') {
+      data = JSON.parse(raw);
     }
 
-    if (!parsed || typeof parsed !== 'object') {
-      return { valid: false, stories: [], error: '無効なJSONオブジェクトです' };
+    if (!data) {
+      return { valid: false, stories: [], error: 'データが空です' };
+    }
+
+    let items: any[] = [];
+    if (Array.isArray(data)) {
+      items = data;
+    } else if (typeof data === 'object') {
+      if (Array.isArray((data as any).stories)) {
+        items = (data as any).stories;
+      } else {
+        items = Object.entries(data).map(([key, val]: [string, any]) => {
+          if (val && typeof val === 'object') {
+            return {
+              ...val,
+              name: val.name || key,
+            };
+          }
+          return val;
+        });
+      }
     }
 
     const result: NyankoStory[] = [];
-
-    // Case 0: GEMINI weekly format with shared week_info & characters dictionary or array
-    const charactersMap = parsed.characters || parsed.character_list || parsed.cats;
-    if (charactersMap && typeof charactersMap === 'object') {
-      const sharedWeekInfo = parsed.week_info && typeof parsed.week_info === 'object' ? parsed.week_info : undefined;
-
-      const charEntries: [string, any][] = Array.isArray(charactersMap)
-        ? charactersMap.map((c: any, idx: number) => [c?.name || `character_${idx}`, c])
-        : Object.entries(charactersMap);
-
-      for (const [key, val] of charEntries) {
-        if (!val || typeof val !== 'object') continue;
-        const charObj: any = val;
-
-        // If character's week_info is just a string (e.g. "9月 第2週..."), or missing/has no days, inherit sharedWeekInfo
-        let resolvedWeekInfo = charObj.week_info;
-        if (
-          typeof resolvedWeekInfo === 'string' ||
-          !resolvedWeekInfo ||
-          !Array.isArray(resolvedWeekInfo.days) ||
-          resolvedWeekInfo.days.length === 0
-        ) {
-          if (sharedWeekInfo) {
-            resolvedWeekInfo = {
-              ...sharedWeekInfo,
-              week_title:
-                typeof charObj.week_info === 'string'
-                  ? charObj.week_info
-                  : (sharedWeekInfo.week_title || ''),
-            };
-          }
-        }
-
-        const itemToNormalize = {
-          ...charObj,
-          name: charObj.name || charObj.character_name || key,
-          week_info: resolvedWeekInfo,
-        };
-
-        const validItem = normalizeStoryItem(itemToNormalize);
-        if (validItem) {
-          result.push(validItem);
-        }
-      }
-
-      if (result.length > 0) {
-        result.sort((a, b) => a.id - b.id);
-        return { valid: true, stories: result };
+    for (const item of items) {
+      const normalized = normalizeStoryItem(item);
+      if (normalized) {
+        result.push(normalized);
       }
     }
 
-    const processObject = (obj: any, fallbackName?: string) => {
-      if (!obj || typeof obj !== 'object') return;
-
-      // If it's a wrapper with nyan name as key: { "ほむらにゃん": { character_id: 176, ... } }
-      const keys = Object.keys(obj);
-      const isInnerStoryObject =
-        obj.id !== undefined ||
-        obj.no !== undefined ||
-        obj.character_id !== undefined ||
-        obj.name !== undefined ||
-        obj.character_name !== undefined ||
-        obj.week_info !== undefined ||
-        obj.week_period !== undefined ||
-        obj.weekly_dialogue_records !== undefined;
-
-      if (isInnerStoryObject) {
-        const itemWithFallback = {
-          ...obj,
-          name: obj.name || obj.character_name || fallbackName || '',
-        };
-        const validItem = normalizeStoryItem(itemWithFallback);
-        if (validItem) result.push(validItem);
-      } else {
-        for (const [key, val] of Object.entries(obj)) {
-          if (val && typeof val === 'object') {
-            const itemWithFallback = {
-              ...(val as any),
-              name: (val as any).name || (val as any).character_name || key,
-            };
-            const validItem = normalizeStoryItem(itemWithFallback);
-            if (validItem) result.push(validItem);
-          }
-        }
-      }
-    };
-
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) {
-        processObject(item);
-      }
-    } else {
-      processObject(parsed);
-    }
-
-    if (result.length === 0) {
-      return {
-        valid: false,
-        stories: [],
-        error: '有効な物語データ（名前やセリフデータを含むデータ）が見つかりませんでした',
-      };
-    }
-
-    // Sort by id ascending
-    result.sort((a, b) => a.id - b.id);
-    return { valid: true, stories: result };
+    return { valid: result.length > 0, stories: result };
   } catch (err: any) {
-    return {
-      valid: false,
-      stories: [],
-      error: `JSONの構文エラー: ${err?.message || '正しく解析できませんでした'}`,
-    };
+    return { valid: false, stories: [], error: err?.message || 'JSONの解析に失敗しました' };
   }
 }
 
 /**
- * Helper to normalize and validate a single story item across multiple schema formats.
+ * Normalizes an arbitrary object to conform to NyankoStory interface
  */
-function normalizeStoryItem(raw: any): NyankoStory | null {
-  const rawId = raw.id ?? raw.no ?? raw.character_id ?? raw.oldId;
-  const numId = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10);
-  const finalId = !isNaN(numId) && numId > 0 ? numId : 9999;
+export function normalizeStoryItem(raw: any): NyankoStory | null {
+  if (!raw || typeof raw !== 'object') return null;
 
-  const name = String(raw.name || raw.character_name || '').trim();
-  if (!name) return null;
+  const id = Number(raw.id || raw.character_id || raw.no || raw.nyanId || raw.code || 9999);
+  const name = String(raw.name || raw.character_name || raw.nyan_name || raw.title || '').trim();
 
-  const days: any[] = Array.isArray(raw.week_info?.days)
-    ? raw.week_info.days
-    : Array.isArray(raw.days)
-    ? raw.days
-    : Array.isArray(raw.weekly_dialogue_records)
-    ? raw.weekly_dialogue_records
-    : [];
+  if (!name && id === 9999) return null;
 
-  const weekTitle =
-    raw.week_info?.week_title ||
-    raw.week_title ||
-    raw.week_period?.title ||
-    raw.title ||
-    '';
-  const weekStart =
-    raw.week_info?.week_start ||
-    raw.week_start ||
-    raw.week_period?.start_date ||
-    '';
-  const weekEnd =
-    raw.week_info?.week_end ||
-    raw.week_end ||
-    raw.week_period?.end_date ||
-    '';
+  const kana = raw.kana || raw.reading || raw.yomi || '';
+  const motif = raw.motif || raw.theme || '';
+  const debut_date = raw.debut_date || raw.firstAppeared || raw.debut || '';
+  const voice = raw.voice || raw.dialogue || '';
+  const translation = raw.translation || raw.dialogueMeaning || raw.dialogue_meaning || '';
+  const episode_summary = raw.episode_summary || raw.episode || raw.summary || '';
+  const prompt_ja = raw.prompt_ja || raw.promptJa || '';
+  const prompt_en = raw.prompt_en || raw.promptEn || '';
+  const doc_link = raw.doc_link || raw.docLink || raw.url || '';
+
+  let week_info = raw.week_info;
+  if (!week_info && raw.week) {
+    week_info = raw.week;
+  }
+  if (!week_info) {
+    week_info = {
+      week_title: raw.week_title || raw.title || '',
+      days: Array.isArray(raw.days) ? raw.days : [],
+    };
+  }
 
   return {
-    id: finalId,
+    id,
     name,
-    kana: raw.kana || undefined,
-    motif: raw.motif || undefined,
-    debut_date: raw.debut_date || undefined,
-    voice: raw.voice || raw.representative_cat_speech || undefined,
-    translation: raw.translation || raw.representative_translation || undefined,
-    episode_summary: raw.episode_summary || raw.summary || undefined,
-    prompt_ja: raw.prompt_ja || raw.image_prompt_ja || undefined,
-    prompt_en: raw.prompt_en || raw.image_prompt_en || undefined,
-    doc_link: raw.doc_link || undefined,
-    week_info: {
-      week_title: weekTitle,
-      week_start: weekStart,
-      week_end: weekEnd,
-      days: days.map((d: any) => ({
-        date_header: String(d.date_header || d.date || ''),
-        messages: Array.isArray(d.messages)
-          ? d.messages.map((m: any) => ({
-              time: String(m.time || ''),
-              sender: String(m.sender || ''),
-              body: String(m.body || m.content || ''),
-            }))
-          : [],
-      })),
-    },
+    kana,
+    motif,
+    debut_date,
+    voice,
+    translation,
+    episode_summary,
+    prompt_ja,
+    prompt_en,
+    doc_link,
+    week_info,
     updatedAt: raw.updatedAt || new Date().toISOString(),
   };
 }
 
 /**
- * Fetches the weekly story and dialogue for a specific nyan from Firestore.
- * Utilizes multi-layer caching (Memory -> SessionStorage -> Firestore)
- * so each story is read at most once per session (reducing network traffic by 99%+).
+ * Compares two story objects to determine if their content is identical.
  */
-export async function fetchNyankoStory(nyanId: number): Promise<{
-  story: NyankoStory | null;
-  fromCache: boolean;
-  error?: string;
-}> {
-  // 1. Check local caches first
-  const cached = getFromLocalCache(nyanId);
-  if (cached) {
-    return { story: cached, fromCache: true };
+function isStoryContentEqual(a: NyankoStory, b: NyankoStory): boolean {
+  if (a.id !== b.id) return false;
+  if (a.name !== b.name) return false;
+  if ((a.kana || '') !== (b.kana || '')) return false;
+  if ((a.motif || '') !== (b.motif || '')) return false;
+  if ((a.debut_date || '') !== (b.debut_date || '')) return false;
+  if ((a.voice || '') !== (b.voice || '')) return false;
+  if ((a.translation || '') !== (b.translation || '')) return false;
+  if ((a.episode_summary || '') !== (b.episode_summary || '')) return false;
+  if ((a.prompt_ja || '') !== (b.prompt_ja || '')) return false;
+  if ((a.prompt_en || '') !== (b.prompt_en || '')) return false;
+  if ((a.doc_link || '') !== (b.doc_link || '')) return false;
+
+  const aDays = a.week_info?.days || [];
+  const bDays = b.week_info?.days || [];
+  if (aDays.length !== bDays.length) return false;
+  if ((a.week_info?.week_title || '') !== (b.week_info?.week_title || '')) return false;
+
+  return JSON.stringify(a.week_info) === JSON.stringify(b.week_info);
+}
+
+/**
+ * Fetches the weekly story and dialogue for a specific nyan from Synology PostgREST.
+ */
+export async function fetchStoryById(
+  nyanId: number,
+  forceRefresh: boolean = false
+): Promise<{ story: NyankoStory | null; fromCache: boolean; error?: string }> {
+  // 1. Check local cache
+  if (!forceRefresh) {
+    const cached = getFromLocalCache(nyanId);
+    if (cached) {
+      return { story: cached, fromCache: true };
+    }
   }
 
-  // 2. Try Synology NAS (PostgreSQL / PostgREST) if enabled
+  // 2. Fetch from Synology PostgreSQL
+  let errorDetail: string | undefined = undefined;
   if (isPostgrestEnabled()) {
     try {
       const postgrestStory = await fetchStoryFromPostgrest(nyanId);
@@ -458,100 +309,19 @@ export async function fetchNyankoStory(nyanId: number): Promise<{
         return { story: postgrestStory, fromCache: false };
       }
     } catch (pgErr: any) {
-      console.warn(`[Synology] Failed to fetch story for nyan #${nyanId}, falling back to Firestore:`, pgErr);
+      errorDetail = pgErr?.message || String(pgErr);
+      console.warn(`[Synology] Failed to fetch story for nyan #${nyanId}:`, pgErr);
     }
   }
 
-  // 3. Fallback to Firestore (ken-chiko-global-stories consolidated document)
-  try {
-    const db = getFirestoreDbInstance();
-    if (db) {
-      const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-      const snap = await getDoc(globalStoriesRef, `fetchNyankoStory_${nyanId}`);
-      if (snap.exists()) {
-        const data = snap.data();
-        const storiesMap = (data.stories || {}) as Record<string, any>;
-        const rawStory = storiesMap[String(nyanId)] || storiesMap[nyanId];
-        if (rawStory) {
-          const parsed = normalizeStoryItem(rawStory);
-          if (parsed) {
-            saveToLocalCache(nyanId, parsed);
-            // Opportunistic background save to Synology so Synology DB gets populated
-            if (isPostgrestEnabled()) {
-              saveSingleStoryToPostgrest(parsed).catch(() => {});
-            }
-            return { story: parsed, fromCache: false };
-          }
-        }
-      }
-    }
-  } catch (fsErr: any) {
-    console.warn(`[Firestore] Failed to fetch story for nyan #${nyanId}:`, fsErr);
-  }
-
-  return {
-    story: null,
-    fromCache: false,
-    error: 'このにゃんこの物語はまだ登録されていません',
-  };
+  const cached = getFromLocalCache(nyanId);
+  return { story: cached, fromCache: Boolean(cached), error: errorDetail };
 }
 
-/**
- * Preload a story in the background without blocking the UI
- */
-export function preloadNyankoStory(nyanId: number): void {
-  if (getFromLocalCache(nyanId)) return;
-  fetchNyankoStory(nyanId).catch(() => {});
-}
+export const fetchNyankoStory = fetchStoryById;
 
 /**
- * Helper to compute whether two story objects are content-identical (excluding timestamps)
- */
-function isStoryContentEqual(a: NyankoStory, b: NyankoStory): boolean {
-  if (!a || !b) return false;
-  if (a.id !== b.id) return false;
-  if (a.name !== b.name) return false;
-  if ((a.kana || '') !== (b.kana || '')) return false;
-  if ((a.motif || '') !== (b.motif || '')) return false;
-  if ((a.title || '') !== (b.title || '')) return false;
-  if ((a.storyOriginalName || '') !== (b.storyOriginalName || '')) return false;
-
-  const wA = a.week_info;
-  const wB = b.week_info;
-  if (!wA && !wB) return true;
-  if (!wA || !wB) return false;
-
-  if (wA.week_title !== wB.week_title) return false;
-  if (wA.week_start !== wB.week_start) return false;
-  if (wA.week_end !== wB.week_end) return false;
-
-  const daysA = wA.days || [];
-  const daysB = wB.days || [];
-  if (daysA.length !== daysB.length) return false;
-
-  for (let i = 0; i < daysA.length; i++) {
-    const dA = daysA[i];
-    const dB = daysB[i];
-    if (dA.date_header !== dB.date_header) return false;
-    const msgsA = dA.messages || [];
-    const msgsB = dB.messages || [];
-    if (msgsA.length !== msgsB.length) return false;
-    for (let j = 0; j < msgsA.length; j++) {
-      if (msgsA[j].time !== msgsB[j].time) return false;
-      if (msgsA[j].sender !== msgsB[j].sender) return false;
-      if (msgsA[j].body !== msgsB[j].body) return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Uploads or updates stories from a raw JSON object to Firestore.
- * Performs differential synchronization:
- *  - Compares against local cache or catalog to skip identical stories.
- *  - If all incoming stories are identical to cached versions, 0 Firestore writes occur.
- *  - Only altered or newly added stories are merged into the global document.
+ * Uploads or updates stories from a raw JSON object to Synology PostgreSQL.
  */
 export async function uploadStoriesJsonToFirestore(
   jsonData: Record<string, any> | any[] | string,
@@ -561,11 +331,6 @@ export async function uploadStoriesJsonToFirestore(
     const parseRes = parseStoryInputJson(jsonData);
     if (!parseRes.valid || parseRes.stories.length === 0) {
       return { success: false, totalUploaded: 0, skippedCount: 0, writtenCount: 0, error: parseRes.error || 'データが空です' };
-    }
-
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, totalUploaded: 0, skippedCount: 0, writtenCount: 0, error: 'Firebase is not initialized' };
     }
 
     const stories = parseRes.stories;
@@ -579,14 +344,12 @@ export async function uploadStoriesJsonToFirestore(
       stories: {},
     };
 
-    // 1. Identify which stories actually need updating by checking cached story contents
     const changedStoriesMap: Record<string, NyankoStory> = {};
     let skippedCount = 0;
 
     for (let i = 0; i < total; i++) {
       const item = stories[i];
       const existingCached = getFromLocalCache(item.id);
-
       const isUnchanged = existingCached && isStoryContentEqual(existingCached, item);
 
       if (isUnchanged) {
@@ -597,11 +360,8 @@ export async function uploadStoriesJsonToFirestore(
           updatedAt: new Date().toISOString(),
         }));
         changedStoriesMap[String(item.id)] = cleanPayload;
-
-        // Update local memory and persistent cache immediately
         saveToLocalCache(item.id, cleanPayload);
 
-        // Update meta map for the changed story
         currentMeta.stories[String(item.id)] = {
           id: item.id,
           name: item.name,
@@ -624,9 +384,7 @@ export async function uploadStoriesJsonToFirestore(
 
     const changedCount = Object.keys(changedStoriesMap).length;
 
-    // If no stories were changed or added, completely skip Firestore write
     if (changedCount === 0) {
-      console.log(`[NyankoStory] ⏭️ 全${total}件の物語データは変更なし（キャッシュと完全一致）。Firestore書込を0回でスキップしました。`);
       return {
         success: true,
         totalUploaded: total,
@@ -635,37 +393,23 @@ export async function uploadStoriesJsonToFirestore(
       };
     }
 
-    // Save to local cache & metadata
     currentMeta.storyCount = Object.keys(currentMeta.stories).length;
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
     setLocalStoriesMeta(currentMeta);
 
-    // 1. 🐘 Primary: Save to Synology PostgreSQL (api.master_stories)
+    // Save to Synology PostgreSQL (api.master_stories)
     if (isPostgrestEnabled()) {
-      await saveStoriesToPostgrest(Object.values(changedStoriesMap));
-    }
-
-    // 2. Optional fallback/mirror to Firestore
-    try {
-      if (db) {
-        const batch = writeBatch(db);
-        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-        batch.set(globalStoriesRef, {
-          version: currentMeta.version,
-          updatedAt: new Date().toISOString(),
-          storyCount: currentMeta.storyCount,
-          stories: changedStoriesMap,
-        }, { merge: true });
-
-        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-        batch.set(metaRef, currentMeta);
-
-        await batch.commit();
-        recordFirestoreWrite('kenchiko_world/stories_batch_diff', 2);
+      const pgRes = await saveStoriesToPostgrest(Object.values(changedStoriesMap));
+      if (!pgRes.success) {
+        return {
+          success: false,
+          totalUploaded: total,
+          skippedCount,
+          writtenCount: 0,
+          error: pgRes.error,
+        };
       }
-    } catch (fsErr) {
-      console.warn('[Firestore] Background mirror error:', fsErr);
     }
 
     console.log(`[NyankoStory] 💾 差分物語保存完了: 全${total}件中 ${changedCount}件更新 / ${skippedCount}件スキップ`);
@@ -683,15 +427,23 @@ export async function uploadStoriesJsonToFirestore(
 }
 
 /**
- * Saves a single story to Synology PostgreSQL (and optional Firestore mirror) and updates metadata index.
+ * Saves a single story to Synology PostgreSQL and updates metadata index.
  */
 export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
   success: boolean;
   skipped?: boolean;
   error?: string;
 }> {
+  return saveSingleStoryToSynology(story);
+}
+
+export async function saveSingleStoryToSynology(story: NyankoStory): Promise<{
+  success: boolean;
+  skipped?: boolean;
+  error?: string;
+}> {
   try {
-    const cleanPayload = JSON.parse(JSON.stringify({
+    const cleanPayload: NyankoStory = JSON.parse(JSON.stringify({
       ...story,
       updatedAt: new Date().toISOString(),
     }));
@@ -721,34 +473,14 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
     saveToLocalCache(story.id, story);
     setLocalStoriesMeta(currentMeta);
 
-    // 1. 🐘 Primary: Save to Synology PostgreSQL (api.master_stories)
+    // Save to Synology PostgreSQL (master_stories)
     if (isPostgrestEnabled()) {
       const pgRes = await saveSingleStoryToPostgrest(cleanPayload);
       if (!pgRes.success) {
         console.warn('[Synology] PostgREST story save failed:', pgRes.error);
+        return { success: false, error: pgRes.error };
       }
     }
-
-    // 2. Optional Firestore write
-    try {
-      const db = getFirestoreDbInstance();
-      if (db) {
-        const batch = writeBatch(db);
-        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-        batch.set(globalStoriesRef, {
-          updatedAt: new Date().toISOString(),
-          stories: {
-            [String(story.id)]: cleanPayload,
-          },
-        }, { merge: true });
-
-        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-        batch.set(metaRef, currentMeta);
-
-        await batch.commit();
-        recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 2);
-      }
-    } catch {}
 
     return { success: true, skipped: false };
   } catch (err: any) {
@@ -758,9 +490,16 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
 }
 
 /**
- * Deletes a story from Firestore and updates the metadata index.
+ * Deletes a story from Synology PostgreSQL and updates the metadata index.
  */
 export async function deleteStoryFromFirestore(nyanId: number): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  return deleteStoryFromSynology(nyanId);
+}
+
+export async function deleteStoryFromSynology(nyanId: number): Promise<{
   success: boolean;
   error?: string;
 }> {
@@ -769,7 +508,10 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
 
     // 1. Delete from Synology PostgreSQL
     if (isPostgrestEnabled()) {
-      await deleteStoryFromPostgrest(nyanId);
+      const pgRes = await deleteStoryFromPostgrest(nyanId);
+      if (!pgRes.success) {
+        return { success: false, error: pgRes.error };
+      }
     }
 
     // 2. Update local metadata
@@ -786,23 +528,6 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
       currentMeta.version = (currentMeta.version || 1) + 1;
       setLocalStoriesMeta(currentMeta);
     }
-
-    // 3. Optional Firestore delete
-    try {
-      const db = getFirestoreDbInstance();
-      if (db) {
-        const batch = writeBatch(db);
-        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-        batch.update(globalStoriesRef, {
-          updatedAt: new Date().toISOString(),
-          [`stories.${nyanId}`]: deleteField(),
-        });
-        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-        batch.set(metaRef, currentMeta);
-        await batch.commit();
-        recordFirestoreWrite('kenchiko_world/stories_delete', 2);
-      }
-    } catch {}
 
     return { success: true };
   } catch (err: any) {
@@ -827,98 +552,48 @@ export interface RebuildResult {
 }
 
 /**
- * Re-scans all existing stories in Firestore collection `nyanko_stories`,
- * rebuilds the `nyanko_stories_meta` lightweight index document, and saves it.
- * Calls `onProgress` for each synced nyan to support live UI updates.
+ * Rebuilds metadata from local storage & Synology.
  */
 export async function rebuildStoriesMetaFromFirestore(
   onProgress?: (progress: RebuildProgress) => void
 ): Promise<RebuildResult> {
-  try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return {
-        success: false,
-        totalCount: 0,
-        syncedNyans: [],
-        error: 'Firebaseデータベースに接続できません',
-      };
-    }
-
-    const storiesMap: Record<string, StoryIndexItem> = {};
-    const syncedNyans: { id: number; name: string; title: string; daysCount: number }[] = [];
-
-    // 1. Check consolidated global document first (1 single read)
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    const globalSnap = await getDoc(globalStoriesRef);
-    if (globalSnap.exists()) {
-      const gData = globalSnap.data();
-      const globalStories = (gData.stories || {}) as Record<string, NyankoStory>;
-      const entries = Object.entries(globalStories);
-      let current = 0;
-      for (const [key, val] of entries) {
-        current++;
-        const id = Number(val.id || key);
-        if (isNaN(id)) continue;
-        const name = val.name || `にゃんこ No.${id}`;
-        const title = val.week_info?.week_title || val.title || '';
-        const daysCount = Array.isArray(val.week_info?.days) ? val.week_info.days.length : 0;
-
-        storiesMap[String(id)] = {
-          id,
-          name,
-          kana: val.kana,
-          motif: val.motif,
-          week_title: title,
-          daysCount,
-          updatedAt: val.updatedAt || new Date().toISOString(),
-        };
-
-        saveToLocalCache(id, val);
-        syncedNyans.push({ id, name, title, daysCount });
-        if (onProgress) {
-          onProgress({ id, name, current, total: entries.length });
-        }
-      }
-    }
-
-    // Sort syncedNyans by id ascending
-    syncedNyans.sort((a, b) => a.id - b.id);
-
-    const meta: NyankoStoriesMeta = {
-      version: Date.now(),
-      updatedAt: Date.now(),
-      storyCount: Object.keys(storiesMap).length,
-      stories: storiesMap,
-    };
-
-    // Save to Firestore kenchiko_world/nyanko_stories_meta
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    await setDoc(metaRef, meta);
-    recordFirestoreWrite(`kenchiko_world/${STORIES_META_DOC_ID}`, 1);
-
-    // Save to local cache
-    setLocalStoriesMeta(meta);
-
-    return {
-      success: true,
-      totalCount: syncedNyans.length,
-      syncedNyans,
-      meta,
-    };
-  } catch (err: any) {
-    console.error('Failed to rebuild stories meta:', err);
+  const pgMeta = await fetchStoriesMeta(true);
+  if (!pgMeta) {
     return {
       success: false,
       totalCount: 0,
       syncedNyans: [],
-      error: err?.message || '目録の再構築に失敗しました',
+      error: '物語目録を取得できませんでした',
     };
   }
+
+  const syncedNyans: { id: number; name: string; title: string; daysCount: number }[] = [];
+  const entries = Object.entries(pgMeta.stories || {});
+  let cur = 0;
+  for (const [idStr, s] of entries) {
+    cur++;
+    syncedNyans.push({
+      id: s.id,
+      name: s.name,
+      title: s.week_title || '',
+      daysCount: s.daysCount || 0,
+    });
+    if (onProgress) {
+      onProgress({ id: s.id, name: s.name, current: cur, total: entries.length });
+    }
+  }
+
+  syncedNyans.sort((a, b) => a.id - b.id);
+  return {
+    success: true,
+    totalCount: syncedNyans.length,
+    syncedNyans,
+    meta: pgMeta,
+  };
 }
 
 /**
- * Fetches archived stories that were not matched to the current master nyans (legacy list).
+ * Fetches archived stories that were not matched to the current master nyans (local archive).
  */
 export async function fetchUnmappedStoriesArchive(): Promise<{
   success: boolean;
@@ -926,34 +601,19 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
   error?: string;
 }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, stories: [], error: 'Firebaseデータベースに接続できません' };
-    }
-
-    // Check consolidated unmapped document first (1 single Read)
-    const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      const storiesMap = data.stories || {};
-      const list = Object.entries(storiesMap).map(([idKey, raw]: [string, any]) => ({
-        oldId: idKey,
-        name: raw.name || '',
-        motif: raw.motif || '',
-        title: raw.week_info?.week_title || raw.title || '',
-        daysCount: Array.isArray(raw.week_info?.days) ? raw.week_info.days.length : 0,
-      }));
-      list.sort((a, b) => (Number(a.oldId) || 0) - (Number(b.oldId) || 0));
-      return { success: true, stories: list };
-    }
-
-    // If global unmapped index does not exist or is empty, return empty list.
-    // Legacy collection fallback logic has been disabled to prevent runaway reads.
-    return { success: true, stories: [] };
+    const raw = localStorage.getItem(GLOBAL_UNMAPPED_STORAGE_KEY);
+    if (!raw) return { success: true, stories: [] };
+    const parsed = JSON.parse(raw);
+    const list = Object.entries(parsed).map(([k, v]: [string, any]) => ({
+      oldId: k,
+      name: v.name || '',
+      motif: v.motif || '',
+      title: v.week_info?.week_title || v.title || '',
+      daysCount: Array.isArray(v.week_info?.days) ? v.week_info.days.length : 0,
+    }));
+    return { success: true, stories: list };
   } catch (err: any) {
-    console.error('Failed to fetch unmapped stories archive:', err);
-    return { success: false, stories: [], error: err?.message || '取得に失敗しました' };
+    return { success: false, stories: [], error: err?.message || '取得エラー' };
   }
 }
 
@@ -962,48 +622,30 @@ export async function fetchUnmappedStoriesArchive(): Promise<{
  */
 export async function fetchUnmappedStoryFull(oldId: string): Promise<NyankoStory | null> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) return null;
-    const snap = await getDoc(doc(db, 'nyanko_stories_unmapped', oldId));
-    if (snap.exists()) {
-      return snap.data() as NyankoStory;
-    }
-    return null;
-  } catch (err) {
-    console.error('Failed to fetch unmapped story detail:', err);
+    const raw = localStorage.getItem(GLOBAL_UNMAPPED_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed[oldId] || null;
+  } catch {
     return null;
   }
 }
 
 /**
- * Saves current metadata to Firestore once (1 write operation).
+ * Saves current metadata to local storage.
  */
 export async function saveStoriesMetaDoc(meta: NyankoStoriesMeta): Promise<{ success: boolean; error?: string }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) return { success: false, error: 'Firebaseデータベースに接続できません' };
-
-    const metaPayload = {
-      ...meta,
-      updatedAt: Date.now(),
-      version: (meta.version || 1) + 1,
-    };
-
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    await setDoc(metaRef, metaPayload);
-    recordFirestoreWrite(`kenchiko_world/${STORIES_META_DOC_ID}`, 1);
-    setLocalStoriesMeta(metaPayload);
+    setLocalStoriesMeta(meta);
     return { success: true };
   } catch (err: any) {
-    console.error('Failed to save stories meta doc:', err);
     return { success: false, error: err?.message || '目録の保存に失敗しました' };
   }
 }
 
 /**
  * Assigns an archived unmapped story directly to a target master nyan,
- * saves it into nyanko_stories, removes it from archive, and updates metadata.
- * Set syncMetaToFirestore: false during batch or continuous single edits to save writes!
+ * and saves it into Synology PostgreSQL.
  */
 export async function assignUnmappedStoryToNyan(
   oldId: string,
@@ -1015,65 +657,23 @@ export async function assignUnmappedStoryToNyan(
   } = { renameToMasterName: true, deleteFromArchive: true, syncMetaToFirestore: false }
 ): Promise<{ success: boolean; error?: string; updatedMeta?: NyankoStoriesMeta }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
-    let rawData: any = null;
-
-    // 1. First check unmapped archive collection
-    const unmappedRef = doc(db, 'nyanko_stories_unmapped', oldId);
-    const unmappedSnap = await getDoc(unmappedRef);
-    if (unmappedSnap.exists()) {
-      rawData = unmappedSnap.data();
-    } else {
-      // 2. Check global stories document
-      const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-      const globalSnap = await getDoc(globalStoriesRef);
-      if (globalSnap.exists()) {
-        const storiesMap = globalSnap.data()?.stories || {};
-        if (storiesMap[oldId]) {
-          rawData = storiesMap[oldId];
-        }
-      }
-
-      // 3. Check legacy collection
-      if (!rawData) {
-        const legacyRef = doc(db, 'nyanko_stories', oldId);
-        const legacySnap = await getDoc(legacyRef);
-        if (legacySnap.exists()) {
-          rawData = legacySnap.data();
-        }
-      }
-    }
-
-    if (!rawData) {
+    const rawUnmapped = await fetchUnmappedStoryFull(oldId);
+    if (!rawUnmapped) {
       return { success: false, error: `ID ${oldId} の物語データが見つかりませんでした` };
     }
 
-    const finalName = options.renameToMasterName !== false ? targetNyan.name : (rawData.name || targetNyan.name);
-    const updatedPayload: any = {
-      ...rawData,
+    const finalName = options.renameToMasterName !== false ? targetNyan.name : (rawUnmapped.name || targetNyan.name);
+    const updatedPayload: NyankoStory = {
+      ...rawUnmapped,
       id: targetNyan.no,
       name: finalName,
-      storyOriginalName: rawData.name || rawData.storyOriginalName || '',
-      motif: targetNyan.motif || rawData.motif || '',
-      kana: targetNyan.reading || rawData.kana || '',
+      motif: targetNyan.motif || rawUnmapped.motif || '',
+      kana: targetNyan.reading || rawUnmapped.kana || '',
       updatedAt: new Date().toISOString(),
     };
-    delete updatedPayload.oldDocId;
-    delete updatedPayload.archivedAt;
-    delete updatedPayload.reason;
 
-    // Update global document atomically with writeBatch
-    const batch = writeBatch(db);
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-
-    // Save to local cache
     saveToLocalCache(targetNyan.no, updatedPayload);
 
-    // Update metadata index
     const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
@@ -1081,161 +681,84 @@ export async function assignUnmappedStoryToNyan(
       stories: {},
     };
 
-    const title = updatedPayload.week_info?.week_title || updatedPayload.title || '';
-    const daysCount = Array.isArray(updatedPayload.week_info?.days) ? updatedPayload.week_info.days.length : 0;
-
-    // Remove oldId key if different from targetNyan.no
-    if (String(oldId) !== String(targetNyan.no) && currentMeta.stories[oldId]) {
-      delete currentMeta.stories[oldId];
-    }
-
     currentMeta.stories[String(targetNyan.no)] = {
       id: targetNyan.no,
       name: finalName,
       kana: updatedPayload.kana || '',
       motif: updatedPayload.motif || '',
-      week_title: title,
-      daysCount,
+      week_title: updatedPayload.week_info?.week_title || '',
+      daysCount: Array.isArray(updatedPayload.week_info?.days) ? updatedPayload.week_info.days.length : 0,
       updatedAt: updatedPayload.updatedAt,
     };
     currentMeta.storyCount = Object.keys(currentMeta.stories).length;
     currentMeta.updatedAt = Date.now();
-    currentMeta.version = (currentMeta.version || 1) + 1;
-
     setLocalStoriesMeta(currentMeta);
 
-    // Save consolidated story update in batch
-    batch.set(globalStoriesRef, {
-      updatedAt: new Date().toISOString(),
-      stories: {
-        [String(targetNyan.no)]: updatedPayload,
-      },
-    }, { merge: true });
-
-    // Save metadata in batch
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    batch.set(metaRef, currentMeta);
-
-    // If deleting from unmapped collection
     if (options.deleteFromArchive !== false) {
-      if (unmappedSnap.exists()) {
-        batch.delete(unmappedRef);
-      }
-      // Also remove from consolidated global unmapped document
-      const globalUnmappedRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
-      batch.set(globalUnmappedRef, {
-        updatedAt: new Date().toISOString(),
-        stories: {
-          [oldId]: deleteField(),
-        }
-      }, { merge: true });
+      await deleteFromUnmappedArchive(oldId);
     }
 
-    await batch.commit();
-    recordFirestoreWrite('kenchiko_world/story_assign', 2);
-
-    // Primary save to Synology PostgreSQL
     if (isPostgrestEnabled()) {
-      saveSingleStoryToPostgrest(updatedPayload).catch((err) => {
-        console.warn('[Synology] assign story sync warning:', err);
-      });
+      const pgRes = await saveSingleStoryToPostgrest(updatedPayload);
+      if (!pgRes.success) {
+        return { success: false, error: pgRes.error, updatedMeta: currentMeta };
+      }
     }
 
     return { success: true, updatedMeta: currentMeta };
   } catch (err: any) {
-    console.error('Failed to assign unmapped story:', err);
     return { success: false, error: err?.message || '割り付け登録に失敗しました' };
   }
 }
 
 /**
- * Saves one or multiple stories directly into the consolidated unmapped archive document in Firestore.
- * EXACTLY 1 Write operation regardless of how many stories are included.
+ * Saves stories directly into the local unmapped archive storage.
  */
 export async function saveStoriesToUnmappedArchive(
   stories: (NyankoStory | any)[]
 ): Promise<{ success: boolean; count: number; savedIds: string[]; error?: string }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, count: 0, savedIds: [], error: 'Firebaseデータベースに接続できません' };
-    }
+    let existingMap: Record<string, any> = {};
+    try {
+      const raw = localStorage.getItem(GLOBAL_UNMAPPED_STORAGE_KEY);
+      if (raw) existingMap = JSON.parse(raw);
+    } catch {}
 
     const savedIds: string[] = [];
-    const storiesMap: Record<string, any> = {};
-
     for (let i = 0; i < stories.length; i++) {
       const story = stories[i];
       const validItem = normalizeStoryItem(story);
       if (!validItem) continue;
 
       const docId = String(story.oldId || (story.id && story.id !== 9999 ? story.id : `unmapped_${story.name || i}_${Date.now()}`));
-      const payload = {
+      existingMap[docId] = {
         ...validItem,
         oldDocId: docId,
         archivedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-
-      storiesMap[docId] = payload;
       savedIds.push(docId);
     }
 
-    if (savedIds.length > 0) {
-      // Consolidated write to single global unmapped document (1 Write)
-      const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
-      await setDoc(docRef, {
-        updatedAt: new Date().toISOString(),
-        count: savedIds.length,
-        stories: storiesMap,
-      }, { merge: true });
-      recordFirestoreWrite(`kenchiko_world/${GLOBAL_UNMAPPED_DOC_ID}`, 1);
-
-      console.log(`[NyankoStory] 💾 未紐づけ保管庫への一括保存完了 [わずか1回書き込み]: ${savedIds.length}件を ${GLOBAL_UNMAPPED_DOC_ID} に統合`);
-    }
-
+    localStorage.setItem(GLOBAL_UNMAPPED_STORAGE_KEY, JSON.stringify(existingMap));
     return { success: true, count: savedIds.length, savedIds };
   } catch (err: any) {
-    console.error('Failed to save to unmapped archive batch:', err);
-    return { success: false, count: 0, savedIds: [], error: err?.message || '未紐づけ保管庫への一括投入に失敗しました' };
+    return { success: false, count: 0, savedIds: [], error: err?.message || '未紐づけ保管庫への保存に失敗しました' };
   }
 }
 
 /**
- * Deletes a story from the unmapped archive consolidated document.
+ * Deletes a story from the unmapped archive storage.
  */
 export async function deleteFromUnmappedArchive(oldId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) return { success: false, error: 'Firebaseデータベースに接続できません' };
-
-    const batch = writeBatch(db);
-    const docRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_UNMAPPED_DOC_ID);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      const storiesMap = { ...(data.stories || {}) };
-      delete storiesMap[oldId];
-      batch.set(docRef, {
-        updatedAt: new Date().toISOString(),
-        count: Object.keys(storiesMap).length,
-        stories: storiesMap,
-      });
-    }
-
-    // Also remove from legacy collection if it exists
-    const legacyRef = doc(db, 'nyanko_stories_unmapped', oldId);
-    batch.delete(legacyRef);
-
-    await batch.commit();
-    recordFirestoreWrite('kenchiko_world/unmapped_delete', 1);
+    const raw = localStorage.getItem(GLOBAL_UNMAPPED_STORAGE_KEY);
+    if (!raw) return { success: true };
+    const parsed = JSON.parse(raw);
+    delete parsed[oldId];
+    localStorage.setItem(GLOBAL_UNMAPPED_STORAGE_KEY, JSON.stringify(parsed));
     return { success: true };
   } catch (err: any) {
-    console.error('Failed to delete from unmapped archive:', err);
     return { success: false, error: err?.message || '削除に失敗しました' };
   }
 }
-
-
-
-

@@ -9,7 +9,15 @@ import {
   OuenItem,
   NyankoStory,
 } from '../types';
-import { getPostgrestBaseUrl, isPostgrestEnabled } from './postgrestConfig';
+import { getPostgrestBaseUrl, isPostgrestEnabled, getPostgrestHeaders } from './postgrestConfig';
+
+export function formatPostgrestError(status: number, errText: string, tableName: string): string {
+  if (errText.includes('42501') || errText.includes('permission denied') || status === 401) {
+    return `Synology PostgreSQL権限不足 (HTTP ${status} / 42501: permission denied for ${tableName})。\nAdminer (https://micchy.synology.me:9944/?pgsql=postgre) で以下のSQLを実行してください:\nGRANT USAGE ON SCHEMA api TO public;\nGRANT ALL ON ALL TABLES IN SCHEMA api TO public;\nGRANT ALL ON ALL SEQUENCES IN SCHEMA api TO public;`;
+  }
+  return `HTTP ${status}: ${errText}`;
+}
+
 
 interface RawPostgrestNyan {
   no: number;
@@ -378,16 +386,16 @@ export async function saveMasterNyansToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/master_nyans`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify(rows),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.warn(`[Synology Master] Save master_nyans failed: HTTP ${res.status} - ${errText}`);
-      return { success: false, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_nyans') };
     }
     console.log(`[Synology Master] 🐾 master_nyans (${rows.length}件) をSynology PostgreSQLに正常保存しました`);
     return { success: true };
@@ -419,15 +427,15 @@ export async function saveMasterAsobiToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/master_asobi`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify(rows),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_asobi') };
     }
     console.log(`[Synology Master] 🎮 master_asobi (${rows.length}件) をSynology PostgreSQLに正常保存しました`);
     return { success: true };
@@ -458,10 +466,10 @@ export async function saveMasterOuenToPostgrest(
       promises.push(
         fetch(`${baseUrl}/master_ouen_categories`, {
           method: 'POST',
-          headers: {
+          headers: getPostgrestHeaders({
             'Content-Type': 'application/json',
             'Prefer': 'resolution=merge-duplicates',
-          },
+          }),
           body: JSON.stringify(catRows),
         })
       );
@@ -477,10 +485,10 @@ export async function saveMasterOuenToPostgrest(
       promises.push(
         fetch(`${baseUrl}/master_ouen_items`, {
           method: 'POST',
-          headers: {
+          headers: getPostgrestHeaders({
             'Content-Type': 'application/json',
             'Prefer': 'resolution=merge-duplicates',
-          },
+          }),
           body: JSON.stringify(itemRows),
         })
       );
@@ -490,7 +498,7 @@ export async function saveMasterOuenToPostgrest(
     for (const r of responses) {
       if (!r.ok) {
         const errText = await r.text().catch(() => '');
-        return { success: false, error: `HTTP ${r.status}: ${errText}` };
+        return { success: false, error: formatPostgrestError(r.status, errText, 'master_ouen') };
       }
     }
 
@@ -518,15 +526,15 @@ export async function saveMasterSettingsToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/master_settings`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify(rows),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_settings') };
     }
     console.log(`[Synology Master] ⚙️ master_settings をSynology PostgreSQLに正常保存しました`);
     return { success: true };
@@ -562,15 +570,15 @@ export async function saveSingleStoryToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/master_stories`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify([row]),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_stories') };
     }
     return { success: true };
   } catch (err: any) {
@@ -607,15 +615,15 @@ export async function saveStoriesToPostgrest(
   try {
     const res = await fetch(`${baseUrl}/master_stories`, {
       method: 'POST',
-      headers: {
+      headers: getPostgrestHeaders({
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates',
-      },
+      }),
       body: JSON.stringify(rows),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, count: 0, error: `HTTP ${res.status}: ${errText}` };
+      return { success: false, count: 0, error: formatPostgrestError(res.status, errText, 'master_stories') };
     }
     console.log(`[Synology Master] 📖 master_stories (${rows.length}件) をSynology PostgreSQLに正常保存しました`);
     return { success: true, count: rows.length };

@@ -369,7 +369,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         lastSaved: Date.now(),
       }), false);
 
-      setNotice(`✅ 「No.${formNo} ${formName}」の下書きを反映しました！（管理画面上部ヘッダーの「Firebaseに一括保存」でクラウドに反映されます）`);
+      setNotice(`✅ 「No.${formNo} ${formName}」の下書きを反映しました！（管理画面上部ヘッダーの「クラウドマスターに一括保存」でSynologyに反映されます）`);
       handleCloseModal();
       confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
     } catch (err: any) {
@@ -418,9 +418,9 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
           }), true);
 
           setDriveSyncStatus(
-            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込みました！上部ヘッダーの「Firebaseに一括保存」でクラウドに確定反映されます。`
+            `🎉 Google Driveから ${result.totalDriveFiles} 件のファイルを検出し、${result.matchedCount} 体のにゃんこ画像を名前一致で自動読み込みました！上部ヘッダーの「クラウドマスターに一括保存」でSynologyに確定反映されます。`
           );
-          setNotice(`🎉 Google Driveから ${result.matchedCount} 体の画像を読み込みました！（上部の「Firebaseに一括保存」で確定保存）`);
+          setNotice(`🎉 Google Driveから ${result.matchedCount} 体の画像を読み込みました！（上部の「クラウドマスターに一括保存」で確定保存）`);
           confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
         } else {
           setDriveSyncStatus(
@@ -461,7 +461,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const handleDeleteCharacter = (no: number, name: string) => {
     openConfirm(
       'にゃんこキャラクターの削除',
-      `「No.${no} ${name}」を図鑑から削除しますか？\n（※ 上部ヘッダーの「Firebaseに一括保存」を押すことでクラウドに確定反映されます）`,
+      `「No.${no} ${name}」を図鑑から削除しますか？\n（※ 上部ヘッダーの「クラウドマスターに一括保存」を押すことでSynologyに確定反映されます）`,
       () => {
         const updated = characters.filter((c) => c.no !== no);
         onUpdateSaveData((prev) => ({
@@ -472,7 +472,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         if (editingNyan && editingNyan.no === no) {
           handleCloseModal();
         }
-        setNotice(`🗑️ 「No.${no} ${name}」を下書きから削除しました（上部の「Firebaseに一括保存」でクラウドに確定反映されます）`);
+        setNotice(`🗑️ 「No.${no} ${name}」を下書きから削除しました（上部の「クラウドマスターに一括保存」でSynologyに確定反映されます）`);
       }
     );
   };
@@ -1509,7 +1509,7 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                   </button>
                 </div>
                 <p className="text-[10px] text-[#7A726A] font-medium">
-                  ※ クラウド（Firestore）への永続反映は、管理画面上部ヘッダーの「Firebaseに一括保存 (1回)」で行います
+                  ※ クラウド（Synology）への永続反映は、管理画面上部ヘッダーの「クラウドマスターに一括保存」で行います
                 </p>
               </div>
             </div>

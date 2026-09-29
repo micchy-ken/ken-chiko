@@ -687,8 +687,8 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
 
       if (res.success) {
         const msg = res.writtenCount === 0
-          ? `✨ 全 ${res.totalUploaded} 件の物語は既に登録済・変更なしのため、Firestore書き込みは行われませんでした（書込0回・通信費ゼロ）`
-          : `🎉 ${res.totalUploaded} 件中 ${res.writtenCount} 件の差分物語をFirestoreに保存・更新しました！（未変更 ${res.skippedCount} 件はスキップ・書込2回のみ）`;
+          ? `✨ 全 ${res.totalUploaded} 件の物語は既に登録済・変更なしのため、Synology書き込みはスキップされました`
+          : `🎉 ${res.totalUploaded} 件中 ${res.writtenCount} 件の差分物語をSynology PostgreSQLに正常保存しました！（未変更 ${res.skippedCount} 件はスキップ）`;
         setStatusMessage({
           type: 'success',
           text: msg,
@@ -1846,7 +1846,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 className="px-5 py-2 bg-[#487560] hover:bg-[#3B6350] text-white rounded-xl text-xs font-bold shadow-md transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
               >
                 <UploadCloud className="w-4 h-4" />
-                <span>{isSavingSingleStory ? 'Firestoreへ保存中...' : 'Firestoreへ保存・更新'}</span>
+                <span>{isSavingSingleStory ? 'Synologyへ保存中...' : 'Synologyへ保存・更新'}</span>
               </button>
             </div>
           </div>
