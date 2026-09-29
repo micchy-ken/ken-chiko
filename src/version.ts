@@ -4,8 +4,8 @@ export interface AppVersionInfo {
   releaseNotes?: string;
 }
 
-export const CURRENT_APP_VERSION = '2026.09.29-v4';
-export const CURRENT_BUILD_TIME = '2026-09-29 20:55';
+export const CURRENT_APP_VERSION = '2026.09.29-v5';
+export const CURRENT_BUILD_TIME = '2026-09-29 23:39';
 
 /**
  * Checks static /version.json hosted on the web server (Cost: 0 DB reads/writes)

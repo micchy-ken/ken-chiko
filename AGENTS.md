@@ -24,34 +24,35 @@
 
 ### 基本構成
 - **フロントエンド**: React 18 + TypeScript + Vite + Tailwind CSS + Lucide Icons
-- **状態管理 & ストレージ**: LocalStorage（高速ローカルバックアップ） + Firebase Firestore（クラウド同期 & マスターデータ）
+- **状態管理 & ストレージ**: LocalStorage（高速ローカルバックアップ） + Synology NAS PostgreSQL（クラウド同期 & 公式マスターデータ）
 - **ユーザー管理**: マルチユーザー対応（URLパラメータ `?user=xxx` で切り替え可能）
-- **マスターデータ管理**: `ken-chiko-global-master` を正本とし、ユーザーの進行度（発見フラグ・親密度・日記）と有利マージ
+- **マスターデータ管理**: `api.master_*`（Synology PostgreSQL）を正本とし、ユーザーの進行度（発見フラグ・親密度・日記）と有利マージ
 
 ### 主要ディレクトリ・ファイル構成
 - `src/App.tsx`: メインループ（タイマー・お出かけ・遭遇抽選・UI統括）
 - `src/version.ts`: アプリ本体のバージョン定義
-- `public/version.json`: 静的配信用のバージョン情報（Firestore通信コスト0でチェック可能）
+- `public/version.json`: 静的配信用のバージョン情報（DB通信コスト0でチェック可能）
 - `src/types/`: 型定義（`index.ts`, `rewards.ts`, `kounichan.ts`）
 - `src/services/`:
   - `simulation.ts`: 行動決定・お出かけ・遭遇抽選（確率・重み計算）
-  - `firebaseSync.ts`: Firestore読み書き・マスターデータ同期・オフラインフォールバック
-  - `firestoreTrafficLogger.ts`: Firestore通信量監視・サーキットブレーカー・無料枠保護
-  - `masterDataService.ts`: 公式マスターデータ（にゃんこ図鑑等）の管理・Googleスプレッドシート連携
+  - `cloudSync.ts`: Synology PostgreSQL読み書き・マスターデータ同期・オフラインフォールバック
+  - `postgrestMasterService.ts`: 公式マスターデータ（図鑑・物語・あそび・応援）のPostgREST連携
+  - `postgrestUserService.ts`: ユーザーセーブデータ（api.user_saves）のPostgREST連携
+  - `masterDataService.ts`: 公式マスターデータ管理・Googleスプレッドシート連携
 - `src/components/`: UIコンポーネント群（ステージ・図鑑・お出かけ・各種モーダル）
 
 ---
 
 ## 🛡️ 開発・実装上の重要ルール
 
-### 1. Firestore通信コスト保護（無料枠上限の厳守）
-- 不要なFirestoreの常時リスナーや毎秒ポーリングは禁止。
+### 1. 通信コスト・負荷保護
+- 不要な常時リスナーや毎秒ポーリングは禁止。
 - 変更がない場合の無駄な書き込みはスキップする。
-- 静的なバージョンチェックはFirestoreではなく `/version.json` を使用すること。
+- 静的なバージョンチェックはデータベースではなく `/version.json` を使用すること。
 
 ### 2. データ破壊防止（有利マージの維持）
 - マスターデータの定義（名前、説明、画像URL等）とユーザー進行度（発見日、好感度、獲得アイテム等）を厳密に分離してマージする。
-- オフライン時やFirebaseエラー時でもローカルデータが壊れないよう、二重保護を維持する。
+- オフライン時やネットワーク切断時でもローカルデータが壊れないよう、二重保護を維持する。
 
 ### 3. ゲームループ・遭遇仕様の保護
 - 移動先到着後 **15秒後** に初回遭遇判定（60%・均等抽選）。

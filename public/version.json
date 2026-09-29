@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.29-v4",
-  "buildTime": "2026-09-29 20:55",
-  "releaseNotes": "Firebase依存と痕跡を完全パージし、Synology NAS (PostgreSQL / PostgREST) クラウドマスター同期に一本化。動作の安定性と完全独立化を完了しました。"
+  "version": "2026.09.29-v5",
+  "buildTime": "2026-09-29 23:39",
+  "releaseNotes": ".env.exampleおよびGitHub Actionsワークフローに残っていたVITE_FIREBASE_*環境変数定義を完全撤去。AI Studioからの環境変数入力ポップアップが出ないよう是正しました。"
 }
