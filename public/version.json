@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.29-v2",
-  "buildTime": "2026-09-29 16:55",
-  "releaseNotes": "Firebase全撤去・Synology PostgreSQL単独化。書き込みエラー(42501)の詳細通知・AdminerワンクリックSQL権限付与UI・JWT認証設定を追加。"
+  "version": "2026.09.29-v3",
+  "buildTime": "2026-09-29 17:35",
+  "releaseNotes": "ユーザー管理一覧をSynology PostgreSQL (api.user_saves) 直結に刷新。ハードコードされていたユーザーID（ken）を是正し、サーバーの実データ（kensuke, yumi, chiko, default）を自動取得・削除・初期化できるよう改修。"
 }

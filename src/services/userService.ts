@@ -1,19 +1,16 @@
 // User management and persistence service for Multi-user support via query parameters (?user=yumi etc.)
 
-import { doc } from 'firebase/firestore';
-import { auditedGetDoc as getDoc, isFirestoreQuotaExhausted } from './firestoreTrafficLogger';
 import { GameSaveData, NyanCharacter, KenchikoAsobi, OuenItem, OuenCategory } from '../types';
 import { DEFAULT_INITIAL_STATE } from './storage';
 import { INITIAL_NYANS } from '../data/defaultNyans';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
 import { INITIAL_ITEMS } from '../data/items';
+import { reconstructGameSaveData } from './firebaseSync';
 import {
-  getFirestoreDbInstance,
-  reconstructGameSaveData,
-  writeUserDocExplicit,
-  deleteUserDocExplicit,
-  recordFirestoreRead,
-} from './firebaseSync';
+  fetchAllUsersFromPostgrest,
+  saveUserSaveToPostgrest,
+  deleteUserFromPostgrest,
+} from './postgrestUserService';
 import { cleanseMasterCharacters } from '../utils/dataSeparation';
 
 export const DEFAULT_GLOBAL_DOC_ID = 'ken-chiko-global-master';
@@ -23,12 +20,12 @@ const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
 
 /**
  * Standard user accounts for the application:
- * - default: "ken-chiko-user-default"
- * - yumi: "ken-chiko-user-yumi" (最重要ユーザー)
- * - ken: "ken-chiko-user-ken"
- * - chiko: "ken-chiko-user-chiko"
+ * - default: 基本ユーザー
+ * - yumi: ゆみさん
+ * - kensuke: けんすけ
+ * - chiko: ちこ
  */
-export const DEFAULT_USER_IDS = ['default', 'yumi', 'ken', 'chiko'] as const;
+export const DEFAULT_USER_IDS = ['default', 'yumi', 'kensuke', 'chiko'] as const;
 
 /**
  * System and master data document IDs that must NEVER be treated as user accounts.
@@ -443,46 +440,32 @@ export async function fetchAllRegisteredUsers(
 
       const pureMasterNyans = cleanseMasterCharacters(masterNyans);
 
-      // 1. Fetch from Firestore strictly by individual user documents (NO collection scanning!)
-      // If Quota is exhausted, gracefully skip Firestore network completely to avoid quota errors
-      if (!isFirestoreQuotaExhausted()) {
-        try {
-          const db = getFirestoreDbInstance();
-          if (db) {
-            const targetUserIds = getKnownUserIds();
-            console.log(`[CloudSync] 👥 ユーザーデータ読込 (${targetUserIds.length}件ピンポイント順次取得): コレクション走査を完全廃止`);
-            
-            // Read sequentially with small spacing to prevent rate limit spikes
-            for (const uid of targetUserIds) {
-              if (isSystemUserId(uid)) continue;
-              try {
-                const docId = getFirestoreDocIdForUser(uid);
-                const userDocRef = doc(db, 'kenchiko_world', docId);
-                const userSnap = await getDoc(userDocRef, `fetchAllRegisteredUsers [${uid}]`);
-                recordFirestoreRead(`ユーザー管理 [${uid}] (${docId})`, 1);
-                if (userSnap.exists()) {
-                  const raw = userSnap.data();
-                  const parsed = reconstructGameSaveData(raw, pureMasterNyans);
-                  userMap.set(uid, {
-                    saveData: parsed,
-                    source: 'firestore',
-                    docId,
-                    updatedAt: raw.updatedAt,
-                  });
-                  registerKnownUserId(uid);
-                }
-              } catch (docErr) {
-                console.warn(`Firestore read for user ${uid} note:`, docErr);
-                // If quota exhausted during loop, break immediately to prevent spamming
-                if (isFirestoreQuotaExhausted()) break;
-              }
-            }
-          }
-        } catch (firestoreErr) {
-          console.warn('Firestore fetchAllRegisteredUsers notice:', firestoreErr);
+      // 1. Fetch from Synology PostgreSQL (api.user_saves)
+      try {
+        const pgUsers = await fetchAllUsersFromPostgrest();
+        console.log(`[Synology] 👥 全ユーザーセーブデータ取得: ${pgUsers.length}件検出`);
+        for (const row of pgUsers) {
+          if (!row.user_id || isSystemUserId(row.user_id)) continue;
+          const userRaw = {
+            version: row.version,
+            stats: row.stats,
+            inventory: row.inventory,
+            rewards: row.rewards,
+            nyanProgress: row.nyan_progress,
+            diary: row.diary,
+            ...(row.raw_save || {}),
+          };
+          const parsed = reconstructGameSaveData(userRaw, pureMasterNyans);
+          userMap.set(row.user_id, {
+            saveData: parsed,
+            source: 'firestore', // displays as 'クラウド' in UI
+            docId: `synology-user-${row.user_id}`,
+            updatedAt: row.updated_at,
+          });
+          registerKnownUserId(row.user_id);
         }
-      } else {
-        console.log('[CloudSync] 🛡️ クォータ保護モード稼働中のため、全ユーザーデータをローカルキャッシュから即時復元します');
+      } catch (synErr) {
+        console.warn('[Synology] Error fetching registered users from PostgREST:', synErr);
       }
 
   // 2. Scan LocalStorage for default user backup and per-user backups
@@ -633,8 +616,8 @@ export async function deleteUserAccount(
       }
     }
 
-    // 2. Delete Firestore document
-    await deleteUserDocExplicit(userId);
+    // 2. Delete from Synology PostgreSQL
+    await deleteUserFromPostgrest(userId);
 
     return { success: true };
   } catch (err: any) {
@@ -687,8 +670,8 @@ export async function resetUserAccount(
       registerKnownUserId(userId);
     }
 
-    // 2. Sync to Firestore
-    await writeUserDocExplicit(userId, freshData);
+    // 2. Sync to Synology PostgreSQL
+    await saveUserSaveToPostgrest(userId, freshData);
 
     return { success: true, freshData };
   } catch (err: any) {
@@ -741,8 +724,8 @@ export async function createNewUserAccount(
       registerKnownUserId(sanitized);
     }
 
-    // 2. Sync to Firestore
-    await writeUserDocExplicit(sanitized, freshData);
+    // 2. Sync to Synology PostgreSQL
+    await saveUserSaveToPostgrest(sanitized, freshData);
 
     return { success: true, userId: sanitized, freshData };
   } catch (err: any) {

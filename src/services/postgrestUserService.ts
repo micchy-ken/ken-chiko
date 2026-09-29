@@ -117,3 +117,63 @@ export async function saveUserSaveToPostgrest(
     return { success: false, error: err?.message || String(err) };
   }
 }
+
+/**
+ * Fetch all registered users from Synology PostgreSQL
+ */
+export async function fetchAllUsersFromPostgrest(): Promise<UserSaveRecord[]> {
+  if (!isPostgrestEnabled()) return [];
+  const baseUrl = getPostgrestBaseUrl();
+
+  try {
+    const res = await fetch(`${baseUrl}/user_saves?order=updated_at.desc`, {
+      method: 'GET',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[Synology] Failed to fetch all user saves: HTTP ${res.status}`);
+      return [];
+    }
+
+    const rows: UserSaveRecord[] = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    console.warn('[Synology] Error fetching all user saves:', err);
+    return [];
+  }
+}
+
+/**
+ * Delete a user save record from Synology PostgreSQL
+ */
+export async function deleteUserFromPostgrest(userId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !userId) {
+    return { success: false, error: 'PostgREST disabled or invalid user ID' };
+  }
+
+  const baseUrl = getPostgrestBaseUrl();
+  const cleanId = encodeURIComponent(userId.trim().toLowerCase());
+
+  try {
+    const res = await fetch(`${baseUrl}/user_saves?user_id=eq.${cleanId}`, {
+      method: 'DELETE',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'user_saves') };
+    }
+
+    console.log(`[Synology] 🗑️ ユーザー "${userId}" をSynology PostgreSQLから削除しました`);
+    return { success: true };
+  } catch (err: any) {
+    console.error(`[Synology] Error deleting user ${userId}:`, err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}

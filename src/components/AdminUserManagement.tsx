@@ -188,7 +188,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
     openConfirm(
       `ユーザー「${userToDelete.userId}」の削除`,
-      `ユーザー「${userToDelete.userId}」を完全に消去しますか？\n・FirestoreクラウドDB (${userToDelete.docId})\n・端末ローカルバックアップ\nのすべてのゲーム進行データ（図鑑・日記・持ち物）が完全に消去されます。この操作は取り消せません。`,
+      `ユーザー「${userToDelete.userId}」を消去しますか？\n・SynologyクラウドDB\n・端末ローカルバックアップ\nのゲーム進行データが消去されます。この操作は取り消せません。`,
       async () => {
         try {
           const res = await deleteUserAccount(userToDelete.userId);
