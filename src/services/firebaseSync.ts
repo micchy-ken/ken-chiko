@@ -338,6 +338,50 @@ export function mergeRewardStates(
 }
 
 /**
+ * Safely merges diary entries from cloud and local storage without losing any entries.
+ * Deduplicates by unique combination of entry ID, timestamp, and nyan ID.
+ */
+export function mergeDiaryEntriesSafely(
+  cloudDiary?: DiaryEntry[],
+  localDiary?: DiaryEntry[]
+): DiaryEntry[] {
+  const listA = Array.isArray(cloudDiary) ? cloudDiary : [];
+  const listB = Array.isArray(localDiary) ? localDiary : [];
+
+  if (listA.length === 0) return listB;
+  if (listB.length === 0) return listA;
+
+  const seen = new Set<string>();
+  const merged: DiaryEntry[] = [];
+
+  const getEntryKey = (e: DiaryEntry): string => {
+    return `${e.id || ''}_${e.timestamp || ''}_${e.nyanId || ''}_${(e.text || '').slice(0, 20)}`;
+  };
+
+  for (const entry of listA) {
+    if (entry) {
+      const key = getEntryKey(entry);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(entry);
+      }
+    }
+  }
+
+  for (const entry of listB) {
+    if (entry) {
+      const key = getEntryKey(entry);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(entry);
+      }
+    }
+  }
+
+  return merged.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+/**
  * Reconstructs a full GameSaveData object by combining the static master character list (INITIAL_NYANS / Sheets)
  * with the lightweight UserProgressDoc.
  * Backward-compatible: safely reads older documents with monolithic `characters` arrays if present.
@@ -1505,7 +1549,7 @@ export async function fetchInitialFirebaseState(
 
       // ユーザー個別DBから読むデータ: 進行状況（ねこずかん・日記・持ち物・統計）
       characters: mergedCharacters,
-      diary: userBaseData.diary || [],
+      diary: mergeDiaryEntriesSafely(userBaseData.diary, localBackup?.diary),
       inventory:
         userBaseData.inventory && userBaseData.inventory.length > 0
           ? userBaseData.inventory

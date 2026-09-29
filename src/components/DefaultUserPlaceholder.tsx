@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Settings, ShieldCheck, AlertTriangle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Settings, ShieldCheck, AlertTriangle, RefreshCw } from 'lucide-react';
 import { loadLocalKenchikoImage } from '../services/imageCompression';
 import { getAssetUrl, ASSET_PATHS, handleImageError } from '../utils/assetPath';
 import { MasterFetchStatus } from '../services/firebaseSync';
@@ -62,11 +62,6 @@ export const DefaultUserPlaceholder: React.FC<DefaultUserPlaceholderProps> = ({
               <span>{isRetryingMasterSync ? '再接続中...' : 'マスター再取得'}</span>
             </button>
           )}
-        </div>
-      ) : masterStatus?.fetchedFromCloud ? (
-        <div className="absolute top-4 left-4 z-10 hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#ECFDF5] border border-[#A7F3D0] rounded text-[#065F46] text-[11px] font-bold shadow-xs">
-          <CheckCircle2 className="w-3.5 h-3.5 text-[#059669]" />
-          <span>公式マスター同期中 (遊び:{masterStatus.asobiCount ?? 0} / 応援:{masterStatus.ouenCount ?? 0})</span>
         </div>
       ) : null}
 

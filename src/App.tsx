@@ -2165,50 +2165,6 @@ export default function App() {
                 </span>
               </button>
             )}
-
-            {/* Synology NAS Dedicated Cloud Connection Badge */}
-            <button
-              onClick={() => setShowSynologyModal(true)}
-              className="flex-shrink-0 flex items-center gap-1.5 bg-[#FAF8F4] hover:bg-[#F2EFE8] text-[#2E2824] px-2 py-1 sketch-tag border border-[#DDD7C8] text-[11px] font-bold shadow-xs transition cursor-pointer"
-              title="Synology NAS (PostgreSQL / micchy.synology.me) 接続中。タップして詳細を確認"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <Server className="w-3 h-3 text-[#487560]" />
-              <span className="font-mono text-[11px]">Synology</span>
-            </button>
-
-            {/* Circuit Breaker & Traffic Monitor Indicator */}
-            {isQuotaExhausted ? (
-              <button
-                onClick={() => setShowTrafficModal(true)}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white px-2.5 py-1 rounded-full text-xs font-bold animate-pulse shadow-md transition cursor-pointer"
-                title="Google Cloud無料枠上限によりローカル保護モードで稼働中。タップして詳細ログを確認"
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>無料枠保護中</span>
-              </button>
-            ) : isCircuitBreakerTripped ? (
-              <button
-                onClick={() => setShowTrafficModal(true)}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-full text-xs font-bold animate-pulse shadow-md transition cursor-pointer"
-                title="サーキットブレーカー発動中！タップして詳細ログを確認"
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>通信遮断中</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowTrafficModal(true)}
-                className="hidden sm:flex-shrink-0 sm:flex items-center gap-1 bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] px-2 py-1 sketch-tag border border-[#DDD7C8] text-[11px] font-bold shadow-xs transition cursor-pointer"
-                title="Firestore通信生ログ＆安全ブレーカー監視コンソールを開く"
-              >
-                <Activity className="w-3 h-3 text-[#487560]" />
-                <span>通信ログ</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -2559,18 +2515,18 @@ export default function App() {
               <span className="font-handwriting">管理画面</span>
             </button>
 
-            {/* Firestore Traffic Log Button */}
+            {/* Synology NAS Dedicated Cloud Button */}
             <button
-              onClick={() => setShowTrafficModal(true)}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 font-black text-xs sm:text-sm px-3 py-2 sketch-card-subtle shadow-xs transition active:translate-y-0.5 cursor-pointer ${
-                isCircuitBreakerTripped
-                  ? 'bg-red-600 text-white animate-pulse'
-                  : 'bg-[#FAF8F4] hover:bg-white text-[#4A433D] hover:text-[#2E2824]'
-              }`}
-              title="Firestore通信生ログ＆サーキットブレーカー監視を開く"
+              onClick={() => setShowSynologyModal(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF8F4] hover:bg-white text-[#2E2824] font-black text-xs sm:text-sm px-3.5 py-2 sketch-card-subtle shadow-xs transition active:translate-y-0.5 cursor-pointer"
+              title="Synology NAS (PostgreSQL / micchy.synology.me) 接続中。タップして詳細を確認"
             >
-              <Activity className={`w-4 h-4 ${isCircuitBreakerTripped ? 'text-white' : 'text-[#487560]'}`} />
-              <span className="font-handwriting">通信ログ</span>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <Server className="w-4 h-4 text-[#487560]" />
+              <span className="font-handwriting">Synology</span>
             </button>
 
             {/* User Settings Button */}
