@@ -8,7 +8,14 @@ import {
 } from './firestoreTrafficLogger';
 import { getFirestoreDbInstance, recordFirestoreWrite } from './firebaseSync';
 import { NyankoStory } from '../types';
-import { fetchStoryFromPostgrest } from './postgrestMasterService';
+import {
+  fetchStoryFromPostgrest,
+  fetchStoriesMetaFromPostgrest,
+  saveSingleStoryToPostgrest,
+  saveStoriesToPostgrest,
+  deleteStoryFromPostgrest,
+} from './postgrestMasterService';
+import { isPostgrestEnabled } from './postgrestConfig';
 
 export interface StoryIndexItem {
   id: number;
@@ -158,35 +165,53 @@ export async function fetchStoriesMeta(force: boolean = false): Promise<NyankoSt
     }
   }
 
-  if (isFirestoreQuotaExhausted()) {
-    return getLocalStoriesMeta();
+  // 1. 🐘 Primary Source: Synology PostgreSQL (master_stories table)
+  if (isPostgrestEnabled()) {
+    try {
+      const pgMeta = await fetchStoriesMetaFromPostgrest();
+      if (pgMeta && pgMeta.storyCount > 0) {
+        lastStoryMetaFetchTime = Date.now();
+        setLocalStoriesMeta(pgMeta);
+        return pgMeta;
+      }
+    } catch (err) {
+      console.warn('[Synology] Failed to fetch stories meta from PostgREST:', err);
+    }
   }
 
+  // 2. Local cache fallback
+  const local = getLocalStoriesMeta();
+  if (local && local.storyCount > 0) {
+    return local;
+  }
+
+  // 3. Fallback to Firestore (legacy archive)
   try {
     const db = getFirestoreDbInstance();
-    if (!db) return getLocalStoriesMeta();
+    if (db) {
+      const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+      const snap = await getDoc(metaRef, 'fetchStoriesMeta');
+      lastStoryMetaFetchTime = Date.now();
 
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    const snap = await getDoc(metaRef, 'fetchStoriesMeta');
-    lastStoryMetaFetchTime = Date.now();
-    if (!snap.exists()) {
-      return null;
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && data.stories && Object.keys(data.stories).length > 0) {
+          const meta: NyankoStoriesMeta = {
+            version: data.version || 1,
+            updatedAt: data.updatedAt || Date.now(),
+            storyCount: Object.keys(data.stories).length,
+            stories: data.stories || {},
+          };
+          setLocalStoriesMeta(meta);
+          return meta;
+        }
+      }
     }
-
-    const data = snap.data();
-    const meta: NyankoStoriesMeta = {
-      version: data.version || 1,
-      updatedAt: data.updatedAt || Date.now(),
-      storyCount: data.storyCount || 0,
-      stories: data.stories || {},
-    };
-
-    setLocalStoriesMeta(meta);
-    return meta;
   } catch (err) {
-    console.warn('fetchStoriesMeta warning:', err);
-    return getLocalStoriesMeta();
+    console.warn('fetchStoriesMeta fallback warning:', err);
   }
+
+  return getLocalStoriesMeta();
 }
 
 /**
@@ -424,22 +449,51 @@ export async function fetchNyankoStory(nyanId: number): Promise<{
     return { story: cached, fromCache: true };
   }
 
-  // 🐘 Synology NAS (PostgreSQL / PostgREST) Exclusive Story Fetch
-  try {
-    const postgrestStory = await fetchStoryFromPostgrest(nyanId);
-    if (postgrestStory) {
-      saveToLocalCache(nyanId, postgrestStory);
-      return { story: postgrestStory, fromCache: false };
+  // 2. Try Synology NAS (PostgreSQL / PostgREST) if enabled
+  if (isPostgrestEnabled()) {
+    try {
+      const postgrestStory = await fetchStoryFromPostgrest(nyanId);
+      if (postgrestStory) {
+        saveToLocalCache(nyanId, postgrestStory);
+        return { story: postgrestStory, fromCache: false };
+      }
+    } catch (pgErr: any) {
+      console.warn(`[Synology] Failed to fetch story for nyan #${nyanId}, falling back to Firestore:`, pgErr);
     }
-    return { story: null, fromCache: false, error: 'このにゃんこの物語はまだSynologyデータベースに登録されていません' };
-  } catch (pgErr: any) {
-    console.error(`[Synology] Failed to fetch story for nyan #${nyanId}:`, pgErr);
-    return {
-      story: null,
-      fromCache: false,
-      error: `Synology物語取得エラー: ${pgErr?.message || String(pgErr)}`,
-    };
   }
+
+  // 3. Fallback to Firestore (ken-chiko-global-stories consolidated document)
+  try {
+    const db = getFirestoreDbInstance();
+    if (db) {
+      const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+      const snap = await getDoc(globalStoriesRef, `fetchNyankoStory_${nyanId}`);
+      if (snap.exists()) {
+        const data = snap.data();
+        const storiesMap = (data.stories || {}) as Record<string, any>;
+        const rawStory = storiesMap[String(nyanId)] || storiesMap[nyanId];
+        if (rawStory) {
+          const parsed = normalizeStoryItem(rawStory);
+          if (parsed) {
+            saveToLocalCache(nyanId, parsed);
+            // Opportunistic background save to Synology so Synology DB gets populated
+            if (isPostgrestEnabled()) {
+              saveSingleStoryToPostgrest(parsed).catch(() => {});
+            }
+            return { story: parsed, fromCache: false };
+          }
+        }
+      }
+    }
+  } catch (fsErr: any) {
+    console.warn(`[Firestore] Failed to fetch story for nyan #${nyanId}:`, fsErr);
+  }
+
+  return {
+    story: null,
+    fromCache: false,
+    error: 'このにゃんこの物語はまだ登録されていません',
+  };
 }
 
 /**
@@ -581,28 +635,40 @@ export async function uploadStoriesJsonToFirestore(
       };
     }
 
+    // Save to local cache & metadata
     currentMeta.storyCount = Object.keys(currentMeta.stories).length;
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
-
-    // Atomic Batch Write: commits only the differential changes and metadata in a single atomic operation
-    const batch = writeBatch(db);
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    batch.set(globalStoriesRef, {
-      version: currentMeta.version,
-      updatedAt: new Date().toISOString(),
-      storyCount: currentMeta.storyCount,
-      stories: changedStoriesMap,
-    }, { merge: true });
-
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    batch.set(metaRef, currentMeta);
-
-    await batch.commit();
-    recordFirestoreWrite('kenchiko_world/stories_batch_diff', 2);
     setLocalStoriesMeta(currentMeta);
 
-    console.log(`[NyankoStory] 💾 差分物語保存完了: 全${total}件中 ${changedCount}件更新 / ${skippedCount}件スキップ (書き込み2回: データ統合+目録)`);
+    // 1. 🐘 Primary: Save to Synology PostgreSQL (api.master_stories)
+    if (isPostgrestEnabled()) {
+      await saveStoriesToPostgrest(Object.values(changedStoriesMap));
+    }
+
+    // 2. Optional fallback/mirror to Firestore
+    try {
+      if (db) {
+        const batch = writeBatch(db);
+        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+        batch.set(globalStoriesRef, {
+          version: currentMeta.version,
+          updatedAt: new Date().toISOString(),
+          storyCount: currentMeta.storyCount,
+          stories: changedStoriesMap,
+        }, { merge: true });
+
+        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+        batch.set(metaRef, currentMeta);
+
+        await batch.commit();
+        recordFirestoreWrite('kenchiko_world/stories_batch_diff', 2);
+      }
+    } catch (fsErr) {
+      console.warn('[Firestore] Background mirror error:', fsErr);
+    }
+
+    console.log(`[NyankoStory] 💾 差分物語保存完了: 全${total}件中 ${changedCount}件更新 / ${skippedCount}件スキップ`);
 
     return {
       success: true,
@@ -617,7 +683,7 @@ export async function uploadStoriesJsonToFirestore(
 }
 
 /**
- * Saves a single story to Firestore and updates the metadata index with differential check.
+ * Saves a single story to Synology PostgreSQL (and optional Firestore mirror) and updates metadata index.
  */
 export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
   success: boolean;
@@ -625,18 +691,6 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
   error?: string;
 }> {
   try {
-    // Check if unchanged
-    const existing = getFromLocalCache(story.id);
-    if (existing && isStoryContentEqual(existing, story)) {
-      console.log(`[NyankoStory] ⏭️ No.${story.id}「${story.name}」は変更がないためFirestore書き込みをスキップ`);
-      return { success: true, skipped: true };
-    }
-
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
     const cleanPayload = JSON.parse(JSON.stringify({
       ...story,
       updatedAt: new Date().toISOString(),
@@ -663,25 +717,38 @@ export async function saveSingleStoryToFirestore(story: NyankoStory): Promise<{
     currentMeta.updatedAt = Date.now();
     currentMeta.version = (currentMeta.version || 1) + 1;
 
-    // Atomic write to global stories document & meta document in 1 batch
-    const batch = writeBatch(db);
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    batch.set(globalStoriesRef, {
-      updatedAt: new Date().toISOString(),
-      stories: {
-        [String(story.id)]: cleanPayload,
-      },
-    }, { merge: true });
-
-    const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-    batch.set(metaRef, currentMeta);
-
-    await batch.commit();
-    recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 2);
-
-    // Save to local cache
+    // Save to local cache immediately
     saveToLocalCache(story.id, story);
     setLocalStoriesMeta(currentMeta);
+
+    // 1. 🐘 Primary: Save to Synology PostgreSQL (api.master_stories)
+    if (isPostgrestEnabled()) {
+      const pgRes = await saveSingleStoryToPostgrest(cleanPayload);
+      if (!pgRes.success) {
+        console.warn('[Synology] PostgREST story save failed:', pgRes.error);
+      }
+    }
+
+    // 2. Optional Firestore write
+    try {
+      const db = getFirestoreDbInstance();
+      if (db) {
+        const batch = writeBatch(db);
+        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+        batch.set(globalStoriesRef, {
+          updatedAt: new Date().toISOString(),
+          stories: {
+            [String(story.id)]: cleanPayload,
+          },
+        }, { merge: true });
+
+        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+        batch.set(metaRef, currentMeta);
+
+        await batch.commit();
+        recordFirestoreWrite(`kenchiko_world/${GLOBAL_STORIES_DOC_ID}`, 2);
+      }
+    } catch {}
 
     return { success: true, skipped: false };
   } catch (err: any) {
@@ -698,23 +765,14 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
   error?: string;
 }> {
   try {
-    const db = getFirestoreDbInstance();
-    if (!db) {
-      return { success: false, error: 'Firebaseデータベースに接続できません' };
-    }
-
-    const batch = writeBatch(db);
-
-    // 1. Remove from global stories consolidated document using deleteField()
-    const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
-    batch.update(globalStoriesRef, {
-      updatedAt: new Date().toISOString(),
-      [`stories.${nyanId}`]: deleteField(),
-    });
-
     removeFromLocalCache(nyanId);
 
-    // 2. Update metadata document in the same batch
+    // 1. Delete from Synology PostgreSQL
+    if (isPostgrestEnabled()) {
+      await deleteStoryFromPostgrest(nyanId);
+    }
+
+    // 2. Update local metadata
     const currentMeta = (await fetchStoriesMeta(false)) || {
       version: 1,
       updatedAt: Date.now(),
@@ -726,14 +784,25 @@ export async function deleteStoryFromFirestore(nyanId: number): Promise<{
       currentMeta.storyCount = Object.keys(currentMeta.stories).length;
       currentMeta.updatedAt = Date.now();
       currentMeta.version = (currentMeta.version || 1) + 1;
-
-      const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
-      batch.set(metaRef, currentMeta);
       setLocalStoriesMeta(currentMeta);
     }
 
-    await batch.commit();
-    recordFirestoreWrite('kenchiko_world/stories_delete', 2);
+    // 3. Optional Firestore delete
+    try {
+      const db = getFirestoreDbInstance();
+      if (db) {
+        const batch = writeBatch(db);
+        const globalStoriesRef = doc(db, FIRESTORE_COLLECTION, GLOBAL_STORIES_DOC_ID);
+        batch.update(globalStoriesRef, {
+          updatedAt: new Date().toISOString(),
+          [`stories.${nyanId}`]: deleteField(),
+        });
+        const metaRef = doc(db, FIRESTORE_COLLECTION, STORIES_META_DOC_ID);
+        batch.set(metaRef, currentMeta);
+        await batch.commit();
+        recordFirestoreWrite('kenchiko_world/stories_delete', 2);
+      }
+    } catch {}
 
     return { success: true };
   } catch (err: any) {
@@ -1064,6 +1133,13 @@ export async function assignUnmappedStoryToNyan(
 
     await batch.commit();
     recordFirestoreWrite('kenchiko_world/story_assign', 2);
+
+    // Primary save to Synology PostgreSQL
+    if (isPostgrestEnabled()) {
+      saveSingleStoryToPostgrest(updatedPayload).catch((err) => {
+        console.warn('[Synology] assign story sync warning:', err);
+      });
+    }
 
     return { success: true, updatedMeta: currentMeta };
   } catch (err: any) {

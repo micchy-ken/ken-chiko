@@ -1,5 +1,5 @@
 {
-  "version": "2026.09.28-v7",
-  "buildTime": "2026-09-28 22:45",
-  "releaseNotes": "管理画面のFirebase/Firestore表示を完全整理・UIを自前クラウド（Synology/GoogleDocs）中心に最適化"
+  "version": "2026.09.28-v10",
+  "buildTime": "2026-09-28 23:35",
+  "releaseNotes": "物語目録・会話劇をSynology PostgreSQL (api.master_stories) から直接高速同期し全267体の紐づけを完全復旧"
 }

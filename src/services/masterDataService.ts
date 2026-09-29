@@ -6,7 +6,7 @@ import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeO
 import { getFirestoreDbInstance, initFirebase, recordFirestoreWrite } from './firebaseSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from './writeCostEstimator';
 import { cleanseMasterCharacter, cleanseMasterCharacters, composeCharacters, extractProgressMap } from '../utils/dataSeparation';
-import { fetchFullMasterDataFromPostgrest } from './postgrestMasterService';
+import { fetchFullMasterDataFromPostgrest, saveFullMasterDataToPostgrest } from './postgrestMasterService';
 import { isPostgrestEnabled } from './postgrestConfig';
 
 export interface KenchikoMasterManifest {
@@ -382,6 +382,19 @@ export async function publishGlobalMasterData(
     const manifestDocRef = doc(db, FIRESTORE_COLLECTION, MASTER_MANIFEST_DOC_ID);
     await setDoc(manifestDocRef, sanitizeForFirestore(newManifest));
     recordFirestoreWrite(`kenchiko_world/${MASTER_MANIFEST_DOC_ID}`, 1);
+
+    // 🐘 Save to Synology PostgreSQL (PostgREST)
+    if (isPostgrestEnabled()) {
+      saveFullMasterDataToPostgrest(master, options).then((pgRes) => {
+        if (pgRes.success) {
+          console.log('[MasterPublish] 🐘 Synology PostgreSQL マスターテーブル同期完了');
+        } else {
+          console.warn('[MasterPublish] 🐘 Synology PostgreSQL 保存警告:', pgRes.errors);
+        }
+      }).catch((pgErr) => {
+        console.warn('[MasterPublish] 🐘 Synology PostgreSQL 保存エラー:', pgErr);
+      });
+    }
 
     // Save to local cache
     setCachedManifest(newManifest);

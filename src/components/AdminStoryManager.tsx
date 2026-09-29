@@ -495,45 +495,73 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
     }
   };
 
-  // Rebuild stories metadata from Firestore nyanko_stories collection
+  // Rebuild stories metadata from Synology PostgreSQL (or legacy fallback)
   const handleRebuildMeta = async () => {
     if (isRebuilding) return;
     setIsRebuilding(true);
     setStatusMessage(null);
-    setRebuildProgress({ current: 0, total: 0, currentName: 'Firestoreスキャン開始...' });
+    setRebuildProgress({ current: 0, total: characters.length, currentName: 'Synology PostgreSQLスキャン中...' });
 
     try {
-      const res = await rebuildStoriesMetaFromFirestore((progress) => {
-        setRebuildProgress({
-          current: progress.current,
-          total: progress.total,
-          currentName: `No.${progress.id} ${progress.name}`,
-        });
-      });
-
-      if (!res.success) {
-        setStatusMessage({ type: 'error', text: `再同期失敗: ${res.error}` });
-        return;
-      }
-
-      setMeta(res.meta || null);
-      setSyncedNyansList(res.syncedNyans);
-      setShowSyncedModal(true);
-
-      // Sync character hasStory property across all characters in state
-      if (res.meta && onUpdateCharacters) {
-        const registeredIds = new Set(Object.keys(res.meta.stories).map((k) => parseInt(k, 10)));
-        const updatedChars = characters.map((c) => ({
-          ...c,
-          hasStory: registeredIds.has(c.no),
+      const freshMeta = await fetchStoriesMeta(true);
+      if (freshMeta && freshMeta.storyCount > 0) {
+        setMeta(freshMeta);
+        const synced = Object.values(freshMeta.stories).map((s) => ({
+          id: s.id,
+          name: s.name,
+          title: s.week_title || '',
+          daysCount: s.daysCount,
         }));
-        onUpdateCharacters(updatedChars);
-      }
+        setSyncedNyansList(synced);
+        setShowSyncedModal(true);
 
-      setStatusMessage({
-        type: 'success',
-        text: `🎉 Firestoreから全${res.totalCount}匹分の物語目録を完全に再同期しました！`,
-      });
+        // Sync character hasStory property across all characters in state
+        if (onUpdateCharacters) {
+          const registeredIds = new Set(Object.keys(freshMeta.stories).map((k) => parseInt(k, 10)));
+          const updatedChars = characters.map((c) => ({
+            ...c,
+            hasStory: registeredIds.has(c.no),
+          }));
+          onUpdateCharacters(updatedChars);
+        }
+
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 Synology PostgreSQL（api.master_stories）から全${freshMeta.storyCount}匹分の物語目録を完全に再同期しました！`,
+        });
+      } else {
+        // Fallback to legacy rebuild if Synology returned empty
+        const res = await rebuildStoriesMetaFromFirestore((progress) => {
+          setRebuildProgress({
+            current: progress.current,
+            total: progress.total,
+            currentName: `No.${progress.id} ${progress.name}`,
+          });
+        });
+
+        if (!res.success) {
+          setStatusMessage({ type: 'error', text: `再同期失敗: ${res.error}` });
+          return;
+        }
+
+        setMeta(res.meta || null);
+        setSyncedNyansList(res.syncedNyans);
+        setShowSyncedModal(true);
+
+        if (res.meta && onUpdateCharacters) {
+          const registeredIds = new Set(Object.keys(res.meta.stories).map((k) => parseInt(k, 10)));
+          const updatedChars = characters.map((c) => ({
+            ...c,
+            hasStory: registeredIds.has(c.no),
+          }));
+          onUpdateCharacters(updatedChars);
+        }
+
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 全${res.totalCount}匹分の物語目録を再同期しました！`,
+        });
+      }
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: `再同期エラー: ${err?.message}` });
     } finally {
@@ -936,7 +964,7 @@ export const AdminStoryManager: React.FC<AdminStoryManagerProps> = ({
                 にゃんこ会話劇（物語）マスター管理
               </h4>
               <p className="text-xs text-[#487560]">
-                Firestore（<code className="bg-[#D9E6DD] px-1.5 py-0.5 rounded text-[11px]">nyanko_stories</code>）に保存された各にゃんこの会話劇・長文エピソードを登録・更新・管理します。
+                Synology PostgreSQL（<code className="bg-[#D9E6DD] px-1.5 py-0.5 rounded text-[11px]">api.master_stories</code>）に保存された各にゃんこの会話劇・長文エピソードを登録・更新・管理します。
               </p>
             </div>
           </div>

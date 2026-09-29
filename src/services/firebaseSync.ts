@@ -1913,6 +1913,14 @@ export async function syncSaveDataToFirebase(
   saveLocalBackup(data);
   latestPendingData = data;
 
+  const activeUid = getActiveUserId();
+  // 🐘 1. Save to Synology PostgreSQL immediately
+  if (activeUid) {
+    saveUserSaveToPostgrest(activeUid, data).catch((err) => {
+      console.warn('[Synology] Background user save warning:', err);
+    });
+  }
+
   const isAdmin = bypassDailyLimit || isAdminSessionActive() || isDailyLimitDisabled();
 
   // ONLY explicit manual button clicks bypass debouncing (isImmediate = true)

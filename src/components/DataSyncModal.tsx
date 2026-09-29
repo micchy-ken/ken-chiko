@@ -50,6 +50,17 @@ import {
   loadLocalMasterData,
   KenchikoMasterManifest,
 } from '../services/masterDataService';
+import {
+  saveFullMasterDataToPostgrest,
+  testSynologyConnection,
+  getSynologyConnectionInfo,
+} from '../services/postgrestMasterService';
+import {
+  getSavedGoogleDriveFolderUrl,
+  saveGoogleDriveFolderUrl,
+  syncImagesFromGoogleDriveFolder,
+  DriveSyncResult,
+} from '../services/googleDriveFolderSync';
 import { estimateMasterPublishCost, WriteCostEstimate } from '../services/writeCostEstimator';
 import { GameMasterData } from '../types';
 import { INITIAL_ASOBI_LIST } from '../data/defaultAsobi';
@@ -63,6 +74,8 @@ import {
   Upload,
   Download,
   Database,
+  FolderSync,
+  FileSpreadsheet,
   Check,
   Copy,
   Sparkles,
@@ -256,17 +269,34 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     return 'avatar';
   });
 
-  const [dataSubTab, setDataSubTab] = useState<'synology' | 'googledoc' | 'firebase'>(() => {
-    if (initialTab === 'firebase') return 'firebase';
+  const [dataSubTab, setDataSubTab] = useState<'synology' | 'googledoc' | 'googledrive'>(() => {
     if (initialTab === 'googledoc') return 'googledoc';
-    if (initialTab === 'synology') return 'synology';
+    if (initialTab === 'googledrive' as any) return 'googledrive';
+    if (initialTab === 'synology' as any) return 'synology';
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('admin') === 'firebase' || params.get('subtab') === 'firebase') return 'firebase';
       if (params.get('admin') === 'googledoc' || params.get('subtab') === 'googledoc') return 'googledoc';
+      if (params.get('admin') === 'googledrive' || params.get('subtab') === 'googledrive') return 'googledrive';
     }
     return 'synology';
   });
+
+  // Synology Direct Action State
+  const [isSavingSynology, setIsSavingSynology] = useState<boolean>(false);
+  const [synologySaveNotice, setSynologySaveNotice] = useState<string | null>(null);
+  const [isTestingSynology, setIsTestingSynology] = useState<boolean>(false);
+  const [synologyTestResult, setSynologyTestResult] = useState<string | null>(null);
+
+  // Google Drive Folder Sync State in Data Tab
+  const [dataDriveUrl, setDataDriveUrl] = useState<string>(() => {
+    return saveData?.googleDriveFolderUrl || getSavedGoogleDriveFolderUrl();
+  });
+  const [isSyncingDataDrive, setIsSyncingDataDrive] = useState(false);
+  const [dataDriveStatus, setDataDriveStatus] = useState<string | null>(null);
+  const [dataDriveResult, setDataDriveResult] = useState<DriveSyncResult | null>(null);
+  const [dataDriveAutoTrans, setDataDriveAutoTrans] = useState(true);
+  const [dataDriveTolerance, setDataDriveTolerance] = useState(30);
+  const [dataDriveTrim, setDataDriveTrim] = useState(true);
 
   useEffect(() => {
     if (initialTab) {
@@ -905,6 +935,120 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       confetti({ particleCount: 40, spread: 70, origin: { y: 0.6 } });
     } else {
       setGoogleDocStatus(`❌ 取得エラー: ${res.error}`);
+    }
+  };
+
+  // Synology Direct Master Save & Test Handlers
+  const handleDirectSaveSynology = async () => {
+    setIsSavingSynology(true);
+    setSynologySaveNotice('🐘 Synology PostgreSQL へマスターデータを直接書き込み中...');
+
+    const cleanCharacters = (saveData.characters || characters).map((c) => ({
+      ...c,
+      discovered: c.no <= 8 ? true : false,
+      discoveryDate: undefined,
+      lastMetAt: undefined,
+      friendshipLevel: 1,
+      playCount: 0,
+    }));
+
+    const fullMasterPayload: Partial<GameMasterData> = {
+      characters: cleanCharacters,
+      asobiList: asobiList,
+      ouenCategories: mergeOuenCategories(saveData.ouenCategories),
+      ouenList: mergeOuenList(saveData.ouenList),
+      kounichan: saveData.kounichan,
+      kihonNyanCustomImageUrl: saveData.kihonNyanCustomImageUrl,
+      googleDriveFolderUrl: saveData.googleDriveFolderUrl || dataDriveUrl,
+    };
+
+    try {
+      const res = await saveFullMasterDataToPostgrest(fullMasterPayload, {
+        syncCharacters: true,
+        syncAsobi: true,
+        syncAssets: true,
+      });
+      setIsSavingSynology(false);
+
+      if (res.success) {
+        setSynologySaveNotice(
+          `🎉 Synology PostgreSQLへの直接保存が成功しました！（ねこ図鑑: ${cleanCharacters.length}匹 / あそび: ${asobiList.length}件 / 応援: ${saveData.ouenList?.length || 40}件）`
+        );
+        confetti({ particleCount: 50, spread: 75, origin: { y: 0.6 } });
+      } else {
+        setSynologySaveNotice(`❌ Synology保存エラー: ${res.errors.join(', ')}`);
+      }
+    } catch (err: any) {
+      setIsSavingSynology(false);
+      setSynologySaveNotice(`❌ Synology保存例外: ${err?.message || String(err)}`);
+    }
+  };
+
+  const handleTestSynology = async () => {
+    setIsTestingSynology(true);
+    setSynologyTestResult('🔄 Synology NAS (PostgREST) への接続テスト中...');
+    try {
+      const res = await testSynologyConnection();
+      setIsTestingSynology(false);
+      if (res.online) {
+        setSynologyTestResult(`✅ Synology接続成功！ (${res.endpoint}) - ねこ図鑑: ${res.nyanCount}匹, 物語: ${res.storyCount}件`);
+      } else {
+        setSynologyTestResult(`❌ 接続失敗: ${res.error || 'レスポンスがありません'}`);
+      }
+    } catch (err: any) {
+      setIsTestingSynology(false);
+      setSynologyTestResult(`❌ エラー: ${err?.message || String(err)}`);
+    }
+  };
+
+  // Google Drive Folder Sync Handler (Data Tab)
+  const handleSyncDataDrive = async () => {
+    if (!dataDriveUrl.trim()) {
+      setDataDriveStatus('⚠️ Google Driveの共有フォルダURLを入力してください。');
+      return;
+    }
+    try {
+      setIsSyncingDataDrive(true);
+      setDataDriveStatus('🔍 Google Driveフォルダから画像を検索・マッチング中...');
+      saveGoogleDriveFolderUrl(dataDriveUrl);
+
+      const result = await syncImagesFromGoogleDriveFolder(
+        dataDriveUrl,
+        characters,
+        {
+          enableTransparency: dataDriveAutoTrans,
+          tolerance: dataDriveTolerance,
+          trimPadding: dataDriveTrim,
+        }
+      );
+
+      setIsSyncingDataDrive(false);
+      setDataDriveResult(result);
+
+      if (result.success && result.matchedCount > 0) {
+        onImportNyans(result.updatedNyans, 0, result.matchedCount);
+        onUpdateSaveData((prev) => ({
+          ...prev,
+          characters: result.updatedNyans,
+          googleDriveFolderUrl: dataDriveUrl.trim(),
+        }), true);
+
+        // Auto persist to Synology PostgreSQL
+        saveFullMasterDataToPostgrest({
+          characters: result.updatedNyans,
+          googleDriveFolderUrl: dataDriveUrl.trim(),
+        }, { syncCharacters: true }).catch(() => {});
+
+        setDataDriveStatus(`🎉 ${result.matchedCount}体のイラスト画像をDriveから取得・更新しました！`);
+        confetti({ particleCount: 50, spread: 80, origin: { y: 0.6 } });
+      } else if (result.success && result.matchedCount === 0) {
+        setDataDriveStatus(`⚠️ フォルダ内に合致するにゃんこ画像が見つかりませんでした (全${result.totalDriveFiles}ファイル検出)`);
+      } else {
+        setDataDriveStatus(`❌ Drive取得エラー: ${result.error || '画像の取得に失敗しました'}`);
+      }
+    } catch (err: any) {
+      setIsSyncingDataDrive(false);
+      setDataDriveStatus(`❌ 例外エラー: ${err?.message || String(err)}`);
     }
   };
 
@@ -2988,7 +3132,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           {(activeTab === 'data' || activeTab === 'googledoc' || activeTab === 'firebase') && (
             <div className="space-y-4 animate-fadeIn">
               {/* Data Subtabs Switcher */}
-              <div className="flex items-center gap-2 p-1 bg-[#FAF8F5] rounded-2xl w-fit border border-[#DDD7C8]">
+              {/* Data Subtabs Switcher */}
+              <div className="flex flex-wrap items-center gap-2 p-1 bg-[#FAF8F5] rounded-2xl w-fit border border-[#DDD7C8]">
                 <button
                   type="button"
                   onClick={() => { setDataSubTab('synology'); setActiveTab('data'); }}
@@ -3010,8 +3155,20 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
                   }`}
                 >
-                  <Globe className="w-3.5 h-3.5 text-[#728C7E]" />
-                  <span>Google Docs 自動連携</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#728C7E]" />
+                  <span>Google Docs / スプシ 📊</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDataSubTab('googledrive'); setActiveTab('data'); }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                    dataSubTab === 'googledrive'
+                      ? 'bg-[#3A342F] text-white shadow-xs'
+                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
+                  }`}
+                >
+                  <FolderSync className="w-3.5 h-3.5 text-[#C8744E]" />
+                  <span>Google Drive 画像連携 📁</span>
                 </button>
               </div>
 
@@ -3032,6 +3189,53 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     <p className="text-xs text-[#2A7543] leading-relaxed">
                       公式マスターデータ（ねこ図鑑268匹・物語266話・あそび31件・応援40件）は、<strong>Synology NAS上のPostgreSQLデータベースから直接高速配信</strong>されています。外部クラウドのクォータ制限を気にせず高速かつ無制限に利用できます。
                     </p>
+                  </div>
+
+                  {/* Direct Synology Save & Test Actions */}
+                  <div className="p-4 bg-[#FAF8F5] rounded-2xl border-2 border-emerald-500/30 space-y-3">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                      <div>
+                        <h5 className="text-xs font-black text-[#2E2824] flex items-center gap-1.5">
+                          <Database className="w-4 h-4 text-emerald-600" />
+                          Synology PostgreSQL 直接保存＆接続検証
+                        </h5>
+                        <p className="text-[11px] text-[#7A726A] mt-0.5">
+                          手元の編集済み図鑑（全{characters.length}体）やあそび・応援データを、Synology上のPostgreSQLへ即時書き込み（UPSERT）します。
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleTestSynology}
+                          disabled={isTestingSynology}
+                          className="px-3 py-2 bg-white hover:bg-[#F0EBE1] text-[#3A342F] border border-[#DDD7C8] rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isTestingSynology ? 'animate-spin' : ''}`} />
+                          <span>{isTestingSynology ? 'テスト中...' : '接続テスト'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDirectSaveSynology}
+                          disabled={isSavingSynology}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{isSavingSynology ? '保存中...' : '今すぐSynologyに保存'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {synologySaveNotice && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 animate-fadeIn">
+                        {synologySaveNotice}
+                      </div>
+                    )}
+
+                    {synologyTestResult && (
+                      <div className="p-2.5 bg-sky-50 border border-sky-200 rounded-xl text-xs font-bold text-sky-800 animate-fadeIn">
+                        {synologyTestResult}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3070,6 +3274,123 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       <li><strong>応援メッセージ</strong>: 40件（api.master_ouen_* テーブルから配信中）</li>
                       <li><strong>外部DB依存</strong>: <strong>完全0回</strong>（自前サーバー完結）</li>
                     </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* GOOGLE DRIVE TAB CONTENT */}
+              {dataSubTab === 'googledrive' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="bg-[#FAF4ED] p-4 rounded-2xl border border-[#F0D5BE]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h4 className="text-xs font-black text-[#874A2E] flex items-center gap-1.5">
+                        <FolderSync className="w-4 h-4 text-[#C8744E]" />
+                        Google Drive 画像フォルダ一括同期
+                      </h4>
+                      <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                        同名マッチング対応
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#9E5D3B] leading-relaxed">
+                      Google Driveの共有フォルダ内に<strong>「にゃんこ名と同名」</strong>（例: <code>ほむらにゃん.png</code>, <code>01_ほむらにゃん.jpg</code>）の画像がある場合、自動で照合して図鑑へ一括反映し、Synology PostgreSQLへも自動保存します。
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 bg-[#F5F2EA] p-4 rounded-2xl border border-[#DDD7C8]">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#6B6259] mb-1">
+                        Google Drive 共有フォルダURL
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          placeholder="https://drive.google.com/drive/folders/..."
+                          value={dataDriveUrl}
+                          onChange={(e) => setDataDriveUrl(e.target.value)}
+                          className="flex-1 px-3 py-2 bg-white border border-[#DDD7C8] rounded-xl text-xs font-mono text-[#3A342F] focus:outline-none focus:border-[#C8744E]"
+                        />
+                        {dataDriveUrl && (
+                          <a
+                            href={dataDriveUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-2 bg-[#EFECE4] hover:bg-[#E2DDD3] text-[#4A443F] rounded-xl border border-[#DDD7C8] flex items-center justify-center transition"
+                            title="フォルダを開く"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Transparency Options */}
+                    <div className="p-3 bg-white rounded-xl border border-[#DDD7C8] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-[#4A443F]">画像取り込み時の自動背景透過</span>
+                        <input
+                          type="checkbox"
+                          checked={dataDriveAutoTrans}
+                          onChange={(e) => setDataDriveAutoTrans(e.target.checked)}
+                          className="rounded text-[#C8744E]"
+                        />
+                      </div>
+                      {dataDriveAutoTrans && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[#F0EBE1] text-[11px]">
+                          <div>
+                            <span className="text-[#7A726A] block">透過許容度: {dataDriveTolerance}</span>
+                            <input
+                              type="range"
+                              min={5}
+                              max={80}
+                              value={dataDriveTolerance}
+                              onChange={(e) => setDataDriveTolerance(Number(e.target.value))}
+                              className="w-full accent-[#C8744E]"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0">
+                            <span className="text-[#7A726A]">余白トリム</span>
+                            <input
+                              type="checkbox"
+                              checked={dataDriveTrim}
+                              onChange={(e) => setDataDriveTrim(e.target.checked)}
+                              className="rounded text-[#C8744E]"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-[11px] text-[#7D756D]">
+                        対象図鑑: <strong className="text-[#3A342F]">{characters.length}体</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSyncDataDrive}
+                        disabled={isSyncingDataDrive}
+                        className="flex items-center justify-center gap-1.5 bg-[#C8744E] hover:bg-[#B3633E] text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDataDrive ? 'animate-spin' : ''}`} />
+                        <span>{isSyncingDataDrive ? 'スキャン＆同期中...' : 'Google Driveから一括スキャン＆同期'}</span>
+                      </button>
+                    </div>
+
+                    {dataDriveStatus && (
+                      <div className="p-2.5 bg-white border border-[#DDD7C8] rounded-xl text-xs font-bold text-[#3A342F] animate-fadeIn">
+                        {dataDriveStatus}
+                      </div>
+                    )}
+
+                    {dataDriveResult && (
+                      <div className="p-3 bg-white rounded-xl border border-[#DDD7C8] space-y-1 text-xs text-[#5A524A]">
+                        <div className="font-bold text-[#2E2824]">同期結果サマリー:</div>
+                        <div>検出ファイル数: {dataDriveResult.totalDriveFiles}件</div>
+                        <div>マッチ・更新成功: <strong className="text-emerald-700">{dataDriveResult.matchedCount}体</strong></div>
+                        {dataDriveResult.unmatchedFiles.length > 0 && (
+                          <div className="text-[11px] text-[#7A726A]">未マッチファイル: {dataDriveResult.unmatchedFiles.slice(0, 5).join(', ')}{dataDriveResult.unmatchedFiles.length > 5 ? ' など' : ''}</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
