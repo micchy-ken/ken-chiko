@@ -4,8 +4,8 @@ export interface AppVersionInfo {
   releaseNotes?: string;
 }
 
-export const CURRENT_APP_VERSION = '2026.09.28-v6';
-export const CURRENT_BUILD_TIME = '2026-09-28 22:40';
+export const CURRENT_APP_VERSION = '2026.09.28-v7';
+export const CURRENT_BUILD_TIME = '2026-09-28 22:45';
 
 /**
  * Checks static /version.json hosted on the web server (Cost: 0 Firestore reads/writes)

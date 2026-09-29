@@ -1370,7 +1370,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               </div>
               <h4 className="text-sm font-black text-[#3A342F]">管理者パスワード</h4>
               <p className="text-xs text-[#7D756D] mt-1">
-                全イベント・あそびの編集、およびFirebaseデータ操作には認証が必要です。
+                全イベント・あそびの編集、およびマスターデータ操作には認証が必要です。
               </p>
             </div>
 
@@ -1564,15 +1564,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           <div className="flex items-center gap-1.5 ml-2 shrink-0 mb-1">
             <button
               type="button"
-              onClick={() => setShowTrafficModal(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer text-xs font-bold"
-              title="Firestore通信生ログ＆サーキットブレーカー"
-            >
-              <Activity className="w-3.5 h-3.5 text-[#487560]" />
-              <span className="hidden sm:inline">通信生ログ</span>
-            </button>
-            <button
-              type="button"
               onClick={handleRequestClose}
               className="p-1.5 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#5A524A] hover:text-[#2E2824] transition cursor-pointer shrink-0"
               title="閉じる"
@@ -1676,14 +1667,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </span>
                   <span
                     className="bg-[#E8F3ED] text-[#34654D] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#BDE0CE] flex items-center gap-1 cursor-help"
-                    title="現在ブラウザを開いてから実際にFirestoreへ送信された書き込み回数です（ドラフト編集中は0回）。"
+                    title="現在ブラウザを開いてから実際にクラウドへ送信された書き込み回数です（ドラフト編集中は0回）。"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-[#487560]"></span>
                     今セッション書込: {sessionWriteCount}回
                   </span>
                   <span
                     className="bg-[#F3EFE6] text-[#6E6458] text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#DDD7C8] cursor-help"
-                    title="本日（UTC/JST）このプロジェクト全体で記録された累計書き込み数です。Firebaseコンソールの使用量メーターはこの日次累計値を表示します。"
+                    title="本日（UTC/JST）このプロジェクト全体で記録された累計書き込み数です。"
                   >
                     本日累計: {dailyWriteCount}回
                   </span>
@@ -1700,7 +1691,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-[#7A726A] mt-0.5">
-                  全タブの編集内容はブラウザ内ドラフトに安全に蓄積されます。作業完了後に「Firebaseに一括保存」を押すことで、1回の通信でクラウド公式マスターへ確定反映されます。
+                  全タブの編集内容はブラウザ内ドラフトに安全に蓄積されます。作業完了後に「クラウドマスターに一括保存」を押すことで、クラウド公式マスターへ確定反映されます。
                 </p>
               </div>
             </div>
@@ -1732,7 +1723,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <span>
                   {isPublishingMaster
                     ? 'クラウドへ保存中...'
-                    : `Firebaseに保存 (${currentPublishEstimate.docWrites}回書込)`}
+                    : 'クラウドマスターに一括保存'}
                 </span>
               </button>
             </div>
@@ -1798,7 +1789,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     けんちこのイラスト画像 完全差し替え
                   </h4>
                   <span className="bg-[#C8744E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    永続保存 & Firebase同期
+                    永続保存 & クラウド同期
                   </span>
                 </div>
                 <p className="text-xs text-[#9E5D3B]">
@@ -1981,7 +1972,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       余白自動トリミング対応
                     </span>
                     <span className="bg-[#3A342F] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      Firebase同期
+                      クラウド同期
                     </span>
                   </div>
                   <p className="text-[11px] text-[#4F6C5D] leading-relaxed">
@@ -2336,11 +2327,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       : 'bg-[#FDEDEC] text-[#C62828] border border-[#FFCDD2]'
                   }`}>
                     <span className={`w-2 h-2 rounded-full ${connectionStatus.connected ? 'bg-[#2E7D32] animate-pulse' : 'bg-[#C62828]'}`} />
-                    <span>{connectionStatus.connected ? 'Firebase接続OK' : 'クラウド未接続 / オフライン'}</span>
+                    <span>{connectionStatus.connected ? 'クラウド接続OK' : 'クラウド未接続 / オフライン'}</span>
                   </div>
 
                   <div className="text-[11px] text-[#7D756D] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
-                    マスターDB保存先: <code className="font-mono text-[#728C7E] font-bold">ken-chiko-global-master</code>
+                    マスター配信元: <code className="font-mono text-[#728C7E] font-bold">Synology PostgreSQL</code>
                   </div>
 
                   <span className="text-[11px] font-bold text-[#4A443F] bg-[#FAF8F5] px-2.5 py-1 rounded-full border border-[#EAE5D9]">
@@ -2354,7 +2345,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     onClick={handlePullFromCloud}
                     disabled={isSyncingCloudAsobi}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#EAE5D9] text-[#4A443F] text-xs font-bold rounded-lg border border-[#DDD7C8] transition disabled:opacity-50 cursor-pointer"
-                    title="クラウド（Firebase）に保存されている最新のあそびデータをこの端末へ読み込みます"
+                    title="クラウドに保存されている最新のあそびデータをこの端末へ読み込みます"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 text-[#6B6259] ${isSyncingCloudAsobi ? 'animate-spin' : ''}`} />
                     <span>クラウドから最新取得</span>
@@ -3022,18 +3013,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   <Globe className="w-3.5 h-3.5 text-[#728C7E]" />
                   <span>Google Docs 自動連携</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setDataSubTab('firebase'); setActiveTab('data'); }}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
-                    dataSubTab === 'firebase'
-                      ? 'bg-[#3A342F] text-white shadow-xs'
-                      : 'text-[#7D756D] hover:text-[#2E2824] bg-transparent'
-                  }`}
-                >
-                  <Cloud className="w-3.5 h-3.5 text-[#728C7E]" />
-                  <span>Firebase設定 (切離済)</span>
-                </button>
               </div>
 
               {/* SYNOLOGY TAB CONTENT */}
@@ -3051,7 +3030,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-[#2A7543] leading-relaxed">
-                      公式マスターデータ（ねこ図鑑268匹・物語266話・あそび31件・応援40件）は、<strong>Synology NAS上のPostgreSQLデータベースから直接高速配信</strong>されています。Firebase Firestoreへのマスター読込は完全に0回となり、クォータ制限を気にせず無制限に利用できます。
+                      公式マスターデータ（ねこ図鑑268匹・物語266話・あそび31件・応援40件）は、<strong>Synology NAS上のPostgreSQLデータベースから直接高速配信</strong>されています。外部クラウドのクォータ制限を気にせず高速かつ無制限に利用できます。
                     </p>
                   </div>
 
@@ -3082,14 +3061,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   <div className="p-4 bg-white rounded-2xl border border-[#DDD7C8] space-y-2">
                     <h5 className="text-xs font-bold text-[#3E3833] flex items-center gap-1.5">
                       <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      マスター系Firebase完全切り離しステータス
+                      Synology クラウド配信ステータス
                     </h5>
                     <ul className="text-xs text-[#5A524A] space-y-1 list-disc list-inside">
                       <li><strong>ねこ図鑑マスター</strong>: 268匹（api.master_nyans テーブルから配信中）</li>
                       <li><strong>物語・会話劇</strong>: 266件（api.master_stories テーブルからオンデマンド配信中）</li>
                       <li><strong>あそびマスター</strong>: 31件（api.master_asobi テーブルから配信中）</li>
                       <li><strong>応援メッセージ</strong>: 40件（api.master_ouen_* テーブルから配信中）</li>
-                      <li><strong>Firestoreマスター読込</strong>: <strong>完全0回</strong>（通信完全遮断）</li>
+                      <li><strong>外部DB依存</strong>: <strong>完全0回</strong>（自前サーバー完結）</li>
                     </ul>
                   </div>
                 </div>
@@ -3270,7 +3249,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </div>
               )}
 
-              {dataSubTab === 'firebase' && (
+              {/* Firebase tab hidden from UI as master & user saves are migrated to Synology */}
+              {false && (
                 <div className="space-y-4 animate-fadeIn">
               {/* Traffic Safeguard & Write Budget Box */}
               <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#D9CEBF] space-y-3">
@@ -3613,7 +3593,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-bold shadow-md transition cursor-pointer"
               >
                 <Save className="w-4 h-4" />
-                <span>{isPublishingMaster ? '保存中...' : 'Firebaseに保存して閉じる (1回)'}</span>
+                <span>{isPublishingMaster ? '保存中...' : 'クラウドマスターに保存して閉じる'}</span>
               </button>
             </div>
           </div>
@@ -3629,7 +3609,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-[#487560]" />
                 <h4 className="text-sm font-black text-[#2E2824] font-handwriting">
-                  Firestore 保存先ドキュメント分離と想定書き込み数
+                  クラウドマスター保存構成と想定書き込み数
                 </h4>
               </div>
               <button
@@ -3646,11 +3626,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               <div className="bg-[#E8F3ED] p-3 rounded-xl border border-[#BDE0CE] text-[#34654D]">
                 <p className="font-bold flex items-center gap-1.5 mb-1">
                   <ShieldCheck className="w-4 h-4" />
-                  Firestoreドキュメント分離による1MB制限対策・転送量最適化
+                  ドキュメント分離による1MB制限対策・転送量最適化
                 </p>
                 <p className="text-[11px] leading-relaxed">
-                  Firestoreでは1ドキュメントの保存が<strong>「1回の書き込み」</strong>として課金カウントされます。
-                  画像を含めた全データを1ドキュメントに保存するとFirestoreの1MB上限を超過してエラーになるため、<strong>「図鑑名簿（文字）」「あそび・応援」「画像アセット」</strong>を独立ドキュメントに完全分離しています。
+                  画像を含めた全データを1ドキュメントに保存すると1MB上限を超過してエラーになるため、<strong>「図鑑名簿（文字）」「あそび・応援」「画像アセット」</strong>を独立ドキュメントに完全分離しています。
                   更新が必要なモジュールのみを選択して保存できます。
                 </p>
               </div>
