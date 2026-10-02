@@ -17,6 +17,7 @@ import {
 import { DEFAULT_INITIAL_STATE } from './services/storage';
 import {
   getRandomMonologue,
+  getRandomMonologueAndTitle,
   generateNextActivity,
   startNewActivity,
   rollEncounterForActivity,
@@ -1143,7 +1144,7 @@ export default function App() {
             ? curK.hintLocation
             : pickRandomLocation(curK.currentLocation);
           const transport = pickRandomTransport();
-          const transitInfo = startTransit(curK.currentLocation, dest, transport);
+          const transitInfo = startTransit(curK.currentLocation, dest, transport, prev.asobiList);
 
           nextRemainingSec = 20; // STRICTLY 20s for transit!
 
@@ -1160,12 +1161,7 @@ export default function App() {
               activityDurationSec: 20, // STRICTLY 20s!
               currentCompanionNyanId: null,
               encounterChecked: false,
-              monologue: getRandomMonologue(
-                'transit',
-                curK.currentLocation,
-                transport,
-                prev.asobiList
-              ),
+              monologue: transitInfo.monologue,
             },
           };
         } else {
@@ -1560,18 +1556,21 @@ export default function App() {
   // User Actions: Manual Monologue update (strictly local, zero cloud writes)
   const handleManualMonologue = () => {
     setSaveData((prev) => {
+      const res = getRandomMonologueAndTitle(
+        prev.kenchiko.currentActivity,
+        prev.kenchiko.currentLocation,
+        prev.kenchiko.transportMethod,
+        prev.asobiList,
+        companionNyan ? companionNyan.name : undefined,
+        prev.kenchiko.targetLocation
+      );
       const nextData: GameSaveData = {
         ...prev,
         lastSaved: Date.now(),
         kenchiko: {
           ...prev.kenchiko,
-          monologue: getRandomMonologue(
-            prev.kenchiko.currentActivity,
-            prev.kenchiko.currentLocation,
-            prev.kenchiko.transportMethod,
-            prev.asobiList,
-            companionNyan ? companionNyan.name : undefined
-          ),
+          monologue: res.monologue,
+          currentActivityTitle: res.title,
         },
       };
       saveLocalBackup(nextData);
@@ -1608,7 +1607,7 @@ export default function App() {
     setNewEncounterToast(null);
     nextEncounterCheckTimeRef.current = 0;
     encounterCheckCountRef.current = 0;
-    const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport);
+    const transitInfo = startTransit(saveData.kenchiko.currentLocation, destination, transport, saveData.asobiList);
     const transitDuration = 20; // Strictly 20s for transit
     setRemainingTimeSec(transitDuration);
     remainingTimeSecRef.current = transitDuration;
@@ -1627,12 +1626,7 @@ export default function App() {
           activityDurationSec: transitDuration,
           currentCompanionNyanId: null,
           encounterChecked: false,
-          monologue: getRandomMonologue(
-            'transit',
-            prev.kenchiko.currentLocation,
-            transport,
-            prev.asobiList
-          ),
+          monologue: transitInfo.monologue,
         },
       };
       saveOnUserAction(nextData).catch(() => {});

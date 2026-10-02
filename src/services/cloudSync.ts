@@ -35,6 +35,14 @@ import {
   saveMasterAsobiToPostgrest,
   saveMasterOuenToPostgrest,
   saveMasterSettingsToPostgrest,
+  saveSingleMasterAsobiToPostgrest,
+  deleteSingleMasterAsobiFromPostgrest,
+  saveSingleMasterOuenItemToPostgrest,
+  deleteSingleMasterOuenItemFromPostgrest,
+  saveSingleMasterOuenCategoryToPostgrest,
+  deleteSingleMasterOuenCategoryFromPostgrest,
+  saveSingleMasterNyanToPostgrest,
+  deleteSingleMasterNyanFromPostgrest,
 } from './postgrestMasterService';
 import {
   fetchUserSaveFromPostgrest,
@@ -43,6 +51,18 @@ import {
 } from './postgrestUserService';
 import { getPostgrestBaseUrl, isPostgrestEnabled } from './postgrestConfig';
 import { recordAuditLog } from './firestoreTrafficLogger';
+
+// Re-export single-row master functions for direct component usage
+export {
+  saveSingleMasterAsobiToPostgrest,
+  deleteSingleMasterAsobiFromPostgrest,
+  saveSingleMasterOuenItemToPostgrest,
+  deleteSingleMasterOuenItemFromPostgrest,
+  saveSingleMasterOuenCategoryToPostgrest,
+  deleteSingleMasterOuenCategoryFromPostgrest,
+  saveSingleMasterNyanToPostgrest,
+  deleteSingleMasterNyanFromPostgrest,
+};
 
 export const GLOBAL_SHARED_DOC_ID = DEFAULT_GLOBAL_DOC_ID;
 export const MAX_DAILY_WRITES = 999999; // Unlimited on Synology PostgreSQL

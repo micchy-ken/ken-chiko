@@ -273,7 +273,12 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-[#7A726A] font-bold mb-0.5 font-handwriting gap-1">
                 <span className="text-[#3E3833] flex items-start sm:items-center gap-1.5 break-words">
                   <span className="w-2 h-2 rounded-full bg-[#487560] shrink-0 mt-1 sm:mt-0" />
-                  <span>{kenchiko.currentActivityTitle || 'まったり中'}</span>
+                  <span>
+                    {kenchiko.currentActivityTitle ||
+                      (isTransit
+                        ? `${transportInfo?.name || 'とほ'}で移動中`
+                        : 'まったり中')}
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -382,6 +387,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                   kenchikoImageUrl={kenchiko.customImageUrl}
                   characters={characters}
                   targetLocationName={targetLocInfo?.name}
+                  activityTitle={kenchiko.currentActivityTitle}
                   size={270}
                 />
               ) : (
@@ -507,7 +513,12 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold mb-1.5 font-handwriting gap-1.5">
             <span className="text-[#3E3833] flex items-start sm:items-center gap-1.5 break-words">
               <span className={`w-2 h-2 rounded-full ${progressDotColor} animate-ping shrink-0 mt-1 sm:mt-0`} />
-              <span>{kenchiko.currentActivityTitle}</span>
+              <span>
+                {kenchiko.currentActivityTitle ||
+                  (isTransit
+                    ? `${transportInfo?.name || 'とほ'}で「${targetLocInfo?.name || '目的地'}」へ移動中`
+                    : 'のんびり過ごしている')}
+              </span>
             </span>
             <div className="flex items-center self-end sm:self-auto gap-2 shrink-0">
               {isTransit ? (

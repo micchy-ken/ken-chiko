@@ -10,6 +10,7 @@ interface TransitVehicleViewProps {
   kenchikoImageUrl?: string;
   characters?: NyanCharacter[];
   targetLocationName?: string;
+  activityTitle?: string;
   size?: number;
 }
 
@@ -18,6 +19,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
   kenchikoImageUrl,
   characters = [],
   targetLocationName,
+  activityTitle,
   size = 280,
 }) => {
   const [jinbeiImgError, setJinbeiImgError] = useState(false);
@@ -178,7 +180,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
         {/* Caption Banner */}
         <div className="relative z-10 mt-3 bg-[#EAF2F8] border border-[#B8D2E4] px-3.5 py-1 rounded-full text-xs font-bold text-[#2A4D69] flex items-center gap-1.5 shadow-xs font-handwriting">
           <Sparkles className="w-3.5 h-3.5 text-[#3A75A4]" />
-          <span>じんべえにゃん号で空の旅 ✨</span>
+          <span>{activityTitle || 'じんべえにゃん号で空の旅 ✨'}</span>
         </div>
       </div>
     );
@@ -286,7 +288,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
         {/* Caption */}
         <div className="relative z-10 mt-3 bg-[#EEF4F0] border border-[#C6D8CD] px-3.5 py-1 rounded-full text-xs font-bold text-[#3D5C45] flex items-center gap-1.5 shadow-xs font-handwriting">
           <Wind className="w-3.5 h-3.5 text-[#527D5E]" />
-          <span>自転車でスイスイ快走中 🚲</span>
+          <span>{activityTitle || '自転車でスイスイ快走中 🚲'}</span>
         </div>
       </div>
     );
@@ -397,7 +399,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
         {/* Caption */}
         <div className="relative z-10 mt-3 bg-[#EAF2F8] border border-[#B8D2E4] px-3.5 py-1 rounded-full text-xs font-bold text-[#2A4D69] flex items-center gap-1.5 shadow-xs font-handwriting">
           <span>🚗</span>
-          <span>愛車（アクア）でドライブ中 💨</span>
+          <span>{activityTitle || '愛車（アクア）でドライブ中 💨'}</span>
         </div>
       </div>
     );
@@ -456,7 +458,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
 
         <div className="relative z-10 mt-3 bg-[#FAF8F5] border border-[#DDD7C8] px-3.5 py-1 rounded-full text-xs font-bold text-[#2E3E4E] flex items-center gap-1.5 shadow-xs font-handwriting">
           <span>🚅</span>
-          <span>しんかんせんで超高速移動！</span>
+          <span>{activityTitle || 'しんかんせんで超高速移動！'}</span>
         </div>
       </div>
     );
@@ -492,7 +494,7 @@ export const TransitVehicleView: React.FC<TransitVehicleViewProps> = ({
 
       <div className="relative z-10 mt-3 bg-[#FAF8F4] border border-[#DDD7C8] px-3.5 py-1 rounded-full text-xs font-bold text-[#6B5A4E] flex items-center gap-1.5 shadow-xs font-handwriting">
         <Footprints className="w-3.5 h-3.5 text-[#8C5A3E]" />
-        <span>てくてく自分の足でお散歩 🐾</span>
+        <span>{activityTitle || 'てくてく自分の足でお散歩 🐾'}</span>
       </div>
     </div>
   );

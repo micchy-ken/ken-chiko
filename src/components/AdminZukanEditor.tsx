@@ -50,6 +50,10 @@ import {
   publishMasterData,
   KenchikoMasterMeta,
 } from '../services/masterDataService';
+import {
+  saveSingleMasterNyanToPostgrest,
+  deleteSingleMasterNyanFromPostgrest,
+} from '../services/cloudSync';
 
 interface AdminZukanEditorProps {
   characters: NyanCharacter[];
@@ -362,18 +366,25 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
     }
 
     try {
-      // Update save data locally (in memory & localStorage) - ZERO network writes during draft editing!
+      // 1. Update save data locally
       onUpdateSaveData((prev) => ({
         ...prev,
         characters: updatedCharacters,
         lastSaved: Date.now(),
       }), false);
 
-      setNotice(`✅ 「No.${formNo} ${formName}」の下書きを反映しました！（管理画面上部ヘッダーの「クラウドマスターに一括保存」でSynologyに反映されます）`);
+      // 2. Save directly to Synology PostgreSQL (api.master_nyans)
+      const res = await saveSingleMasterNyanToPostgrest(nyanData);
+      if (res.success) {
+        setNotice(`✅ 「No.${formNo} ${formName}」をSynology DB（master_nyans）に直接保存しました！`);
+      } else {
+        setNotice(`⚠️ ローカル反映完了（DB保存注意: ${res.error || '一時的なエラー'}）`);
+      }
+
       handleCloseModal();
       confetti({ particleCount: 30, spread: 60, origin: { y: 0.6 } });
     } catch (err: any) {
-      console.error('Failed to update local character:', err);
+      console.error('Failed to update character:', err);
       setNotice(`⚠️ 反映中にエラー: ${err?.message || String(err)}`);
     } finally {
       setIsSavingCharacter(false);
@@ -461,8 +472,8 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
   const handleDeleteCharacter = (no: number, name: string) => {
     openConfirm(
       'にゃんこキャラクターの削除',
-      `「No.${no} ${name}」を図鑑から削除しますか？\n（※ 上部ヘッダーの「クラウドマスターに一括保存」を押すことでSynologyに確定反映されます）`,
-      () => {
+      `「No.${no} ${name}」を図鑑から削除しますか？\n（Synology DBから直接1行削除されます）`,
+      async () => {
         const updated = characters.filter((c) => c.no !== no);
         onUpdateSaveData((prev) => ({
           ...prev,
@@ -472,7 +483,12 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
         if (editingNyan && editingNyan.no === no) {
           handleCloseModal();
         }
-        setNotice(`🗑️ 「No.${no} ${name}」を下書きから削除しました（上部の「クラウドマスターに一括保存」でSynologyに確定反映されます）`);
+        const res = await deleteSingleMasterNyanFromPostgrest(no);
+        if (res.success) {
+          setNotice(`🗑️ 「No.${no} ${name}」をSynology DBから直接削除しました。`);
+        } else {
+          setNotice(`⚠️ DB削除注意: ${res.error || '削除エラー'}`);
+        }
       }
     );
   };
@@ -1502,14 +1518,14 @@ export const AdminZukanEditor: React.FC<AdminZukanEditorProps> = ({
                     onClick={handleSaveCharacter}
                     disabled={isSavingCharacter}
                     className="flex items-center gap-1.5 px-5 py-2 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
-                    title="編集内容をこの端末の下書きに反映します（クラウドへの通信は0回です）"
+                    title="Synology DB（master_nyans）に直接確定保存し、端末にも反映します"
                   >
                     <Check className="w-4 h-4" />
-                    <span>下書きを反映（ブラウザ内・通信0回）</span>
+                    <span>{isSavingCharacter ? '保存中...' : 'DBに直接保存（1体確定）'}</span>
                   </button>
                 </div>
-                <p className="text-[10px] text-[#7A726A] font-medium">
-                  ※ クラウド（Synology）への永続反映は、管理画面上部ヘッダーの「クラウドマスターに一括保存」で行います
+                <p className="text-[10px] text-[#2F7357] font-medium">
+                  ※ 保存ボタンを押すと、Synology PostgreSQL（api.master_nyans）へ1体ずつ直接リアルタイム反映されます
                 </p>
               </div>
             </div>

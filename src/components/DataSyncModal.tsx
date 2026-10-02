@@ -52,6 +52,8 @@ import {
 } from '../services/masterDataService';
 import {
   saveFullMasterDataToPostgrest,
+  saveSingleMasterAsobiToPostgrest,
+  deleteSingleMasterAsobiFromPostgrest,
   testSynologyConnection,
   getSynologyConnectionInfo,
 } from '../services/postgrestMasterService';
@@ -368,6 +370,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [selectedAsobiIds, setSelectedAsobiIds] = useState<Set<string>>(new Set());
   const [isSyncingCloudAsobi, setIsSyncingCloudAsobi] = useState(false);
   const [hasUnsavedAsobi, setHasUnsavedAsobi] = useState(false);
+  const [recentlySavedAsobiIds, setRecentlySavedAsobiIds] = useState<Set<string>>(new Set());
+  const asobiDebounceTimersRef = React.useRef<Record<string, any>>({});
+
+  const markAsobiRecentlySaved = (id: string) => {
+    setRecentlySavedAsobiIds((prev) => new Set([...prev, id]));
+    setTimeout(() => {
+      setRecentlySavedAsobiIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 2500);
+  };
 
   // Global pending changes tracking across all tabs
   const [unsavedChangesCount, setUnsavedChangesCount] = useState<number>(0);
@@ -1080,7 +1095,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   };
 
   // --- ASOBI (あそび・イベント) Management Handlers ---
-  const handleAddOrUpdateAsobi = () => {
+  const handleAddOrUpdateAsobi = async () => {
     if (!newTitle.trim()) {
       setAsobiNotice('⚠️ イベント名・あそび名（例: けんちこはうたをうたった）を入力してください。');
       return;
@@ -1091,25 +1106,26 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
 
     let updatedList: KenchikoAsobi[];
+    let targetItem: KenchikoAsobi;
 
     if (editingAsobiId) {
       // Update existing
+      const existing = asobiList.find((a) => a.id === editingAsobiId);
+      targetItem = {
+        id: editingAsobiId,
+        title: newTitle.trim(),
+        content: newContent.trim(),
+        condition: newCondition,
+        frequency: newFrequency,
+        createdAt: existing?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
       updatedList = asobiList.map((item) =>
-        item.id === editingAsobiId
-          ? {
-              ...item,
-              title: newTitle.trim(),
-              content: newContent.trim(),
-              condition: newCondition,
-              frequency: newFrequency,
-              updatedAt: Date.now(),
-            }
-          : item
+        item.id === editingAsobiId ? targetItem : item
       );
-      setAsobiNotice(`✅ イベント「${newTitle.trim()}」を更新しました。Firebaseへ同期中...`);
     } else {
       // Add new
-      const newItem: KenchikoAsobi = {
+      targetItem = {
         id: `asobi_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         title: newTitle.trim(),
         content: newContent.trim(),
@@ -1117,29 +1133,37 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         frequency: newFrequency,
         createdAt: Date.now(),
       };
-      updatedList = [newItem, ...asobiList];
-      setAsobiNotice(`✅ 新しいイベント「${newTitle.trim()}」を追加しました。Firebaseへ同期中...`);
+      updatedList = [targetItem, ...asobiList];
     }
 
     setAsobiList(updatedList);
-    setHasUnsavedAsobi(true);
     setEditingAsobiId(null);
     setNewTitle('');
     setNewContent('');
     setNewCondition('all');
     setNewFrequency('normal');
 
-    // Update local save state only (ZERO cloud writes while editing)
+    // Update local save state
     handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
     }), false);
-    setAsobiNotice(
-      editingAsobiId
-        ? `✅ イベントを更新しました（未保存）。上部の「クラウドへ今すぐ保存」を押して確定してください。`
-        : `✅ 新しいイベントを追加しました（未保存）。上部の「クラウドへ今すぐ保存」を押して確定してください。`
-    );
+
+    // Directly save single row to Synology PostgreSQL (api.master_asobi)
+    const itemIdx = updatedList.findIndex((a) => a.id === targetItem.id);
+    const res = await saveSingleMasterAsobiToPostgrest(targetItem, itemIdx >= 0 ? itemIdx + 1 : 1);
+    if (res.success) {
+      setHasUnsavedAsobi(false);
+      markAsobiRecentlySaved(targetItem.id);
+      setAsobiNotice(
+        editingAsobiId
+          ? `✅ イベント「${targetItem.title}」をSynology DBに直接更新・保存しました！`
+          : `✅ 新しいイベント「${targetItem.title}」をSynology DBに直接追加・保存しました！`
+      );
+    } else {
+      setAsobiNotice(`⚠️ ローカル反映完了（DB保存注意: ${res.error || '一時的なエラー'}）`);
+    }
   };
 
   const handleEditAsobi = (item: KenchikoAsobi) => {
@@ -1157,23 +1181,29 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const handleDeleteAsobi = (id: string, title: string) => {
     openConfirm(
       'イベントの削除',
-      `イベント「${title}」を削除してもよろしいですか？`,
-      () => {
+      `イベント「${title}」を削除してもよろしいですか？\n（Synology DBから直接1行削除されます）`,
+      async () => {
         const updatedList = asobiList.filter((item) => item.id !== id);
         setAsobiList(updatedList);
-        setHasUnsavedAsobi(true);
         if (editingAsobiId === id) {
           setEditingAsobiId(null);
           setNewTitle('');
           setNewContent('');
         }
-        setAsobiNotice(`🗑️ イベント「${title}」を削除しました（未保存）。`);
-
         handleAdminUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
         }), false);
+
+        // Directly delete single row from Synology PostgreSQL
+        const res = await deleteSingleMasterAsobiFromPostgrest(id);
+        if (res.success) {
+          setHasUnsavedAsobi(false);
+          setAsobiNotice(`🗑️ イベント「${title}」をSynology DBから直接削除しました。`);
+        } else {
+          setAsobiNotice(`⚠️ DB削除注意: ${res.error || '削除エラー'}`);
+        }
       }
     );
   };
@@ -1195,8 +1225,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     setAsobiNotice(`💡 テンプレート「${preset.name}」をフォームにセットしました。内容を調整して保存してください。`);
   };
 
-  // Duplicate an existing event to create a quick variation
-  const handleDuplicateAsobi = (item: KenchikoAsobi) => {
+  // Duplicate an existing event to create a quick variation (Direct DB Save)
+  const handleDuplicateAsobi = async (item: KenchikoAsobi) => {
     const newItem: KenchikoAsobi = {
       id: `asobi_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       title: `${item.title} (コピー)`,
@@ -1207,16 +1237,24 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     };
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
-    setHasUnsavedAsobi(true);
     handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
     }), false);
-    setAsobiNotice(`📋 「${item.title}」を複製しました（未保存）。上部の「クラウドへ今すぐ保存」で確定してください。`);
+
+    // Directly save single row to Synology PostgreSQL
+    const res = await saveSingleMasterAsobiToPostgrest(newItem, 1);
+    if (res.success) {
+      setHasUnsavedAsobi(false);
+      markAsobiRecentlySaved(newItem.id);
+      setAsobiNotice(`📋 「${item.title}」を複製し、Synology DBに直接保存しました！`);
+    } else {
+      setAsobiNotice(`📋 「${item.title}」を複製しました（DB保存注意: ${res.error || '一時的なエラー'}）`);
+    }
   };
 
-  // Quick Inline cell update for Spreadsheet Table (NEVER hammers Firestore on keystrokes)
+  // Quick Inline cell update for Spreadsheet Table with auto-save
   const handleInlineUpdateAsobi = (id: string, field: keyof KenchikoAsobi, value: any) => {
     const updatedList = asobiList.map((item) =>
       item.id === id
@@ -1228,17 +1266,38 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         : item
     );
     setAsobiList(updatedList);
-    setHasUnsavedAsobi(true);
-    // CRITICAL: Pure in-memory update with local persistence only. Exactly ZERO Firestore write requests!
     handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
     }), false);
+
+    // Debounced direct DB save per row
+    if (asobiDebounceTimersRef.current[id]) {
+      clearTimeout(asobiDebounceTimersRef.current[id]);
+    }
+    asobiDebounceTimersRef.current[id] = setTimeout(() => {
+      handleInlineSaveRowAsobi(id);
+    }, 700);
   };
 
-  // Add blank row at top of spreadsheet
-  const handleAddBlankSpreadsheetRow = () => {
+  // Row blur or explicit cell blur direct DB save
+  const handleInlineSaveRowAsobi = async (id: string) => {
+    const targetIdx = asobiList.findIndex((a) => a.id === id);
+    if (targetIdx < 0) return;
+    const item = asobiList[targetIdx];
+    const res = await saveSingleMasterAsobiToPostgrest(item, targetIdx + 1);
+    if (res.success) {
+      setHasUnsavedAsobi(false);
+      markAsobiRecentlySaved(id);
+      setAsobiNotice(`✅ 「${item.title}」をSynology DBに直接1行保存しました！`);
+    } else {
+      setAsobiNotice(`⚠️ DB直接保存エラー: ${res.error || '一時的なエラー'}`);
+    }
+  };
+
+  // Add blank row at top of spreadsheet and directly save
+  const handleAddBlankSpreadsheetRow = async () => {
     const newItem: KenchikoAsobi = {
       id: `asobi_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       title: '新しい行動タイトル',
@@ -1249,17 +1308,24 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     };
     const updatedList = [newItem, ...asobiList];
     setAsobiList(updatedList);
-    setHasUnsavedAsobi(true);
     handleAdminUpdateSaveData((prev) => ({
       ...prev,
       asobiList: updatedList,
       lastSaved: Date.now(),
     }), false);
-    setAsobiNotice('➕ 新しい行を追加しました（未保存）。表のセルを直接クリックして文字を編集後、「クラウドへ今すぐ保存」を押してください。');
+
+    const res = await saveSingleMasterAsobiToPostgrest(newItem, 1);
+    if (res.success) {
+      setHasUnsavedAsobi(false);
+      markAsobiRecentlySaved(newItem.id);
+      setAsobiNotice('➕ 新しい行を追加し、Synology DBに直接保存しました。表のセルで内容を編集できます。');
+    } else {
+      setAsobiNotice('➕ 新しい行を追加しました。表のセルで編集できます。');
+    }
   };
 
   // Batch Bulk Parse & Import
-  const handleExecuteBatchTextImport = () => {
+  const handleExecuteBatchTextImport = async () => {
     if (!batchRawText.trim()) {
       setAsobiNotice('⚠️ テキストを入力してください。');
       return;
@@ -1284,7 +1350,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         title = parts[0] || 'けんちこの行動';
         content = parts[1] || parts[0];
         if (parts[2]) {
-          // parse condition
           const matchLoc = Object.values(LOCATIONS).find((l) => l.name === parts[2]);
           if (matchLoc) condition = `loc_${matchLoc.id}` as AsobiConditionScope;
         }
@@ -1306,7 +1371,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         content = line;
       }
 
-      // strip quotes if present
       content = content.replace(/^「|」$/g, '').replace(/^"|"$/g, '').trim();
 
       newItems.push({
@@ -1327,7 +1391,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     const updatedList = [...newItems, ...asobiList];
     setAsobiList(updatedList);
-    setHasUnsavedAsobi(true);
     setBatchRawText('');
     handleAdminUpdateSaveData((prev) => ({
       ...prev,
@@ -1335,7 +1398,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       lastSaved: Date.now(),
     }), false);
     setAsobiViewMode('sheet');
-    setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました（未保存）。内容を確認し、「クラウドへ今すぐ保存」を押すと1回の通信で安全に保存されます。`);
+
+    // Save batch rows directly to Synology PostgreSQL
+    const res = await saveGlobalAsobiList(updatedList);
+    if (res.success) {
+      setHasUnsavedAsobi(false);
+      setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録し、Synology DBへ直接保存しました！`);
+    } else {
+      setAsobiNotice(`🎉 ${newItems.length}件の遊びを一括登録しました（DB保存注意: ${res.error || '一時エラー'}）`);
+    }
     confetti({ particleCount: 40, spread: 70, origin: { y: 0.5 } });
   };
 
@@ -1359,20 +1430,24 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
   const handleDeleteSelectedAsobi = () => {
     if (selectedAsobiIds.size === 0) return;
+    const count = selectedAsobiIds.size;
     openConfirm(
       '一括削除の確認',
-      `選択中の ${selectedAsobiIds.size} 件のイベントを一括削除しますか？`,
-      () => {
+      `選択中の ${count} 件のイベントを一括削除しますか？\n（Synology DBから直接削除されます）`,
+      async () => {
+        const idsToDelete = Array.from(selectedAsobiIds);
         const updatedList = asobiList.filter((item) => !selectedAsobiIds.has(item.id));
         setAsobiList(updatedList);
-        setHasUnsavedAsobi(true);
         setSelectedAsobiIds(new Set());
         handleAdminUpdateSaveData((prev) => ({
           ...prev,
           asobiList: updatedList,
           lastSaved: Date.now(),
         }), false);
-        setAsobiNotice(`🗑️ 選択したイベントを一括削除しました（未保存）。上部の「クラウドへ今すぐ保存」で確定してください。`);
+
+        await Promise.all(idsToDelete.map((id: string) => deleteSingleMasterAsobiFromPostgrest(id)));
+        setHasUnsavedAsobi(false);
+        setAsobiNotice(`🗑️ 選択した ${count} 件のイベントをSynology DBから直接削除しました。`);
       }
     );
   };
@@ -2363,13 +2438,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       <Smile className="w-4 h-4 text-[#C8744E]" />
                       全イベント・行動・セリフ設定コンソール
                     </h4>
-                    <span className="bg-[#438363] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      マスター管理（1回で安全一括保存）
+                    <span className="bg-[#2F7357] text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                      <Database className="w-3 h-3" />
+                      <span>1行ずつ直接DB即時保存</span>
                     </span>
                   </div>
                   <p className="text-xs text-[#874A2E] leading-relaxed">
                     けんちこの行動・セリフ・場所を<strong>スプレッドシート形式</strong>で直接編集できます。<br className="hidden sm:inline" />
-                    文字入力や行追加では<strong>Firestore書き込みは一切消費されません</strong>。編集完了後に「クラウドへ今すぐ保存」を押すと、<strong>たった1回の書き込み</strong>でマスターDBに一括保存されます。
+                    追加・編集・削除は<strong>Synology PostgreSQL（api.master_asobi）へ1行ずつ直接リアルタイム保存</strong>されます。制限や通信枠を気にせず自由に編集できます。
                   </p>
                 </div>
 
@@ -2434,34 +2510,35 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 </div>
               </div>
 
-              {/* Unsaved Changes Floating Warning Bar */}
-              {hasUnsavedAsobi && (
-                <div className="bg-[#FFF8E7] border-2 border-[#E5A93C] p-3.5 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 animate-fadeIn shadow-xs">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-3 w-3 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-[#D97706]"></span>
+              {/* Synology DB Direct Save Status Banner */}
+              <div className="bg-[#FAF2EB] border border-[#E8D4C4] p-3 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-2.5 shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="p-1.5 rounded-lg bg-[#E8F3ED] text-[#2F7357]">
+                    <Database className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <span className="text-xs font-black text-[#3E3833] flex items-center gap-1.5">
+                      <span>Synology PostgreSQL 直接保存モード稼働中</span>
+                      <span className="text-[10px] bg-[#2F7357] text-white px-2 py-0.5 rounded-full font-bold">1行ずつ直接DB同期</span>
                     </span>
-                    <div>
-                      <span className="text-xs font-black text-[#92400E]">
-                        あそびマスターに未保存の変更があります（全{asobiList.length}件）
-                      </span>
-                      <p className="text-[11px] text-[#B45309]">
-                        ※ 入力作業中は書き込み制限を消費していません。「クラウドへ今すぐ保存」を押すと1回の通信でマスターDBに一括反映されます。
-                      </p>
-                    </div>
+                    <p className="text-[11px] text-[#7A7166]">
+                      セル編集・行追加・削除のたびにSynology DB（api.master_asobi）へ1行ずつリアルタイム保存されます。Firebase通信枠の心配はありません。
+                    </p>
                   </div>
+                </div>
+                {hasUnsavedAsobi && (
                   <button
                     type="button"
                     onClick={handlePushToCloud}
                     disabled={isSyncingCloudAsobi}
-                    className="w-full sm:w-auto px-4 py-2 bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-black rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full sm:w-auto px-3.5 py-1.5 bg-[#487560] hover:bg-[#3B614F] text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                    title="全行を一括でSynology DBへ再同期します"
                   >
-                    <Cloud className="w-4 h-4" />
-                    <span>クラウドへ今すぐ保存（消費1回）</span>
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>{isSyncingCloudAsobi ? '同期中...' : '全件一括再同期'}</span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Cloud Sync Status & Quick Sync Action Bar */}
               <div className="bg-white p-3 rounded-xl border border-[#DDD7C8] flex flex-wrap items-center justify-between gap-2.5">
@@ -2500,15 +2577,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     type="button"
                     onClick={handlePushToCloud}
                     disabled={isSyncingCloudAsobi}
-                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer ${
-                      hasUnsavedAsobi
-                        ? 'bg-[#D97706] hover:bg-[#B45309] text-white ring-2 ring-[#FCD34D] ring-offset-1'
-                        : 'bg-[#C8744E] hover:bg-[#B3633E] text-white'
-                    }`}
-                    title="現在の端末のあそびデータをクラウドへ即座に送信・確定保存します（1回のみ書き込み）"
+                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50 cursor-pointer bg-[#487560] hover:bg-[#3B614F] text-white"
+                    title="現在の端末のあそびデータをSynology DBへ一括保存・同期します"
                   >
                     <Cloud className="w-3.5 h-3.5" />
-                    <span>{hasUnsavedAsobi ? '☁️ クラウドへ今すぐ保存（未保存あり）' : 'クラウドへ今すぐ保存'}</span>
+                    <span>全件一括同期</span>
                   </button>
                 </div>
               </div>
@@ -2888,12 +2961,22 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
                             {/* Title Cell */}
                             <td className="p-2">
-                              <input
-                                type="text"
-                                value={item.title}
-                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'title', e.target.value)}
-                                className="w-full px-2 py-1 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-[#DDD7C8] focus:border-[#C8744E] rounded-md text-xs font-bold text-[#3A342F] focus:outline-none transition"
-                              />
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={item.title}
+                                  onChange={(e) => handleInlineUpdateAsobi(item.id, 'title', e.target.value)}
+                                  onBlur={() => handleInlineSaveRowAsobi(item.id)}
+                                  placeholder="行動タイトル..."
+                                  title="編集して枠外をクリックまたは入力終了でSynology DBへ即座に自動保存されます"
+                                  className="w-full px-2 py-1 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-[#DDD7C8] focus:border-[#C8744E] rounded-md text-xs font-bold text-[#3A342F] focus:outline-none transition"
+                                />
+                                {recentlySavedAsobiIds.has(item.id) && (
+                                  <span className="shrink-0 text-[10px] bg-[#2F7357] text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse whitespace-nowrap">
+                                    DB保存済
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* Content / Dialogue Cell */}
@@ -2902,6 +2985,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                                 type="text"
                                 value={item.content}
                                 onChange={(e) => handleInlineUpdateAsobi(item.id, 'content', e.target.value)}
+                                onBlur={() => handleInlineSaveRowAsobi(item.id)}
+                                title="編集して枠外をクリックするとSynology DBへ即座に自動保存されます"
                                 className="w-full px-2 py-1 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-[#DDD7C8] focus:border-[#C8744E] rounded-md text-xs text-[#5A524A] font-serif focus:outline-none transition"
                               />
                             </td>
@@ -2910,7 +2995,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                             <td className="p-2">
                               <select
                                 value={item.condition}
-                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'condition', e.target.value as AsobiConditionScope)}
+                                onChange={(e) => {
+                                  const val = e.target.value as AsobiConditionScope;
+                                  handleInlineUpdateAsobi(item.id, 'condition', val);
+                                  handleInlineSaveRowAsobi(item.id);
+                                }}
                                 className="w-full px-2 py-1 bg-white border border-[#DDD7C8] rounded-md text-[11px] text-[#3A342F] font-bold focus:outline-none focus:border-[#C8744E]"
                               >
                                 <option value="all">🌟 すべて（常時）</option>
@@ -2933,7 +3022,11 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                             <td className="p-2">
                               <select
                                 value={item.frequency}
-                                onChange={(e) => handleInlineUpdateAsobi(item.id, 'frequency', e.target.value as AsobiFrequency)}
+                                onChange={(e) => {
+                                  const val = e.target.value as AsobiFrequency;
+                                  handleInlineUpdateAsobi(item.id, 'frequency', val);
+                                  handleInlineSaveRowAsobi(item.id);
+                                }}
                                 className="w-full px-2 py-1 bg-white border border-[#DDD7C8] rounded-md text-[11px] text-[#3A342F] font-bold focus:outline-none focus:border-[#C8744E]"
                               >
                                 <option value="normal">通常</option>
@@ -2946,16 +3039,23 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                             <td className="p-2 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <button
+                                  onClick={() => handleInlineSaveRowAsobi(item.id)}
+                                  className="p-1 text-[#2F7357] hover:bg-[#EBF5EE] rounded-md transition"
+                                  title="この行をSynology DBに直接確定保存"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                </button>
+                                <button
                                   onClick={() => handleDuplicateAsobi(item)}
                                   className="p-1 text-[#7D756D] hover:text-[#C8744E] hover:bg-[#FAF2EB] rounded-md transition"
-                                  title="この行を複製（コピー）"
+                                  title="この行を複製（コピーしてDBに直接追加）"
                                 >
                                   <Copy className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => handleDeleteAsobi(item.id, item.title)}
                                   className="p-1 text-[#D05A3F] hover:bg-[#FAF0ED] rounded-md transition"
-                                  title="削除"
+                                  title="Synology DBから直接削除"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -3674,7 +3774,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA api GRANT ALL ON SEQUENCES TO public;`}
             <p className="text-sm text-[#5A524A] leading-relaxed mb-6 font-medium">
               クラウド（Synology）に一括保存せずに管理画面を閉じると、ブラウザをリロードした際に編集内容が元に戻る可能性があります。
               <br /><br />
-              一括保存してから画面を閉じますか？（<strong>書き込みはたった1回のみ</strong>です）
+              一括保存してから画面を閉じますか？（Synology PostgreSQLマスターへの一括同期を行います）
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5">

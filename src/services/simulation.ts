@@ -86,51 +86,71 @@ const MONOLOGUES: Record<ActivityType, string[]> = {
 export function getMatchingAsobiList(
   asobiList: KenchikoAsobi[] | undefined,
   currentLocation: LocationId,
-  transportMethod: TransportMethod | null
+  transportMethod: TransportMethod | null,
+  activity?: ActivityType
 ): KenchikoAsobi[] {
   if (!asobiList || asobiList.length === 0) return [];
 
-  const isTransit = transportMethod !== null;
+  const isTransit = activity === 'transit' || transportMethod !== null;
 
-  return asobiList.filter((item) => {
+  // First pass: specific matches for transit or location conditions
+  const specificMatches = asobiList.filter((item) => {
     const cond = item.condition;
-    // 1. All (any location, but EXCLUDING transit)
-    if (cond === 'all' && !isTransit) return true;
-
-    // 2. All locations (when not in transit)
-    if (cond === 'all_locations' && !isTransit) return true;
-
-    // 3. All transports (when in transit)
-    if (cond === 'all_transports' && isTransit) return true;
-
-    // 4. Specific location
-    if (cond.startsWith('loc_')) {
-      const targetLoc = cond.replace('loc_', '');
-      return !isTransit && targetLoc === currentLocation;
-    }
-
-    // 5. Specific transport
-    if (cond.startsWith('trans_')) {
+    // 1. Specific transport (when in transit)
+    if (cond.startsWith('trans_') && isTransit) {
       const targetTrans = cond.replace('trans_', '');
-      return isTransit && targetTrans === transportMethod;
+      return !transportMethod || targetTrans === transportMethod;
     }
-
+    // 2. All transports (when in transit)
+    if (cond === 'all_transports' && isTransit) {
+      return true;
+    }
+    // 3. Specific location (when not in transit)
+    if (cond.startsWith('loc_') && !isTransit) {
+      const targetLoc = cond.replace('loc_', '');
+      return targetLoc === currentLocation;
+    }
+    // 4. All locations (when not in transit)
+    if (cond === 'all_locations' && !isTransit) {
+      return true;
+    }
     return false;
   });
+
+  if (specificMatches.length > 0) {
+    return specificMatches;
+  }
+
+  // Second pass: 'all' (どこでも / 常時) matches everywhere (including transit)
+  return asobiList.filter((item) => item.condition === 'all');
+}
+
+export interface MonologueAndTitleResult {
+  monologue: string;
+  title: string;
+  matchedAsobiId?: string;
 }
 
 /**
- * Picks a monologue from either matched custom asobi or built-in pool
+ * Picks both monologue and title together from matched custom asobi or built-in pool
  */
-export function getRandomMonologue(
+export function getRandomMonologueAndTitle(
   activity: ActivityType,
   currentLocation: LocationId = 'living',
   transportMethod: TransportMethod | null = null,
   asobiList: KenchikoAsobi[] = [],
-  companionName?: string
-): string {
+  companionName?: string,
+  targetLocation?: LocationId | null
+): MonologueAndTitleResult {
+  const isTransit = activity === 'transit' || transportMethod !== null;
+  const locInfo = LOCATIONS[currentLocation] || LOCATIONS.living;
+  const targetLocInfo = targetLocation ? (LOCATIONS[targetLocation] || null) : null;
+  const transport = transportMethod
+    ? (TRANSPORT_METHODS.find((t) => t.id === transportMethod) || TRANSPORT_METHODS[0])
+    : null;
+
   // Check if matching custom asobi exists
-  const matchedAsobi = getMatchingAsobiList(asobiList, currentLocation, transportMethod);
+  const matchedAsobi = getMatchingAsobiList(asobiList, currentLocation, transportMethod, activity);
 
   // If matched custom asobi found, ALWAYS prioritize custom asobi entries
   if (matchedAsobi.length > 0) {
@@ -143,21 +163,74 @@ export function getRandomMonologue(
     });
 
     const chosen = weightedPool[Math.floor(Math.random() * weightedPool.length)];
-    if (chosen && chosen.content) {
+    if (chosen && (chosen.content || chosen.title)) {
+      let quote = chosen.content || '';
       if (companionName && Math.random() > 0.6) {
-        return `${companionName}といっしょ。「${chosen.content}」`;
+        quote = `${companionName}といっしょ。「${quote}」`;
       }
-      return chosen.content;
+      const title = chosen.title || (isTransit ? `${transport?.name || 'とほ'}で移動中` : 'あそび中');
+      return {
+        monologue: quote,
+        title,
+        matchedAsobiId: chosen.id,
+      };
     }
   }
 
   // Fallback to standard monologues only if no custom asobi matched
-  const pool = MONOLOGUES[activity] || MONOLOGUES.spacing_out;
+  const pool = MONOLOGUES[activity] || (isTransit ? MONOLOGUES.transit : MONOLOGUES.spacing_out);
   let quote = pool[Math.floor(Math.random() * pool.length)];
   if (companionName && Math.random() > 0.5) {
     quote = `${companionName}とまったり中。「${quote}」`;
   }
-  return quote;
+
+  // Standard activity titles when no custom asobi matched
+  let defaultTitle = 'のんびり過ごしている';
+  if (isTransit) {
+    if (targetLocInfo && transport) {
+      defaultTitle = `${transport.name}で「${targetLocInfo.name}」へ向かって移動中…`;
+    } else if (transport) {
+      defaultTitle = `${transport.name}で移動中`;
+    } else {
+      defaultTitle = '移動中…';
+    }
+  } else if (activity === 'snacking') {
+    defaultTitle = companionName ? `${companionName}とおやつ休憩` : 'おやつタイム';
+  } else if (activity === 'nap') {
+    defaultTitle = companionName ? `${companionName}とお昼寝` : 'すやすやお昼寝中…';
+  } else if (activity === 'play_with_nyan') {
+    defaultTitle = companionName ? `${companionName}とおしゃべりして遊んでいる` : 'にゃんことあそんでいる';
+  } else if (activity === 'cheering') {
+    defaultTitle = 'けんちこが応援中';
+  } else if (activity === 'arrived') {
+    defaultTitle = `${locInfo.name}に到着！見回し中`;
+  } else {
+    defaultTitle = `${locInfo.name}でのんびりボーッとしている`;
+  }
+
+  return {
+    monologue: quote,
+    title: defaultTitle,
+  };
+}
+
+/**
+ * Picks a monologue from either matched custom asobi or built-in pool
+ */
+export function getRandomMonologue(
+  activity: ActivityType,
+  currentLocation: LocationId = 'living',
+  transportMethod: TransportMethod | null = null,
+  asobiList: KenchikoAsobi[] = [],
+  companionName?: string
+): string {
+  return getRandomMonologueAndTitle(
+    activity,
+    currentLocation,
+    transportMethod,
+    asobiList,
+    companionName
+  ).monologue;
 }
 
 export function pickRandomLocation(current: LocationId): LocationId {
@@ -495,19 +568,29 @@ export function generateNextActivity(
 export function startTransit(
   currentLoc: LocationId,
   targetLoc: LocationId,
-  transportMethod: TransportMethod
+  transportMethod: TransportMethod,
+  asobiList: KenchikoAsobi[] = [],
+  companionName?: string
 ): {
   title: string;
+  monologue: string;
   durationSec: number;
 } {
-  const locInfo = LOCATIONS[targetLoc] || LOCATIONS.living;
-  const transport = TRANSPORT_METHODS.find((t) => t.id === transportMethod) || TRANSPORT_METHODS[0];
-
-  // Standardized transit duration: 20 seconds
   const durationSec = 20;
 
+  // Pick transit monologue and transit title (custom asobi prioritized)
+  const res = getRandomMonologueAndTitle(
+    'transit',
+    currentLoc,
+    transportMethod,
+    asobiList,
+    companionName,
+    targetLoc
+  );
+
   return {
-    title: `${transport.name}で「${locInfo.name}」へ向かって移動中…`,
+    title: res.title,
+    monologue: res.monologue,
     durationSec,
   };
 }

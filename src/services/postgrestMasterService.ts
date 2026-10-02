@@ -406,6 +406,84 @@ export async function saveMasterNyansToPostgrest(
 }
 
 /**
+ * Save / Upsert a Single Master Character directly to Synology PostgreSQL (api.master_nyans)
+ */
+export async function saveSingleMasterNyanToPostgrest(
+  nyan: MasterNyanCharacter
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !nyan) {
+    return { success: false, error: 'PostgREST disabled or empty character' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  const row = {
+    no: Number(nyan.no),
+    name: nyan.name || '',
+    reading: nyan.reading || null,
+    motif: nyan.motif || null,
+    first_appeared: nyan.firstAppeared || null,
+    episode: nyan.episode || null,
+    prompt_ja: nyan.promptJa || null,
+    prompt_en: nyan.promptEn || null,
+    dialogue: nyan.dialogue || null,
+    dialogue_meaning: nyan.dialogueMeaning || null,
+    has_story: Boolean(nyan.hasStory),
+    custom_image_url: nyan.customImageUrl || null,
+    raw_image_url: nyan.rawImageUrl || null,
+    has_custom_image: Boolean(nyan.hasCustomImage || nyan.customImageUrl),
+    transparency: nyan.transparency || null,
+    favorite_items: nyan.favoriteItems || null,
+    favorite_locations: nyan.favoriteLocations || null,
+  };
+
+  try {
+    const res = await fetch(`${baseUrl}/master_nyans`, {
+      method: 'POST',
+      headers: getPostgrestHeaders({
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      }),
+      body: JSON.stringify([row]),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_nyans') };
+    }
+    console.log(`[Synology Master] 🐾 master_nyans 1匹 (No.${nyan.no} ${nyan.name}) を直接DB保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Delete a Single Master Character directly from Synology PostgreSQL (api.master_nyans)
+ */
+export async function deleteSingleMasterNyanFromPostgrest(
+  no: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || isNaN(no)) {
+    return { success: false, error: 'PostgREST disabled or invalid No' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/master_nyans?no=eq.${no}`, {
+      method: 'DELETE',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_nyans') };
+    }
+    console.log(`[Synology Master] 🗑️ master_nyans 1匹 (No.${no}) を直接削除しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
  * Save / Upsert Master Asobi list to Synology PostgreSQL (api.master_asobi)
  */
 export async function saveMasterAsobiToPostgrest(
@@ -438,6 +516,74 @@ export async function saveMasterAsobiToPostgrest(
       return { success: false, error: formatPostgrestError(res.status, errText, 'master_asobi') };
     }
     console.log(`[Synology Master] 🎮 master_asobi (${rows.length}件) をSynology PostgreSQLに正常保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Save / Upsert a Single Master Asobi item directly to Synology PostgreSQL (api.master_asobi)
+ */
+export async function saveSingleMasterAsobiToPostgrest(
+  asobi: KenchikoAsobi,
+  sortOrder?: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !asobi) {
+    return { success: false, error: 'PostgREST disabled or empty asobi' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  const row = {
+    id: asobi.id,
+    title: asobi.title || '',
+    content: asobi.content || null,
+    condition: asobi.condition || 'all',
+    frequency: asobi.frequency || 'normal',
+    sort_order: sortOrder ?? 1,
+  };
+
+  try {
+    const res = await fetch(`${baseUrl}/master_asobi`, {
+      method: 'POST',
+      headers: getPostgrestHeaders({
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      }),
+      body: JSON.stringify([row]),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_asobi') };
+    }
+    console.log(`[Synology Master] 🎮 master_asobi 1件 (id=${asobi.id}, title=${asobi.title}) を直接DB保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Delete a Single Master Asobi item directly from Synology PostgreSQL (api.master_asobi)
+ */
+export async function deleteSingleMasterAsobiFromPostgrest(
+  asobiId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !asobiId) {
+    return { success: false, error: 'PostgREST disabled or invalid ID' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/master_asobi?id=eq.${encodeURIComponent(asobiId)}`, {
+      method: 'DELETE',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_asobi') };
+    }
+    console.log(`[Synology Master] 🗑️ master_asobi 1件 (id=${asobiId}) を直接削除しました`);
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || String(err) };
@@ -503,6 +649,137 @@ export async function saveMasterOuenToPostgrest(
     }
 
     console.log(`[Synology Master] 💌 master_ouen をSynology PostgreSQLに正常保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Save / Upsert a single Ouen item directly to Synology PostgreSQL (api.master_ouen_items)
+ */
+export async function saveSingleMasterOuenItemToPostgrest(
+  item: OuenItem,
+  sortOrder?: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !item) {
+    return { success: false, error: 'PostgREST disabled or empty item' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  const row = {
+    id: item.id,
+    category_id: item.categoryId,
+    message: item.message || '',
+    sort_order: sortOrder ?? 1,
+  };
+
+  try {
+    const res = await fetch(`${baseUrl}/master_ouen_items`, {
+      method: 'POST',
+      headers: getPostgrestHeaders({
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      }),
+      body: JSON.stringify([row]),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_ouen_items') };
+    }
+    console.log(`[Synology Master] 💌 master_ouen_items 1件 (id=${item.id}) を直接DB保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Delete a single Ouen item directly from Synology PostgreSQL (api.master_ouen_items)
+ */
+export async function deleteSingleMasterOuenItemFromPostgrest(
+  itemId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !itemId) {
+    return { success: false, error: 'PostgREST disabled or invalid ID' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/master_ouen_items?id=eq.${encodeURIComponent(itemId)}`, {
+      method: 'DELETE',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_ouen_items') };
+    }
+    console.log(`[Synology Master] 🗑️ master_ouen_items 1件 (id=${itemId}) を直接削除しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Save / Upsert a single Ouen category directly to Synology PostgreSQL (api.master_ouen_categories)
+ */
+export async function saveSingleMasterOuenCategoryToPostgrest(
+  category: OuenCategory,
+  sortOrder?: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !category) {
+    return { success: false, error: 'PostgREST disabled or empty category' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  const row = {
+    id: category.id,
+    label: category.label || '',
+    sort_order: sortOrder ?? 1,
+  };
+
+  try {
+    const res = await fetch(`${baseUrl}/master_ouen_categories`, {
+      method: 'POST',
+      headers: getPostgrestHeaders({
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      }),
+      body: JSON.stringify([row]),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_ouen_categories') };
+    }
+    console.log(`[Synology Master] 🏷️ master_ouen_categories 1件 (id=${category.id}) を直接DB保存しました`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Delete a single Ouen category directly from Synology PostgreSQL (api.master_ouen_categories)
+ */
+export async function deleteSingleMasterOuenCategoryFromPostgrest(
+  categoryId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isPostgrestEnabled() || !categoryId) {
+    return { success: false, error: 'PostgREST disabled or invalid ID' };
+  }
+  const baseUrl = getPostgrestBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/master_ouen_categories?id=eq.${encodeURIComponent(categoryId)}`, {
+      method: 'DELETE',
+      headers: getPostgrestHeaders({
+        'Accept': 'application/json',
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return { success: false, error: formatPostgrestError(res.status, errText, 'master_ouen_categories') };
+    }
+    console.log(`[Synology Master] 🗑️ master_ouen_categories 1件 (id=${categoryId}) を直接削除しました`);
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || String(err) };

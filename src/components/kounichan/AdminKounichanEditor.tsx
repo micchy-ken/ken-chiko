@@ -164,7 +164,7 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
       if (res.success) {
         setSaveStatus({
           type: 'success',
-          message: '共通データベース（Firestore）に正常に保存しました！全ユーザー・全端末に反映されます。',
+          message: 'Synology DB（master_settings）に正常に直接保存しました！全ユーザー・全端末に反映されます。',
         });
         try {
           confetti({ particleCount: 50, spread: 80, origin: { y: 0.5 } });
@@ -172,13 +172,13 @@ export const AdminKounichanEditor: React.FC<AdminKounichanEditorProps> = ({
       } else {
         setSaveStatus({
           type: 'error',
-          message: res.error || 'Firestoreへの保存に失敗しました。',
+          message: res.error || 'Synology DBへの保存に失敗しました。',
         });
       }
     } catch (err: any) {
       setSaveStatus({
         type: 'error',
-        message: err?.message || 'Firestore保存中にエラーが発生しました。',
+        message: err?.message || 'DB保存中にエラーが発生しました。',
       });
     } finally {
       setIsSavingToFirestore(false);

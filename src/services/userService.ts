@@ -22,10 +22,9 @@ const KNOWN_USERS_STORAGE_KEY = 'kenchiko_known_user_ids_list';
  * Standard user accounts for the application:
  * - default: 基本ユーザー
  * - yumi: ゆみさん
- * - kensuke: けんすけ
  * - chiko: ちこ
  */
-export const DEFAULT_USER_IDS = ['default', 'yumi', 'kensuke', 'chiko'] as const;
+export const DEFAULT_USER_IDS = ['default', 'yumi', 'chiko'] as const;
 
 /**
  * System and master data document IDs that must NEVER be treated as user accounts.
@@ -40,11 +39,13 @@ export const SYSTEM_DOC_IDS = [
 
 /**
  * Checks if a given userId or document ID represents system metadata or an internal system document.
+ * Also strictly excludes banned/purged accounts such as 'kensuke'.
  */
 export function isSystemUserId(userId: string | null | undefined): boolean {
   if (!userId) return false;
   const lower = userId.trim().toLowerCase();
   if (
+    lower === 'kensuke' ||
     lower === 'global' ||
     lower === 'system' ||
     lower === DEFAULT_GLOBAL_DOC_ID.toLowerCase() ||
@@ -129,36 +130,105 @@ export interface UserDetailData {
 }
 
 /**
+ * Completely purges and erases @kensuke from all client storages and remote DB
+ */
+export function purgeKensukeAccount(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // 1. Purge direct local storage keys
+    localStorage.removeItem('kenchiko_save_state_user_kensuke');
+    localStorage.removeItem('kenchiko_save_state_backup_kensuke');
+
+    // Scan all keys in localStorage for anything mentioning kensuke
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.toLowerCase().includes('kensuke')) {
+        try {
+          localStorage.removeItem(k);
+        } catch (_) {}
+      }
+    }
+
+    // 2. Clear active user if set to kensuke
+    const active = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
+    if (active && active.toLowerCase() === 'kensuke') {
+      localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+      try {
+        const url = new URL(window.location.href);
+        if (
+          url.searchParams.get('user')?.toLowerCase() === 'kensuke' ||
+          url.searchParams.get('uid')?.toLowerCase() === 'kensuke' ||
+          url.searchParams.get('player')?.toLowerCase() === 'kensuke' ||
+          url.searchParams.get('u')?.toLowerCase() === 'kensuke'
+        ) {
+          url.searchParams.delete('user');
+          url.searchParams.delete('uid');
+          url.searchParams.delete('player');
+          url.searchParams.delete('u');
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        }
+      } catch {}
+    }
+
+    // 3. Purge from known user IDs
+    const raw = localStorage.getItem(KNOWN_USERS_STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter(
+            (id) => typeof id === 'string' && id.toLowerCase() !== 'kensuke' && !isSystemUserId(id)
+          );
+          localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(filtered));
+        }
+      } catch {}
+    }
+
+    // 4. Purge from Synology PostgreSQL api.user_saves in background
+    deleteUserFromPostgrest('kensuke').catch(() => {});
+  } catch (e) {
+    console.warn('purgeKensukeAccount error:', e);
+  }
+}
+
+// Auto-run purge immediately on module execution
+purgeKensukeAccount();
+
+/**
  * Gets the locally stored list of known user IDs.
- * Always includes the standard 3 users: default, ken, and chiko.
+ * Strictly guarantees that 'default' is present, and purged/banned accounts (kensuke) are permanently absent.
  */
 export function getKnownUserIds(): string[] {
   if (typeof window === 'undefined') return [...DEFAULT_USER_IDS];
   try {
     const raw = localStorage.getItem(KNOWN_USERS_STORAGE_KEY);
-    if (!raw) return [...DEFAULT_USER_IDS];
+    if (!raw) {
+      const initial = [...DEFAULT_USER_IDS];
+      localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(initial));
+      return initial;
+    }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // ユーザーの意図を汲み、システムとデフォルトユーザーのみを抽出
-      // 過去のバグでクラウドから降ってきた262件のゴミID通信を【物理的に】遮断します。
       const sanitizedList = Array.from(
-        new Set([...DEFAULT_USER_IDS, ...parsed.filter((id) => {
-          if (!id || typeof id !== 'string') return false;
-          if (isSystemUserId(id)) return false;
-          if (/^\d+$/.test(id)) return false;
-          if (id.includes('[object')) return false;
-          if (id.includes('backup')) return false;
-          if (id.length > 50) return false;
-          // UUIDやキャラクターIDの混入を絶対に許さないため、
-          // ken, yumi, chiko, default 以外の未知の長いIDは弾く
-          return true;
-        })])
+        new Set([
+          'default',
+          ...parsed.filter((id) => {
+            if (!id || typeof id !== 'string') return false;
+            if (id.toLowerCase() === 'kensuke') return false;
+            if (isSystemUserId(id)) return false;
+            if (/^\d+$/.test(id)) return false;
+            if (id.includes('[object')) return false;
+            if (id.includes('backup')) return false;
+            if (id.length > 50) return false;
+            return true;
+          }),
+        ])
       );
-      
-      // ★超強力な防波堤: 画面に見えるユーザー数と通信数を一致させるため、強制的に最大8人までにクリップする
+
+      // Clip to maximum safe user count
       const finalIds = sanitizedList.slice(0, 8);
 
-      if (parsed.length !== finalIds.length) {
+      if (parsed.length !== finalIds.length || parsed.some((id) => typeof id === 'string' && id.toLowerCase() === 'kensuke')) {
         localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(finalIds));
       }
       return finalIds;
@@ -172,7 +242,7 @@ export function getKnownUserIds(): string[] {
  * Registers a user ID in the locally stored known users list
  */
 export function registerKnownUserId(userId: string): void {
-  if (typeof window === 'undefined' || !userId || isSystemUserId(userId)) return;
+  if (typeof window === 'undefined' || !userId || isSystemUserId(userId) || userId.toLowerCase() === 'kensuke') return;
   try {
     const list = getKnownUserIds();
     if (!list.includes(userId)) {
@@ -190,7 +260,14 @@ export function registerKnownUserId(userId: string): void {
 export function unregisterKnownUserId(userId: string): void {
   if (typeof window === 'undefined' || !userId || userId === 'default') return;
   try {
-    const list = getKnownUserIds().filter((id) => id !== userId);
+    const raw = localStorage.getItem(KNOWN_USERS_STORAGE_KEY);
+    const existing: string[] = raw ? JSON.parse(raw) : getKnownUserIds();
+    const list = existing.filter(
+      (id) => id !== userId && id.toLowerCase() !== 'kensuke' && !isSystemUserId(id)
+    );
+    if (!list.includes('default')) {
+      list.unshift('default');
+    }
     localStorage.setItem(KNOWN_USERS_STORAGE_KEY, JSON.stringify(list));
   } catch {
     // Ignore error
@@ -206,7 +283,7 @@ export function sanitizeUserId(raw: string | null | undefined): string | null {
   if (!trimmed) return null;
   // Keep alphanumeric, underscores, hyphens, and common safe unicode characters
   const sanitized = trimmed.replace(/[^a-zA-Z0-9_\-\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/g, '').slice(0, 64);
-  if (!sanitized || isSystemUserId(sanitized)) return null;
+  if (!sanitized || isSystemUserId(sanitized) || sanitized.toLowerCase() === 'kensuke') return null;
   return sanitized;
 }
 
@@ -445,7 +522,12 @@ export async function fetchAllRegisteredUsers(
         const pgUsers = await fetchAllUsersFromPostgrest();
         console.log(`[Synology] 👥 全ユーザーセーブデータ取得: ${pgUsers.length}件検出`);
         for (const row of pgUsers) {
-          if (!row.user_id || isSystemUserId(row.user_id)) continue;
+          if (!row.user_id || isSystemUserId(row.user_id) || row.user_id.toLowerCase() === 'kensuke') {
+            if (row.user_id && row.user_id.toLowerCase() === 'kensuke') {
+              deleteUserFromPostgrest('kensuke').catch(() => {});
+            }
+            continue;
+          }
           const userRaw = {
             version: row.version,
             stats: row.stats,
@@ -494,9 +576,9 @@ export async function fetchAllRegisteredUsers(
         const key = localStorage.key(i);
         if (key && key.startsWith(USER_LOCAL_KEY_PREFIX)) {
           const uid = key.slice(USER_LOCAL_KEY_PREFIX.length);
-          if (!uid || isSystemUserId(uid)) {
-            // Clean up any stale contaminated system key in localStorage
-            if (uid && isSystemUserId(uid)) {
+          if (!uid || isSystemUserId(uid) || uid.toLowerCase() === 'kensuke') {
+            // Clean up any stale contaminated system key or kensuke in localStorage
+            if (uid && (isSystemUserId(uid) || uid.toLowerCase() === 'kensuke')) {
               try {
                 localStorage.removeItem(key);
               } catch (_) {}
@@ -525,7 +607,7 @@ export async function fetchAllRegisteredUsers(
     // Check known user ids list
     const knownList = getKnownUserIds();
     for (const kid of knownList) {
-      if (isSystemUserId(kid)) continue;
+      if (isSystemUserId(kid) || kid.toLowerCase() === 'kensuke') continue;
       if (!userMap.has(kid)) {
         // Prepare initial empty state
         const fresh: GameSaveData = {
@@ -556,9 +638,10 @@ export async function fetchAllRegisteredUsers(
     });
   }
 
-  // Build the detailed list
+  // Build the detailed list (strictly excluding kensuke)
   const results: UserDetailData[] = [];
   for (const [uid, info] of userMap.entries()) {
+    if (uid.toLowerCase() === 'kensuke' || isSystemUserId(uid)) continue;
     results.push(
       buildUserDetailData(
         uid,
@@ -595,8 +678,8 @@ export async function fetchAllRegisteredUsers(
 export async function deleteUserAccount(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!userId || isSystemUserId(userId)) {
-    return { success: false, error: 'システム管理ドキュメントは削除できません' };
+  if (!userId || userId === 'default' || (isSystemUserId(userId) && userId.toLowerCase() !== 'kensuke')) {
+    return { success: false, error: '基本ユーザー・システム管理ドキュメントは削除できません' };
   }
 
   try {
@@ -604,10 +687,13 @@ export async function deleteUserAccount(
     // 1. Remove from LocalStorage
     if (typeof window !== 'undefined') {
       localStorage.removeItem(getLocalStorageKeyForUser(userId));
-      if (userId !== 'default') {
-        localStorage.removeItem(`${USER_LOCAL_KEY_PREFIX}${userId}`);
-      }
+      localStorage.removeItem(`${USER_LOCAL_KEY_PREFIX}${userId}`);
+      localStorage.removeItem(`kenchiko_save_state_backup_${userId}`);
       unregisterKnownUserId(userId);
+
+      if (userId.toLowerCase() === 'kensuke') {
+        purgeKensukeAccount();
+      }
 
       // If this was the active user, reset active user to default
       const currentActive = getActiveUserId();
@@ -619,6 +705,7 @@ export async function deleteUserAccount(
     // 2. Delete from Synology PostgreSQL
     await deleteUserFromPostgrest(userId);
 
+    invalidateUsersCache();
     return { success: true };
   } catch (err: any) {
     console.error('deleteUserAccount error:', err);
