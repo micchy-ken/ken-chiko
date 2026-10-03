@@ -438,11 +438,38 @@ export function markQuotaExhausted(_durationMs: number = 0): void {}
 
 export function clearQuotaExhausted(): void {}
 
+const LAST_CLOUD_SYNC_KEY = 'kenchiko_last_cloud_sync_time';
+
+export function getLastCloudSyncTime(): number | null {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(LAST_CLOUD_SYNC_KEY);
+      if (saved) {
+        const num = Number(saved);
+        if (!isNaN(num) && num > 0) return num;
+      }
+    } catch {}
+  }
+  return connectionStatus.lastSyncTime || null;
+}
+
+export function recordCloudSyncTime(ts: number = Date.now()): void {
+  connectionStatus.lastSyncTime = ts;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(LAST_CLOUD_SYNC_KEY, String(ts));
+    } catch {}
+  }
+  notifyStatusChange();
+}
+
 let connectionStatus: CloudConnectionStatus = {
   isConnected: true,
   isOffline: false,
   lastError: null,
-  lastSyncTime: Date.now(),
+  lastSyncTime: typeof window !== 'undefined'
+    ? (Number(localStorage.getItem(LAST_CLOUD_SYNC_KEY)) || Date.now())
+    : Date.now(),
   docId: 'synology-postgres',
   isInitialConnection: false,
   dailyWriteCount: 0,
@@ -644,8 +671,7 @@ export async function fetchInitialCloudState(
     connectionStatus.isConnected = true;
     connectionStatus.isOffline = false;
     connectionStatus.masterStatus = 'synced';
-    connectionStatus.lastSyncTime = Date.now();
-    notifyStatusChange();
+    recordCloudSyncTime();
 
     return {
       success: true,
@@ -751,8 +777,7 @@ export async function syncSaveDataToCloud(
       return { success: false, error: res.error };
     }
     recordAuditLog('WRITE', 'syncSaveDataToCloud', `user_saves/${activeUid}`);
-    connectionStatus.lastSyncTime = Date.now();
-    notifyStatusChange();
+    recordCloudSyncTime();
     return { success: true, timestamp: Date.now() };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Synology保存エラー' };
@@ -765,7 +790,11 @@ export async function saveOnUserAction(
 ): Promise<void> {
   const activeUid = getActiveUserId() || 'default';
   saveLocalBackup(saveData, activeUid);
-  await saveUserSaveToPostgrest(activeUid, saveData).catch((e) => {
+  await saveUserSaveToPostgrest(activeUid, saveData).then((res) => {
+    if (res?.success) {
+      recordCloudSyncTime();
+    }
+  }).catch((e) => {
     console.warn('[SynologySync] saveOnUserAction background notice:', e);
   });
 }
@@ -776,7 +805,11 @@ export async function saveOnAppExit(
 ): Promise<void> {
   const activeUid = getActiveUserId() || 'default';
   saveLocalBackup(saveData, activeUid);
-  await saveUserSaveToPostgrest(activeUid, saveData).catch(() => {});
+  await saveUserSaveToPostgrest(activeUid, saveData).then((res) => {
+    if (res?.success) {
+      recordCloudSyncTime();
+    }
+  }).catch(() => {});
 }
 
 export async function saveGlobalAsobiList(

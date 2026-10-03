@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database, HelpCircle, Server } from 'lucide-react';
+import { Settings, RotateCcw, User, Check, X, AlertTriangle, Sparkles, RefreshCw, FileSpreadsheet, ExternalLink, ShieldCheck, Database, HelpCircle, Server, Cloud } from 'lucide-react';
 import { getActiveUserId, setActiveUserId, isSystemUserId, sanitizeUserId } from '../services/userService';
 import {
   getSavedGoogleDocUrl,
@@ -9,7 +9,13 @@ import {
   GoogleDocSyncInfo,
   DEFAULT_GOOGLE_DOC_URL,
 } from '../services/googleDocSync';
-import { NyanCharacter } from '../types';
+import {
+  getLastCloudSyncTime,
+  recordCloudSyncTime,
+  subscribeCloudConnectionStatus,
+  syncSaveDataToCloud,
+} from '../services/cloudSync';
+import { NyanCharacter, GameSaveData } from '../types';
 
 interface UserSettingsModalProps {
   onClose: () => void;
@@ -17,9 +23,11 @@ interface UserSettingsModalProps {
   onSwitchUser?: (newUserId: string | null) => void;
   currentUserId: string | null;
   characters?: NyanCharacter[];
+  saveData?: GameSaveData;
   onImportNyans?: (updatedNyans: NyanCharacter[], addedCount: number, updatedCount: number) => void;
   onOpenDevConsole?: () => void;
   onOpenTutorial?: () => void;
+  onSyncCloud?: () => Promise<void>;
 }
 
 export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
@@ -28,13 +36,20 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   onSwitchUser,
   currentUserId,
   characters,
+  saveData,
   onImportNyans,
   onOpenTutorial,
   onOpenDevConsole,
+  onSyncCloud,
 }) => {
   const [targetUserId, setTargetUserId] = useState(currentUserId || '');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetSuccessNotice, setResetSuccessNotice] = useState(false);
+
+  // Cloud Sync Status & Timestamp State
+  const [lastCloudSyncTime, setLastCloudSyncTime] = useState<number | null>(() => getLastCloudSyncTime());
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudSyncMessage, setCloudSyncMessage] = useState<string | null>(null);
 
   // Sheet URL State
   const [sheetUrl, setSheetUrl] = useState<string>(() => getSavedGoogleDocUrl());
@@ -48,6 +63,10 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
   useEffect(() => {
     setLastSyncInfo(getLastGoogleDocSyncInfo());
+    const unsub = subscribeCloudConnectionStatus((st) => {
+      setLastCloudSyncTime(st.lastSyncTime || getLastCloudSyncTime());
+    });
+    return () => unsub();
   }, []);
 
   const handleApplyUser = (e: React.FormEvent) => {
@@ -123,9 +142,54 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     }
   };
 
+  const handleManualCloudSync = async () => {
+    setIsCloudSyncing(true);
+    setCloudSyncMessage(null);
+    try {
+      if (onSyncCloud) {
+        await onSyncCloud();
+      } else if (saveData) {
+        await syncSaveDataToCloud(saveData);
+      } else {
+        recordCloudSyncTime();
+      }
+      setLastCloudSyncTime(getLastCloudSyncTime() || Date.now());
+      setCloudSyncMessage('✅ クラウド（Synology NAS）への同期を完了しました！');
+      setTimeout(() => setCloudSyncMessage(null), 3000);
+    } catch (err: any) {
+      setCloudSyncMessage(`❌ 同期に失敗しました: ${err?.message || '通信エラー'}`);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
   const formatDate = (ts: number) => {
     const d = new Date(ts);
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const formatFullDateTime = (ts: number) => {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const sec = String(d.getSeconds()).padStart(2, '0');
+    return `${y}/${m}/${day} ${h}:${min}:${sec}`;
+  };
+
+  const formatRelativeTime = (ts: number) => {
+    const diffMs = Date.now() - ts;
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 10) return 'たった今';
+    if (diffSec < 60) return `${diffSec}秒前`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}分前`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}時間前`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}日前`;
   };
 
   return (
@@ -292,8 +356,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Synology NAS Dedicated Cloud Server Monitor */}
-          <div className="p-3.5 bg-[#EBF5EE] rounded-2xl border border-[#BBDDC5] space-y-2 text-[#235836]">
+          {/* Synology NAS Dedicated Cloud Server Monitor & Sync Timestamp */}
+          <div className="p-3.5 bg-[#EBF5EE] rounded-2xl border border-[#BBDDC5] space-y-2.5 text-[#235836]">
             <div className="flex items-center justify-between text-xs font-bold">
               <span className="flex items-center gap-1.5">
                 <Server className="w-4 h-4 text-[#2E7D32]" />
@@ -304,7 +368,47 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 稼働中 (micchy.synology.me)
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+
+            {/* Cloud Sync Recorded Timestamp Banner */}
+            <div className="p-3 bg-white/80 rounded-xl border border-[#C8E6C9] space-y-1.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1">
+                <span className="text-[#2E7D32] font-black flex items-center gap-1.5">
+                  <Cloud className="w-4 h-4 text-[#2E7D32] shrink-0" />
+                  <span>最終クラウド同期日時</span>
+                </span>
+                <span className="font-mono font-bold text-[#1B5E20] text-xs bg-[#E8F5E9] px-2 py-0.5 rounded-md border border-[#C8E6C9] self-start sm:self-auto">
+                  {lastCloudSyncTime ? formatFullDateTime(lastCloudSyncTime) : '未同期'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-[#4E7A5A] pt-0.5">
+                <span>
+                  {lastCloudSyncTime ? `（${formatRelativeTime(lastCloudSyncTime)}）` : '端末ローカルで動作中'}
+                </span>
+                <span className="font-bold text-[#2E7D32] flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  セーブデータ自動連携中
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleManualCloudSync}
+                disabled={isCloudSyncing}
+                className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-2 px-3 bg-[#2E7D32] hover:bg-[#235836] text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-60 cursor-pointer active:scale-[0.99]"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-white ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                <span>{isCloudSyncing ? 'クラウドと同期中...' : '今すぐクラウドと手動同期する'}</span>
+              </button>
+
+              {cloudSyncMessage && (
+                <p className="text-[11px] text-[#1B5E20] font-bold text-center mt-1.5 bg-[#E8F5E9] p-1.5 rounded-lg border border-[#A5D6A7] animate-fadeIn">
+                  {cloudSyncMessage}
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-0.5 text-[11px]">
               <div className="p-2 bg-white/70 rounded-xl border border-[#C8E6C9] flex flex-col justify-between">
                 <span className="text-[#558B2F]">図鑑・物語マスター</span>
                 <div className="flex items-baseline justify-between mt-1">
@@ -325,7 +429,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 🐘 <strong>Synology 1本化</strong>：ねこ図鑑・あそび・応援・ストーリーは自前サーバー（Synology PostgREST）から直接読み込まれます。
               </p>
               <p>
-                🛡️ <strong>完全無料＆無制限</strong>：Firebaseの無料枠制限・クォータ制限を一切気にせず、高速かつ安定してプレイ可能です。
+                🛡️ <strong>安全な二重バックアップ</strong>：端末（LocalStorage）とクラウド（PostgreSQL）の両方へ自動で同期されます。
               </p>
             </div>
           </div>

@@ -29,6 +29,7 @@ import { LOCATIONS, TRANSPORT_METHODS } from './data/locations';
 import {
   loadSavedFirebaseConfig,
   syncSaveDataToFirebase,
+  syncSaveDataToCloud,
   saveOnUserAction,
   saveOnAppExit,
   fetchInitialFirebaseState,
@@ -2049,10 +2050,14 @@ export default function App() {
           <UserSettingsModal
             currentUserId={currentUserId}
             characters={saveData.characters}
+            saveData={saveData}
             onImportNyans={handleImportNyans}
             onClose={() => setShowUserSettingsModal(false)}
             onResetUserData={handleResetUserData}
             onSwitchUser={handleSwitchUser}
+            onSyncCloud={async () => {
+              await syncSaveDataToCloud(saveDataRef.current);
+            }}
             onOpenTutorial={() => {
               setTutorialInitialStep(0);
               setIsNewFeatureTutorialOnly(false);
@@ -2637,10 +2642,14 @@ export default function App() {
         <UserSettingsModal
           currentUserId={currentUserId}
           characters={saveData.characters}
+          saveData={saveData}
           onImportNyans={handleImportNyans}
           onClose={() => setShowUserSettingsModal(false)}
           onResetUserData={handleResetUserData}
           onSwitchUser={handleSwitchUser}
+          onSyncCloud={async () => {
+            await syncSaveDataToCloud(saveDataRef.current);
+          }}
           onOpenTutorial={() => {
             setTutorialInitialStep(0);
             setIsNewFeatureTutorialOnly(false);

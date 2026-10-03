@@ -34,6 +34,8 @@ import {
   Flame,
   Info,
   ExternalLink,
+  Ticket,
+  Coins,
 } from 'lucide-react';
 import { NyanCharacter, GameSaveData, LocationId } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
@@ -75,19 +77,19 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
   // Inspector & Modal States
   const [selectedUser, setSelectedUser] = useState<UserDetailData | null>(null);
-  const [detailTab, setDetailTab] = useState<'overview' | 'nyans' | 'diary' | 'inventory' | 'json'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'nyans' | 'tickets' | 'diary' | 'inventory' | 'json'>('overview');
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [newUserIdInput, setNewUserIdInput] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
   const activeUserId = getActiveUserId();
 
-  // Load all users
+  // Load all users directly from database and active save
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
     setStatusMessage(null);
     try {
-      const data = await fetchAllRegisteredUsers(characters);
+      const data = await fetchAllRegisteredUsers(characters, true, saveData);
       setUsers(data);
       // If a user detail modal is open, refresh its data
       if (selectedUser) {
@@ -102,11 +104,11 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [characters, selectedUser]);
+  }, [characters, selectedUser, saveData]);
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [loadUsers]);
 
   // Filtered users by search query (strictly excluding system metadata IDs)
   const filteredUsers = useMemo(() => {
@@ -130,12 +132,16 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const totalSnacks = validUsers.reduce((sum, u) => sum + (u.stats.totalSnacksEaten || 0), 0);
     const totalTrips = validUsers.reduce((sum, u) => sum + (u.stats.totalTrips || 0), 0);
     const maxDiscovered = Math.max(0, ...validUsers.map((u) => u.discoveredCount));
+    const totalTickets = validUsers.reduce((sum, u) => sum + (u.ticketCount || 0), 0);
+    const totalPoints = validUsers.reduce((sum, u) => sum + (u.rewards?.points || 0), 0);
     return {
       totalUsersCount,
       totalEncounters,
       totalSnacks,
       totalTrips,
       maxDiscovered,
+      totalTickets,
+      totalPoints,
     };
   }, [users]);
 
@@ -404,7 +410,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         </div>
 
         {/* Global Stats Snapshot Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-[#EAE5D9]">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-2 border-t border-[#EAE5D9]">
           <div className="p-3 bg-[#F4EFE6] rounded-xl border border-[#E0D9CB] flex items-center gap-2.5">
             <div className="p-2 rounded-lg bg-[#3E7B68]/10 text-[#3E7B68]">
               <UserCheck className="w-4 h-4" />
@@ -422,9 +428,21 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-[10px] text-[#7A726A] font-bold">最高にゃんこ発見数</div>
+              <div className="text-[10px] text-[#7A726A] font-bold">最高にゃんこ発見</div>
               <div className="text-xs font-black text-[#2E2824]">
                 {totalStats.maxDiscovered} / {characters.length} 匹
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 bg-[#FFFDF5] rounded-xl border border-[#F6E0B5] flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-[#D97706]/10 text-[#D97706]">
+              <Ticket className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[10px] text-[#A2621C] font-bold">有効チケット総数</div>
+              <div className="text-xs font-black text-[#8C530A]">
+                {totalStats.totalTickets} 枚
               </div>
             </div>
           </div>
@@ -434,14 +452,14 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
               <Coffee className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-[10px] text-[#7A726A] font-bold">全ユーザー総おやつ回数</div>
+              <div className="text-[10px] text-[#7A726A] font-bold">全ユーザー総おやつ</div>
               <div className="text-xs font-black text-[#2E2824]">
                 {totalStats.totalSnacks} 回
               </div>
             </div>
           </div>
 
-          <div className="p-3 bg-[#F4EFE6] rounded-xl border border-[#E0D9CB] flex items-center gap-2.5">
+          <div className="p-3 bg-[#F4EFE6] rounded-xl border border-[#E0D9CB] flex items-center gap-2.5 col-span-2 sm:col-span-1">
             <div className="p-2 rounded-lg bg-[#8E6E53]/10 text-[#8E6E53]">
               <Plane className="w-4 h-4" />
             </div>
@@ -530,7 +548,6 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
               ? getLocationLabel(user.kenchiko.targetLocation)
               : null;
             const isMoving = Boolean(user.kenchiko.targetLocation);
-            const discoveryRatio = user.totalNyans > 0 ? (user.discoveredCount / user.totalNyans) * 100 : 0;
 
             return (
               <div
@@ -647,12 +664,23 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                 </div>
 
                 {/* Progress & Data Metrics */}
-                <div className="grid grid-cols-4 gap-1.5 text-center mb-3">
+                <div className="grid grid-cols-5 gap-1.5 text-center mb-3">
                   <div className="p-2 rounded-xl bg-[#F8F6F2] border border-[#EAE5D9]">
                     <div className="text-[10px] text-[#7A726A]">発見にゃん</div>
                     <div className="text-xs font-black text-[#2E2824] mt-0.5">
                       {user.discoveredCount}
                       <span className="text-[9px] font-normal text-[#9A9187]">/{user.totalNyans}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-[#FFFDF5] border border-[#F6E0B5] flex flex-col justify-between" title={`有効チケット: ${user.ticketCount}枚 / 累計: ${user.totalTicketCount}枚 (🍰${user.rewards?.ticketsByType.karuchieratan || 0} 📚${user.rewards?.ticketsByType.nyanko_book || 0} 🍫${user.rewards?.ticketsByType.combini_snack || 0})`}>
+                    <div className="text-[10px] text-[#A2621C] font-bold flex items-center justify-center gap-0.5">
+                      <Ticket className="w-3 h-3 text-[#D97706]" />
+                      <span>チケット</span>
+                    </div>
+                    <div className="text-xs font-black text-[#8C530A] mt-0.5">
+                      {user.ticketCount}
+                      <span className="text-[9px] font-normal text-[#A2621C]">枚</span>
                     </div>
                   </div>
 
@@ -791,6 +819,18 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
               </button>
 
               <button
+                onClick={() => setDetailTab('tickets')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 ${
+                  detailTab === 'tickets'
+                    ? 'bg-[#FAF8F5] text-[#8C530A] border-t-[#D97706] border-x-[#D5CEBF] -mb-[1px]'
+                    : 'text-[#7A726A] hover:text-[#2E2824] border-transparent'
+                }`}
+              >
+                <Ticket className="w-3.5 h-3.5 text-[#D97706]" />
+                <span>チケット保有 ({selectedUser.ticketCount}枚)</span>
+              </button>
+
+              <button
                 onClick={() => setDetailTab('diary')}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 ${
                   detailTab === 'diary'
@@ -865,6 +905,67 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                         💭 「{selectedUser.kenchiko.monologue}」
                       </div>
                     )}
+                  </div>
+
+                  {/* Rewards & Tickets Overview Card */}
+                  <div className="p-4 bg-[#FFFDF5] rounded-2xl border border-[#F6E0B5] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-[#8C530A] flex items-center gap-1.5">
+                        <Ticket className="w-4 h-4 text-[#D97706]" />
+                        チケット保有状況 & ガラポンポイント
+                      </span>
+                      <button
+                        onClick={() => setDetailTab('tickets')}
+                        className="text-[11px] font-bold text-[#D97706] hover:underline flex items-center gap-1"
+                      >
+                        <span>チケット一覧を見る</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                      <div className="p-2.5 bg-white/90 rounded-xl border border-[#F6E0B5]">
+                        <div className="text-[10px] text-[#A2621C] font-bold">有効チケット</div>
+                        <div className="text-sm font-black text-[#8C530A] mt-0.5">
+                          {selectedUser.ticketCount} <span className="text-xs font-normal">枚</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 bg-white/90 rounded-xl border border-[#F6E0B5]">
+                        <div className="text-[10px] text-[#A2621C] font-bold">所持ポイント</div>
+                        <div className="text-sm font-black text-[#8C530A] mt-0.5">
+                          {selectedUser.rewards?.points || 0} <span className="text-xs font-normal">pt</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 bg-white/90 rounded-xl border border-[#F6E0B5]">
+                        <div className="text-[10px] text-[#A2621C] font-bold">使用済チケット</div>
+                        <div className="text-sm font-black text-[#7A726A] mt-0.5">
+                          {selectedUser.rewards?.usedTicketCount || 0} <span className="text-xs font-normal">枚</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 bg-white/90 rounded-xl border border-[#F6E0B5]">
+                        <div className="text-[10px] text-[#A2621C] font-bold">累計獲得チケット</div>
+                        <div className="text-sm font-black text-[#8C530A] mt-0.5">
+                          {selectedUser.totalTicketCount} <span className="text-xs font-normal">枚</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Breakdown by Type */}
+                    <div className="flex items-center gap-2 flex-wrap pt-1 text-[11px]">
+                      <span className="text-[#A2621C] font-bold">内訳（有効）:</span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] font-bold">
+                        🍰 かるちぇらたん: {selectedUser.rewards?.ticketsByType.karuchieratan || 0}枚
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#F1F5F9] border border-[#CBD5E1] text-[#334155] font-bold">
+                        📚 にゃんこ本: {selectedUser.rewards?.ticketsByType.nyanko_book || 0}枚
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] font-bold">
+                        🍫 コンビニお菓子: {selectedUser.rewards?.ticketsByType.combini_snack || 0}枚
+                      </span>
+                    </div>
                   </div>
 
                   {/* Aggregate Lifetime Stats */}
@@ -950,17 +1051,121 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                               <Sparkles className="w-4 h-4 text-[#C8744E]" />
                             )}
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono text-[#9A9187]">No.{nyan.no}</div>
-                            <div className="text-xs font-black text-[#2E2824] truncate">{nyan.name}</div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-[#C85A53] mt-0.5">
-                              <Heart className="w-2.5 h-2.5 fill-current" />
-                              <span>Lv.{nyan.friendshipLevel}</span>
-                              <span className="text-[#7A726A]">({nyan.playCount}回)</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-black text-[#2E2824] truncate">
+                              No.{nyan.no} {nyan.name}
+                            </div>
+                            <div className="text-[10px] text-[#7A726A] flex items-center gap-2 mt-0.5">
+                              <span>なかよし: Lv.{nyan.friendshipLevel}</span>
+                              <span>•</span>
+                              <span>遊んだ: {nyan.playCount}回</span>
                             </div>
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: TICKETS (チケット保有一覧) */}
+              {detailTab === 'tickets' && (
+                <div className="space-y-4">
+                  {/* Top Stats Banner */}
+                  <div className="p-4 bg-[#FFFDF5] rounded-2xl border border-[#F6E0B5] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-[#8C530A] flex items-center gap-1.5">
+                        <Ticket className="w-4 h-4 text-[#D97706]" />
+                        獲得チケット・ポイント一覧
+                      </span>
+                      <span className="text-xs font-bold text-[#8C530A] bg-white px-2.5 py-1 rounded-lg border border-[#F6E0B5]">
+                        所持: <strong>{selectedUser.rewards?.points || 0}</strong> pt
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="p-2.5 bg-white rounded-xl border border-[#FDE68A]">
+                        <div className="text-[10px] text-[#92400E]">🍰 かるちぇらたん</div>
+                        <div className="font-black text-[#B45309] text-sm mt-0.5">
+                          {selectedUser.rewards?.ticketsByType.karuchieratan || 0} <span className="text-[10px] font-normal">枚</span>
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-xl border border-[#CBD5E1]">
+                        <div className="text-[10px] text-[#334155]">📚 にゃんこ関連本</div>
+                        <div className="font-black text-[#334155] text-sm mt-0.5">
+                          {selectedUser.rewards?.ticketsByType.nyanko_book || 0} <span className="text-[10px] font-normal">枚</span>
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-xl border border-[#FECACA]">
+                        <div className="text-[10px] text-[#991B1B]">🍫 コンビニお菓子</div>
+                        <div className="font-black text-[#991B1B] text-sm mt-0.5">
+                          {selectedUser.rewards?.ticketsByType.combini_snack || 0} <span className="text-[10px] font-normal">枚</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tickets List */}
+                  {selectedUser.rewards?.tickets?.length === 0 ? (
+                    <div className="p-8 text-center bg-white rounded-2xl border border-[#DCD6C8]">
+                      <Ticket className="w-8 h-8 text-[#9A9187] mx-auto opacity-40 mb-2" />
+                      <p className="text-xs font-bold text-[#7A726A]">まだチケットを獲得していません</p>
+                      <p className="text-[11px] text-[#9A9187] mt-1">
+                        ガラポン福引（200pt / 回）を回すと引換券チケットが当たります。
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                      {selectedUser.rewards.tickets.map((t, idx) => {
+                        const isUsed = t.isUsed;
+                        const icon = t.type === 'karuchieratan' ? '🍰' : t.type === 'nyanko_book' ? '📚' : '🍫';
+                        const rarityColor =
+                          t.rarity === 'gold'
+                            ? 'bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]'
+                            : t.rarity === 'silver'
+                            ? 'bg-[#F1F5F9] text-[#334155] border-[#CBD5E1]'
+                            : 'bg-[#FEF2F2] text-[#B91C1C] border-[#FECACA]';
+
+                        return (
+                          <div
+                            key={t.id || idx}
+                            className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition shadow-2xs ${
+                              isUsed
+                                ? 'bg-[#FAF8F5] border-[#EAE5D9] opacity-60'
+                                : 'bg-white border-[#DCD6C8]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="text-2xl shrink-0">{icon}</span>
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-black text-[#2E2824]">{t.title}</span>
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${rarityColor}`}>
+                                    {t.rarity === 'gold' ? '特等 (Gold)' : t.rarity === 'silver' ? '1等 (Silver)' : '2等 (Red)'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-[#7A726A] mt-0.5">{t.description}</div>
+                                <div className="text-[10px] text-[#9A9187] font-mono mt-0.5">
+                                  獲得: {formatDateTime(t.obtainedAt)}
+                                  {isUsed && t.usedAt && ` • 使用済: ${formatDateTime(t.usedAt)}`}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-right">
+                              {isUsed ? (
+                                <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-[#EFECE4] text-[#7A726A] border border-[#DCD6C8]">
+                                  使用済み
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 text-[11px] font-black rounded-lg bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] shadow-2xs">
+                                  未使用 (有効)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

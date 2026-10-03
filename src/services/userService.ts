@@ -120,6 +120,30 @@ export interface UserDetailData {
     nyanName: string | null;
     text: string;
   }>;
+  ticketCount: number;
+  totalTicketCount: number;
+  rewards: {
+    points: number;
+    lifetimePoints: number;
+    ticketCount: number;
+    totalTicketCount: number;
+    usedTicketCount: number;
+    ticketsByType: {
+      karuchieratan: number;
+      nyanko_book: number;
+      combini_snack: number;
+    };
+    tickets: Array<{
+      id: string;
+      type: string;
+      title: string;
+      description: string;
+      rarity: string;
+      obtainedAt: number;
+      isUsed: boolean;
+      usedAt?: number;
+    }>;
+  };
   stats: {
     totalEncounters: number;
     totalSnacksEaten: number;
@@ -432,6 +456,16 @@ function buildUserDetailData(
     text: d.text,
   }));
 
+  // Rewards & Tickets
+  const rawTickets = saveData.rewards?.tickets || [];
+  const activeTickets = rawTickets.filter((t) => !t.isUsed);
+  const usedTickets = rawTickets.filter((t) => t.isUsed);
+  const ticketsByType = {
+    karuchieratan: activeTickets.filter((t) => t.type === 'karuchieratan').length,
+    nyanko_book: activeTickets.filter((t) => t.type === 'nyanko_book').length,
+    combini_snack: activeTickets.filter((t) => t.type === 'combini_snack').length,
+  };
+
   // Estimate JSON size
   let dataSizeEstimate = 0;
   try {
@@ -465,6 +499,26 @@ function buildUserDetailData(
     inventory: invList,
     diaryCount: diaryList.length,
     diaries: diaryList,
+    ticketCount: activeTickets.length,
+    totalTicketCount: rawTickets.length,
+    rewards: {
+      points: saveData.rewards?.points || 0,
+      lifetimePoints: saveData.rewards?.lifetimePoints || 0,
+      ticketCount: activeTickets.length,
+      totalTicketCount: rawTickets.length,
+      usedTicketCount: usedTickets.length,
+      ticketsByType,
+      tickets: rawTickets.map((t) => ({
+        id: t.id,
+        type: t.type,
+        title: t.title,
+        description: t.description,
+        rarity: t.rarity,
+        obtainedAt: t.obtainedAt,
+        isUsed: t.isUsed,
+        usedAt: t.usedAt,
+      })),
+    },
     stats: saveData.stats || {
       totalEncounters: 0,
       totalSnacksEaten: 0,
@@ -489,16 +543,20 @@ export function invalidateUsersCache(): void {
 /**
  * Fetches all registered users from both Firestore and LocalStorage
  */
+/**
+ * Fetches all registered users from both Synology PostgreSQL and LocalStorage
+ */
 export async function fetchAllRegisteredUsers(
   masterNyans: NyanCharacter[] = INITIAL_NYANS,
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  currentActiveSave?: GameSaveData
 ): Promise<UserDetailData[]> {
   const now = Date.now();
-  if (!forceRefresh && cachedUsersData && now - lastUsersFetchTime < USERS_CACHE_TTL) {
+  if (!forceRefresh && !currentActiveSave && cachedUsersData && now - lastUsersFetchTime < USERS_CACHE_TTL) {
     return cachedUsersData;
   }
 
-  if (!forceRefresh && inFlightUsersPromise) {
+  if (!forceRefresh && !currentActiveSave && inFlightUsersPromise) {
     return inFlightUsersPromise;
   }
 
@@ -559,7 +617,11 @@ export async function fetchAllRegisteredUsers(
         const parsed = JSON.parse(defRaw);
         const reconstructed = reconstructGameSaveData(parsed, pureMasterNyans);
         if (userMap.has('default')) {
-          userMap.get('default')!.source = 'both';
+          const existing = userMap.get('default')!;
+          existing.source = 'both';
+          if (!existing.saveData.lastSaved || (reconstructed.lastSaved && reconstructed.lastSaved >= existing.saveData.lastSaved)) {
+            existing.saveData = reconstructed;
+          }
         } else {
           userMap.set('default', {
             saveData: reconstructed,
@@ -577,7 +639,6 @@ export async function fetchAllRegisteredUsers(
         if (key && key.startsWith(USER_LOCAL_KEY_PREFIX)) {
           const uid = key.slice(USER_LOCAL_KEY_PREFIX.length);
           if (!uid || isSystemUserId(uid) || uid.toLowerCase() === 'kensuke') {
-            // Clean up any stale contaminated system key or kensuke in localStorage
             if (uid && (isSystemUserId(uid) || uid.toLowerCase() === 'kensuke')) {
               try {
                 localStorage.removeItem(key);
@@ -588,9 +649,13 @@ export async function fetchAllRegisteredUsers(
           const rawStr = localStorage.getItem(key);
           if (rawStr) {
             const parsed = JSON.parse(rawStr);
-            const reconstructed = reconstructGameSaveData(parsed, masterNyans);
+            const reconstructed = reconstructGameSaveData(parsed, pureMasterNyans);
             if (userMap.has(uid)) {
-              userMap.get(uid)!.source = 'both';
+              const existing = userMap.get(uid)!;
+              existing.source = 'both';
+              if (!existing.saveData.lastSaved || (reconstructed.lastSaved && reconstructed.lastSaved >= existing.saveData.lastSaved)) {
+                existing.saveData = reconstructed;
+              }
             } else {
               userMap.set(uid, {
                 saveData: reconstructed,
@@ -612,7 +677,12 @@ export async function fetchAllRegisteredUsers(
         // Prepare initial empty state
         const fresh: GameSaveData = {
           ...DEFAULT_INITIAL_STATE,
-          characters: masterNyans.map((n) => ({ ...n })),
+          characters: pureMasterNyans.map((n) => ({
+            ...n,
+            discovered: false,
+            playCount: 0,
+            friendshipLevel: 0,
+          })),
           asobiList: INITIAL_ASOBI_LIST.map((a) => ({ ...a })),
           lastSaved: Date.now(),
         };
@@ -625,12 +695,33 @@ export async function fetchAllRegisteredUsers(
     }
   }
 
+  // 3. Merge currently active session save data if provided
+  if (currentActiveSave) {
+    const activeKey = currentActiveId || 'default';
+    const existing = userMap.get(activeKey);
+    if (existing) {
+      existing.saveData = currentActiveSave;
+      existing.source = existing.source === 'firestore' ? 'both' : existing.source;
+    } else {
+      userMap.set(activeKey, {
+        saveData: currentActiveSave,
+        source: 'local',
+        docId: getFirestoreDocIdForUser(activeKey),
+      });
+    }
+  }
+
   // Ensure default user is always in the list
   if (!userMap.has('default')) {
     userMap.set('default', {
       saveData: {
         ...DEFAULT_INITIAL_STATE,
-        characters: masterNyans.map((n) => ({ ...n })),
+        characters: pureMasterNyans.map((n) => ({
+          ...n,
+          discovered: false,
+          playCount: 0,
+          friendshipLevel: 0,
+        })),
         asobiList: INITIAL_ASOBI_LIST.map((a) => ({ ...a })),
       },
       source: 'local',
