@@ -93,36 +93,36 @@ export function getMatchingAsobiList(
 
   const isTransit = activity === 'transit' || transportMethod !== null;
 
-  // First pass: specific matches for transit or location conditions
-  const specificMatches = asobiList.filter((item) => {
-    const cond = item.condition;
-    // 1. Specific transport (when in transit)
-    if (cond.startsWith('trans_') && isTransit) {
-      const targetTrans = cond.replace('trans_', '');
-      return !transportMethod || targetTrans === transportMethod;
-    }
-    // 2. All transports (when in transit)
-    if (cond === 'all_transports' && isTransit) {
-      return true;
-    }
-    // 3. Specific location (when not in transit)
-    if (cond.startsWith('loc_') && !isTransit) {
-      const targetLoc = cond.replace('loc_', '');
-      return targetLoc === currentLocation;
-    }
-    // 4. All locations (when not in transit)
-    if (cond === 'all_locations' && !isTransit) {
-      return true;
-    }
-    return false;
-  });
+  if (isTransit) {
+    // 1. Exact transport match (e.g. trans_bicycle) or all_transports
+    const exactTransit = asobiList.filter((item) => {
+      const cond = item.condition;
+      if (transportMethod && cond === `trans_${transportMethod}`) return true;
+      if (cond === 'all_transports') return true;
+      return false;
+    });
+    if (exactTransit.length > 0) return exactTransit;
 
-  if (specificMatches.length > 0) {
-    return specificMatches;
+    // 2. Any transit asobi (if no exact match for this specific vehicle)
+    const anyTransit = asobiList.filter((item) => item.condition.startsWith('trans_'));
+    if (anyTransit.length > 0) return anyTransit;
+
+    // 3. Fallback to 'all' (どこでも / 常時)
+    return asobiList.filter((item) => item.condition === 'all');
+  } else {
+    // Stationary at a location:
+    // 1. Specific location or all_locations
+    const specificLoc = asobiList.filter((item) => {
+      const cond = item.condition;
+      if (cond === `loc_${currentLocation}`) return true;
+      if (cond === 'all_locations') return true;
+      return false;
+    });
+    if (specificLoc.length > 0) return specificLoc;
+
+    // 2. Fallback to 'all'
+    return asobiList.filter((item) => item.condition === 'all');
   }
-
-  // Second pass: 'all' (どこでも / 常時) matches everywhere (including transit)
-  return asobiList.filter((item) => item.condition === 'all');
 }
 
 export interface MonologueAndTitleResult {
@@ -367,7 +367,12 @@ export function rollEncounterForActivity(
   if (options?.isGuaranteedHintEncounter) {
     const undiscovered = allNyans.filter((c) => !c.discovered);
     if (undiscovered.length > 0) {
-      const randomNyan = undiscovered[Math.floor(Math.random() * undiscovered.length)];
+      // Prioritize undiscovered cats registered for this specific location
+      const locUndiscovered = undiscovered.filter((c) =>
+        locInfo.possibleNyanIds?.includes(c.no)
+      );
+      const pool = locUndiscovered.length > 0 ? locUndiscovered : undiscovered;
+      const randomNyan = pool[Math.floor(Math.random() * pool.length)];
       const updatedTitle = `${randomNyan.name}とおしゃべり中 (本当にいた！)`;
       const diaryText = `${locInfo.name}に行ってみたら…本当にいた！新にゃんこ「${randomNyan.name}」と出会えた！${randomNyan.episode || 'のんびり一緒に過ごした。'}`;
       const customMonologue = `本当にいた！${randomNyan.name}、見つけたよ！`;
@@ -375,6 +380,22 @@ export function rollEncounterForActivity(
       return {
         companionNyan: randomNyan,
         newDiscoveredNyan: randomNyan,
+        updatedTitle,
+        diaryText,
+        customMonologue,
+      };
+    } else {
+      // Fallback if all cats already discovered: still guarantee encounter with location cat
+      const locNyans = allNyans.filter((c) => locInfo.possibleNyanIds?.includes(c.no));
+      const pool = locNyans.length > 0 ? locNyans : allNyans;
+      const randomNyan = pool[Math.floor(Math.random() * pool.length)];
+      const updatedTitle = `${randomNyan.name}とおしゃべり中 (本当にいた！)`;
+      const diaryText = `${locInfo.name}に行ってみたら…本当にいた！「${randomNyan.name}」が待っていてくれた！${randomNyan.episode || 'のんびり一緒に過ごした。'}`;
+      const customMonologue = `本当にいた！${randomNyan.name}、会いに来たよ！`;
+
+      return {
+        companionNyan: randomNyan,
+        newDiscoveredNyan: null,
         updatedTitle,
         diaryText,
         customMonologue,
@@ -421,6 +442,9 @@ export function rollEncounterForActivity(
 
   let updatedTitle = `${pickedNyan.name}とおしゃべり中`;
   let diaryText = `${locInfo.name}で「${pickedNyan.name}」と遭遇！${pickedNyan.episode || 'のんびり一緒に過ごした。'}`;
+  const customMonologue = isNewDiscovery
+    ? `あっ！新しいにゃんこだ！「${pickedNyan.name}」、よろしくね！`
+    : `「${pickedNyan.name}」が遊びに来てくれたよ！`;
 
   if (baseActivity.type === 'snacking') {
     updatedTitle = `${pickedNyan.name}とおやつ休憩`;
@@ -437,6 +461,7 @@ export function rollEncounterForActivity(
     newDiscoveredNyan: isNewDiscovery,
     updatedTitle,
     diaryText,
+    customMonologue,
   };
 }
 

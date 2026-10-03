@@ -440,10 +440,10 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
                     : kenchiko.currentActivity === 'snacking'
                     ? 'カフェ休憩'
                     : kenchiko.currentActivity === 'transit'
-                    ? `${transportInfo?.name || 'とほ'}で移動中`
+                    ? (kenchiko.currentActivityTitle || `${transportInfo?.name || 'とほ'}で移動中`)
                     : kenchiko.currentActivity === 'arrived'
                     ? '到着！見回し中'
-                    : '活動中'})
+                    : (kenchiko.currentActivityTitle || '活動中')})
                 </span>
               </div>
             </div>
@@ -499,7 +499,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           settings={kounichanSettings}
           isCompanionPresent={!!companionNyan}
           isTransit={kenchiko.currentActivity === 'transit'}
-          undiscoveredCats={characters.filter((c) => !c.isDiscovered)}
+          undiscoveredCats={characters.filter((c) => !c.discovered)}
           onClaimGift={(type, cat) => {
             if (onClaimKounichanGift) {
               onClaimKounichanGift(type, cat);
