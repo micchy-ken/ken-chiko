@@ -35,6 +35,7 @@ export interface UserRewardState {
   readStoryIds: number[]; // Nyan numbers whose final story has been read
   tickets: RewardTicket[];
   history: GaraponHistoryEntry[];
+  claimedSpecialGiftIds?: string[]; // 特別配布プレゼントの受取済みIDリスト
   lastUpdated?: number; // Timestamp of latest points/tickets modification
 }
 

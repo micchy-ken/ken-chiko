@@ -143,6 +143,7 @@ export interface UserDetailData {
       isUsed: boolean;
       usedAt?: number;
     }>;
+    claimedSpecialGiftIds?: string[];
   };
   stats: {
     totalEncounters: number;
@@ -530,6 +531,7 @@ function buildUserDetailData(
         isUsed: t.isUsed,
         usedAt: t.usedAt,
       })),
+      claimedSpecialGiftIds: saveData.rewards?.claimedSpecialGiftIds || [],
     },
     stats: saveData.stats || {
       totalEncounters: 0,

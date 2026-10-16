@@ -361,3 +361,43 @@ export function markTicketAsUsed(
     ticket: target,
   };
 }
+
+export const GIFT_ID_YUMI_APOLOGY = 'gift_yumi_apology_1000pt_202610';
+export const YUMI_APOLOGY_POINTS = 1000;
+
+/**
+ * 特定の特別プレゼントが既に受け取り済みか確認する
+ */
+export function hasClaimedSpecialGift(
+  rewardState: UserRewardState | undefined,
+  giftId: string
+): boolean {
+  if (!rewardState || !rewardState.claimedSpecialGiftIds) return false;
+  return rewardState.claimedSpecialGiftIds.includes(giftId);
+}
+
+/**
+ * 特別プレゼントを受け取り、ポイントを加算する
+ */
+export function claimSpecialGift(
+  current: UserRewardState | undefined,
+  giftId: string,
+  amount: number
+): { success: boolean; updatedState: UserRewardState } {
+  const state: UserRewardState = current ? { ...current } : createInitialRewardState();
+  const claimedList = state.claimedSpecialGiftIds || [];
+
+  if (claimedList.includes(giftId)) {
+    return { success: false, updatedState: state };
+  }
+
+  const updatedState: UserRewardState = {
+    ...state,
+    points: (state.points || 0) + amount,
+    lifetimePoints: (state.lifetimePoints || 0) + amount,
+    claimedSpecialGiftIds: [...claimedList, giftId],
+    lastUpdated: Date.now(),
+  };
+
+  return { success: true, updatedState };
+}

@@ -298,6 +298,10 @@ export function mergeRewardStates(
     new Set([...(localRewards.readStoryIds || []), ...(remoteRewards.readStoryIds || [])])
   );
 
+  const claimedSpecialGiftIds = Array.from(
+    new Set([...(localRewards.claimedSpecialGiftIds || []), ...(remoteRewards.claimedSpecialGiftIds || [])])
+  );
+
   return {
     points: mergedPoints,
     lifetimePoints: mergedLifetime,
@@ -305,6 +309,7 @@ export function mergeRewardStates(
     initialBonusAmount: Math.max(localRewards.initialBonusAmount || 0, remoteRewards.initialBonusAmount || 0),
     lastPettedDate: remoteRewards.lastPettedDate || localRewards.lastPettedDate,
     readStoryIds,
+    claimedSpecialGiftIds,
     tickets: Array.from(ticketMap.values()).sort((a, b) => b.obtainedAt - a.obtainedAt),
     history: Array.from(historyMap.values()).sort((a, b) => b.timestamp - a.timestamp),
     lastUpdated: Math.max(localRewards.lastUpdated || 0, remoteRewards.lastUpdated || 0),

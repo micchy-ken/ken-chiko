@@ -71,6 +71,7 @@ import { TutorialModal } from './components/TutorialModal';
 import { OuenModal } from './components/OuenModal';
 import { GaraponModal } from './components/GaraponModal';
 import { InitialBonusModal } from './components/InitialBonusModal';
+import { SpecialGiftModal } from './components/SpecialGiftModal';
 import { UserRewardState } from './types/rewards';
 import {
   claimDailyPetPoints,
@@ -78,6 +79,10 @@ import {
   addDiscoveryPoints,
   grantInitialDiscoveryBonus,
   createInitialRewardState,
+  GIFT_ID_YUMI_APOLOGY,
+  YUMI_APOLOGY_POINTS,
+  hasClaimedSpecialGift,
+  claimSpecialGift,
 } from './services/rewardService';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
@@ -272,6 +277,7 @@ export default function App() {
   // Rewards & Garapon States
   const [showGaraponModal, setShowGaraponModal] = useState<boolean>(false);
   const [showInitialBonusModal, setShowInitialBonusModal] = useState<boolean>(false);
+  const [showYumiGiftModal, setShowYumiGiftModal] = useState<boolean>(false);
   const [initialBonusInfo, setInitialBonusInfo] = useState<{
     discoveredCount: number;
     bonusAmount: number;
@@ -710,6 +716,41 @@ export default function App() {
     }
     try {
       confetti({ particleCount: 50, spread: 90, origin: { y: 0.5 } });
+    } catch {}
+  };
+
+  // Check and trigger Yumi Special Gift Modal (1,000pt Apology & Gratitude)
+  useEffect(() => {
+    if (!isInitialSyncCompleted || showInitialBonusModal) return;
+    const activeUid = getActiveUserId() || 'default';
+    if (activeUid === 'yumi') {
+      const alreadyClaimed = hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_APOLOGY);
+      if (!alreadyClaimed) {
+        setShowYumiGiftModal(true);
+      }
+    }
+  }, [isInitialSyncCompleted, showInitialBonusModal, saveData.rewards]);
+
+  // Handle Yumi Special Gift Claim (+1,000pt)
+  const handleClaimYumiSpecialGift = (openGarapon: boolean) => {
+    setSaveData((prev) => {
+      const res = claimSpecialGift(prev.rewards, GIFT_ID_YUMI_APOLOGY, YUMI_APOLOGY_POINTS);
+      const nextData: GameSaveData = {
+        ...prev,
+        rewards: res.updatedState,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData, true);
+      return nextData;
+    });
+
+    setShowYumiGiftModal(false);
+    setRewardToastMessage(`🎁 由美さんへのお礼とお詫び +${YUMI_APOLOGY_POINTS.toLocaleString()}pt を受け取りました！`);
+    if (openGarapon) {
+      setShowGaraponModal(true);
+    }
+    try {
+      confetti({ particleCount: 80, spread: 100, origin: { y: 0.5 } });
     } catch {}
   };
 
@@ -2169,6 +2210,20 @@ export default function App() {
                 </span>
               )}
             </button>
+
+            {/* Yumi Unclaimed Special Gift Quick Button */}
+            {currentUserId === 'yumi' && !hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_APOLOGY) && (
+              <button
+                onClick={() => setShowYumiGiftModal(true)}
+                className="relative flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-black transition sketch-card-subtle bg-gradient-to-r from-[#FEF3C7] to-[#FDE68A] hover:from-[#FDE68A] hover:to-[#FCD34D] text-[#92400E] border-2 border-[#D97706] shadow-sm animate-bounce shrink-0 cursor-pointer"
+                title="由美さんへのお礼とお詫び特別プレゼント（1,000pt）が届いています！タップして受け取る"
+              >
+                <span className="text-sm">🎁</span>
+                <span className="font-handwriting text-xs sm:text-sm font-black whitespace-nowrap">
+                  特別プレゼント (+1,000pt)
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Top-Right Status Lamps / Badges */}
@@ -2718,6 +2773,17 @@ export default function App() {
           bonusAmount={initialBonusInfo.bonusAmount}
           onClaimAndOpenGarapon={() => handleClaimInitialBonus(true)}
           onClaimAndClose={() => handleClaimInitialBonus(false)}
+        />
+      )}
+
+      {/* Yumi Special Apology & Gratitude Gift Modal (1,000pt) */}
+      {showYumiGiftModal && (
+        <SpecialGiftModal
+          isOpen={showYumiGiftModal}
+          recipientName="由美"
+          pointsAmount={YUMI_APOLOGY_POINTS}
+          onClaim={handleClaimYumiSpecialGift}
+          onClose={() => setShowYumiGiftModal(false)}
         />
       )}
 

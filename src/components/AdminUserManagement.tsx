@@ -1106,6 +1106,21 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                       </span>
                     </div>
 
+                    {/* Special Gift Status (yumi) */}
+                    {selectedUser.userId === 'yumi' && (
+                      <div className="p-2.5 bg-gradient-to-r from-[#FEF3C7] to-[#FDE68A] rounded-xl border border-[#F59E0B] flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-[#92400E]">
+                          <span className="text-base">🎁</span>
+                          <span>データ復旧のお詫びと感謝の特別プレゼント（1,000pt）</span>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-white border border-[#D97706] text-[#B45309] shadow-xs">
+                          {selectedUser.rewards?.claimedSpecialGiftIds?.includes('gift_yumi_apology_1000pt_202610')
+                            ? '✅ 受取済み'
+                            : '⏳ 未受取（次回ログイン時に配布）'}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                       <div className="p-2.5 bg-white rounded-xl border border-[#FDE68A]">
                         <div className="text-[10px] text-[#92400E]">🍰 かるちぇらたん</div>
