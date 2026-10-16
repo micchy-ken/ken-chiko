@@ -88,6 +88,7 @@ import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeO
 import { PencilSketchFilters } from './utils/pencilFilters';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
+import { cleanupAndMigrateAllSnapshots } from './services/snapshotService';
 import { DefaultUserPlaceholder } from './components/DefaultUserPlaceholder';
 import { LoadingScreen } from './components/LoadingScreen';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
@@ -259,6 +260,11 @@ export default function App() {
     };
     window.addEventListener('kenchiko-circuit-breaker-tripped', handleBreakerTripped);
     window.addEventListener('kenchiko-quota-exhausted', handleQuotaExhausted);
+
+    // Auto-migrate & compress any legacy bloated snapshot data in LocalStorage to prevent QuotaExceededError
+    try {
+      cleanupAndMigrateAllSnapshots();
+    } catch {}
 
     // Check circuit breaker status periodically
     const statusTimer = setInterval(() => {

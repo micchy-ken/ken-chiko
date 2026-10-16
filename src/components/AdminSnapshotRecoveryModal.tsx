@@ -45,6 +45,7 @@ import {
   pruneSnapshots,
   extractSaveMetrics,
   hydrateSeedSnapshots,
+  minifySaveForSnapshot,
 } from '../services/snapshotService';
 import { saveUserSaveToPostgrest } from '../services/postgrestUserService';
 import confetti from '../utils/confetti';
@@ -231,12 +232,19 @@ export const AdminSnapshotRecoveryModal: React.FC<AdminSnapshotRecoveryModalProp
           timeStr,
           reason,
           metrics,
-          saveData: targetSave,
+          saveData: minifySaveForSnapshot(targetSave),
         };
 
         const existing = getSnapshotsForUser(userId);
         const updated = pruneSnapshots([newSnap, ...existing], getLocalDateString());
-        localStorage.setItem(`kenchiko_snapshots_${userId}`, JSON.stringify(updated));
+        try {
+          localStorage.setItem(`kenchiko_snapshots_${userId}`, JSON.stringify(updated.map((s) => ({
+            ...s,
+            saveData: minifySaveForSnapshot(s.saveData),
+          }))));
+        } catch (storageErr) {
+          console.warn('Fallback save on import:', storageErr);
+        }
 
         setActionMessage({
           type: 'success',
