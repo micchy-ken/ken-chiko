@@ -414,9 +414,17 @@ export default function App() {
       const subtabParam = params.get('subtab') || params.get('admintab') || params.get('section');
       const userParam = params.get('user') || params.get('uid') || params.get('player');
 
-      if (userParam) {
-        const active = getActiveUserId();
-        if (active) setCurrentUserId(active);
+      const active = getActiveUserId();
+      if (active) {
+        setCurrentUserId(active);
+        // If user was remembered from LocalStorage, reflect it into URL query so bookmarks stay intact
+        if (!userParam && typeof window !== 'undefined') {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('user', active);
+            window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+          } catch {}
+        }
       }
 
       const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'synology'];

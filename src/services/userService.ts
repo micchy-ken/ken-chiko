@@ -321,14 +321,26 @@ export function getActiveUserId(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
     const userParam = params.get('user') || params.get('uid') || params.get('player') || params.get('u');
-    const sanitized = sanitizeUserId(userParam);
-    if (sanitized) {
-      localStorage.setItem(ACTIVE_USER_STORAGE_KEY, sanitized);
-      registerKnownUserId(sanitized);
-      return sanitized;
+
+    // 1. If explicit user param is present in URL
+    if (userParam !== null) {
+      const sanitized = sanitizeUserId(userParam);
+      if (sanitized) {
+        localStorage.setItem(ACTIVE_USER_STORAGE_KEY, sanitized);
+        registerKnownUserId(sanitized);
+        return sanitized;
+      }
+      // If user explicitly specified ?user=default or empty, clear active user to return to default
+      localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+      return null;
     }
-    // If no user parameter in URL, clear stale storage so user defaults to standard @default
-    localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+
+    // 2. If no user parameter in URL, fall back to previously saved user in LocalStorage
+    const saved = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
+    const sanitizedSaved = sanitizeUserId(saved);
+    if (sanitizedSaved) {
+      return sanitizedSaved;
+    }
     return null;
   } catch (_e) {
     return null;

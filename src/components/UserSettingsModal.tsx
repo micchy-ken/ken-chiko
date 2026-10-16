@@ -249,7 +249,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 </button>
               </div>
               <p className="text-[10px] text-[#8C847B]">
-                ※ ユーザー名を変更すると、そのユーザー専用の個別セーブデータ・Firebaseドキュメントに切り替わります。
+                ※ 過去にプレイしていたデータ（例: <code className="text-[#487560] font-bold">yumi</code> など）を復元・読み込みたい場合は、ここに名前を入力して「切り替え」を押すか、URL末尾に <code className="text-[#487560] font-bold">?user=名前</code> を付けてアクセスしてください。クラウド（Synology）から即座に復旧されます。
               </p>
             </form>
           </div>
