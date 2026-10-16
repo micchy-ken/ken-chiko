@@ -136,6 +136,7 @@ import { AdminUserManagement } from './AdminUserManagement';
 import { AdminOuenEditor } from './AdminOuenEditor';
 import { AdminStoryManager } from './AdminStoryManager';
 import { AdminKounichanEditor } from './kounichan/AdminKounichanEditor';
+import { AdminSnapshotRecoveryModal } from './AdminSnapshotRecoveryModal';
 
 export type AdminTab =
   | 'zukan'
@@ -144,6 +145,7 @@ export type AdminTab =
   | 'asobi'
   | 'ouen'
   | 'users'
+  | 'snapshots'
   | 'story'
   | 'data'
   | 'avatar'
@@ -1748,6 +1750,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               )}
             </button>
 
+            {/* TAB: スナップショット復旧（10日分） */}
+            <button
+              onClick={() => setActiveTab('snapshots')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 cursor-pointer ${
+                activeTab === 'snapshots'
+                  ? 'bg-[#FAF8F5] text-[#8C530A] border-t-[#D97706] border-x-[#DDD7C8] -mb-[1px]'
+                  : 'text-[#7D756D] hover:text-[#3A342F] border-transparent'
+              }`}
+            >
+              <Camera className="w-4 h-4 text-[#D97706]" />
+              <span>スナップショット復旧</span>
+            </button>
+
             {/* TAB 7: 物語 */}
             <button
               onClick={() => setActiveTab('story')}
@@ -3199,6 +3214,22 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     window.location.href = url.toString();
                   }
                 }}
+              />
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB: SNAPSHOT RECOVERY (スナップショット復旧モード・10日分) */}
+          {/* ========================================================= */}
+          {activeTab === 'snapshots' && (
+            <div className="space-y-4 animate-fadeIn">
+              <AdminSnapshotRecoveryModal
+                userId={getActiveUserId()}
+                characters={characters}
+                currentSaveData={saveData}
+                onUpdateSaveData={handleAdminUpdateSaveData}
+                onClose={() => setActiveTab('users')}
+                openConfirm={openConfirm}
               />
             </div>
           )}

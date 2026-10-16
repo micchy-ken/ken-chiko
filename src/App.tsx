@@ -114,6 +114,7 @@ import {
   Activity,
   ShieldAlert,
   Server,
+  Camera,
 } from 'lucide-react';
 import confetti from './utils/confetti';
 
@@ -427,7 +428,7 @@ export default function App() {
         }
       }
 
-      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'googledoc', 'synology'];
+      const validAdminTabs: AdminTab[] = ['zukan', 'story', 'avatar', 'kihon_nyan', 'kounichan', 'asobi', 'ouen', 'users', 'snapshots', 'googledoc', 'synology'];
 
       // Direct tab navigation (?tab=zukan, ?tab=diary, ?tab=stage)
       if (tabParam === 'stage' || tabParam === 'zukan' || tabParam === 'diary') {
@@ -2536,9 +2537,24 @@ export default function App() {
 
           {/* Right: Admin Console & Settings Action Buttons */}
           <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
+            {/* Snapshot Recovery Quick Button */}
+            <button
+              onClick={() => {
+                setAdminInitialTab('snapshots');
+                setIsStandaloneAdmin(true);
+                setShowSyncModal(true);
+              }}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#FAF4EB] hover:bg-[#F3E8D3] text-[#8C530A] hover:text-[#6E3F05] font-black text-xs sm:text-sm px-3.5 py-2 sketch-card-subtle shadow-xs transition active:translate-y-0.5 cursor-pointer border border-[#E8DAC2]"
+              title="10日分のスナップショットから安全マージ復旧"
+            >
+              <Camera className="w-4 h-4 text-[#D97706]" />
+              <span className="font-handwriting">スナップショット復旧</span>
+            </button>
+
             {/* Admin Console Button */}
             <button
               onClick={() => {
+                setAdminInitialTab('users');
                 setIsStandaloneAdmin(true);
                 setShowSyncModal(true);
               }}

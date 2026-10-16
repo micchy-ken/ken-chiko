@@ -36,6 +36,7 @@ import {
   ExternalLink,
   Ticket,
   Coins,
+  Camera,
 } from 'lucide-react';
 import { NyanCharacter, GameSaveData, LocationId } from '../types';
 import { LOCATIONS, TRANSPORT_METHODS } from '../data/locations';
@@ -53,6 +54,8 @@ import {
 import { NyanIllustration } from './NyanIllustration';
 import { getAssetUrl } from '../utils/assetPath';
 import confetti from '../utils/confetti';
+import { AdminSnapshotRecoveryModal } from './AdminSnapshotRecoveryModal';
+import { DEFAULT_INITIAL_STATE } from '../services/storage';
 
 interface AdminUserManagementProps {
   characters: NyanCharacter[];
@@ -77,10 +80,11 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
   // Inspector & Modal States
   const [selectedUser, setSelectedUser] = useState<UserDetailData | null>(null);
-  const [detailTab, setDetailTab] = useState<'overview' | 'nyans' | 'tickets' | 'diary' | 'inventory' | 'json'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'nyans' | 'tickets' | 'diary' | 'inventory' | 'snapshots' | 'json'>('overview');
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [newUserIdInput, setNewUserIdInput] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [snapshotRecoveryUserId, setSnapshotRecoveryUserId] = useState<string | null>(null);
 
   const activeUserId = getActiveUserId();
 
@@ -733,6 +737,16 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                       <Eye className="w-3.5 h-3.5 text-[#5A524A]" />
                       <span>詳細データ</span>
                     </button>
+                    <button
+                      onClick={() => {
+                        setSnapshotRecoveryUserId(user.userId);
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#FBF5EC] hover:bg-[#F3E8D3] text-[#8C530A] text-xs font-bold transition border border-[#E8DAC2]"
+                      title="過去10日分のスナップショットから安全マージ復旧"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-[#D97706]" />
+                      <span>復旧モード</span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -864,6 +878,15 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
               >
                 <Code className="w-3.5 h-3.5 text-[#8E6E53]" />
                 <span>生データ (JSON)</span>
+              </button>
+
+              <button
+                onClick={() => setSnapshotRecoveryUserId(selectedUser.userId)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-t-xl text-xs font-black transition border-t-2 border-x shrink-0 bg-[#FBF5EC] hover:bg-[#F3E8D3] text-[#8C530A] border-t-[#D97706] border-x-[#D5CEBF] shadow-xs"
+                title="過去10日分のスナップショットから安全マージ復旧"
+              >
+                <Camera className="w-3.5 h-3.5 text-[#D97706]" />
+                <span>📸 スナップショット復旧（10日分）</span>
               </button>
             </div>
 
@@ -1415,6 +1438,33 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Snapshot Recovery Modal (10 Days History & Local Merge) */}
+      {snapshotRecoveryUserId && (
+        <AdminSnapshotRecoveryModal
+          userId={snapshotRecoveryUserId}
+          characters={characters}
+          currentSaveData={
+            (snapshotRecoveryUserId === activeUserId && saveData)
+              ? saveData
+              : (() => {
+                  try {
+                    const raw = localStorage.getItem(`kenchiko_save_state_user_${snapshotRecoveryUserId}`);
+                    if (raw) return JSON.parse(raw);
+                  } catch (e) {
+                    console.warn(e);
+                  }
+                  return saveData || DEFAULT_INITIAL_STATE;
+                })()
+          }
+          onUpdateSaveData={onUpdateSaveData}
+          onClose={() => {
+            setSnapshotRecoveryUserId(null);
+            loadUsers();
+          }}
+          openConfirm={openConfirm}
+        />
       )}
     </div>
   );

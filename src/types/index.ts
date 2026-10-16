@@ -235,6 +235,7 @@ export interface GameSaveData {
   version: number;
   kenchiko: KenchikoState;
   characters: NyanCharacter[];
+  nyanProgress?: Record<number, UserNyanProgress>;
   inventory: GiftItem[];
   diary: DiaryEntry[];
   asobiList: KenchikoAsobi[]; // カスタムあそびリスト

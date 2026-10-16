@@ -51,6 +51,7 @@ import {
 } from './postgrestUserService';
 import { getPostgrestBaseUrl, isPostgrestEnabled } from './postgrestConfig';
 import { recordAuditLog } from './firestoreTrafficLogger';
+import { saveSnapshotIfAdvantageous } from './snapshotService';
 
 // Re-export single-row master functions for direct component usage
 export {
@@ -636,18 +637,60 @@ export async function fetchInitialCloudState(
       const pgUser = await fetchUserSaveFromPostgrest(activeUid);
       if (pgUser) {
         userRaw = {
+          ...(pgUser.raw_save || {}),
           version: pgUser.version,
           stats: pgUser.stats,
           inventory: pgUser.inventory,
           rewards: pgUser.rewards,
           nyanProgress: pgUser.nyan_progress,
           diary: pgUser.diary,
-          ...(pgUser.raw_save || {}),
         };
       }
     }
 
-    const baseData = userRaw || localBackup || DEFAULT_INITIAL_STATE;
+    let baseData: any = DEFAULT_INITIAL_STATE;
+    if (userRaw && localBackup) {
+      // Advantageously merge remote and local so that neither local nor remote progress is lost
+      const localProgInput = (localBackup as any).nyanProgress || localBackup.characters;
+      const remoteProgInput = userRaw.nyanProgress || userRaw.characters;
+      const mergedProg = mergeUserProgressSafely(
+        extractProgressMap(localProgInput),
+        extractProgressMap(remoteProgInput)
+      );
+      const mergedRewards = mergeRewardStates(localBackup.rewards, userRaw.rewards);
+      const mergedDiary = deduplicateDiary([...(userRaw.diary || []), ...(localBackup.diary || [])]);
+
+      // Merge inventory (favor max count)
+      const invMap = new Map();
+      for (const item of [...(localBackup.inventory || []), ...(userRaw.inventory || [])]) {
+        if (!item || !item.id) continue;
+        if (!invMap.has(item.id)) {
+          invMap.set(item.id, { ...item });
+        } else {
+          const cur = invMap.get(item.id);
+          invMap.set(item.id, { ...cur, count: Math.max(cur.count || 0, item.count || 0) });
+        }
+      }
+
+      baseData = {
+        ...localBackup,
+        ...userRaw,
+        nyanProgress: mergedProg,
+        rewards: mergedRewards,
+        diary: mergedDiary,
+        inventory: Array.from(invMap.values()),
+        stats: {
+          totalTrips: Math.max(localBackup.stats?.totalTrips || 0, userRaw.stats?.totalTrips || 0),
+          totalEncounters: Math.max(localBackup.stats?.totalEncounters || 0, userRaw.stats?.totalEncounters || 0),
+          totalPetCount: Math.max((localBackup.stats as any)?.totalPetCount || 0, (userRaw.stats as any)?.totalPetCount || 0),
+          totalNapMinutes: Math.max(localBackup.stats?.totalNapMinutes || 0, userRaw.stats?.totalNapMinutes || 0),
+          totalSnacksEaten: Math.max(localBackup.stats?.totalSnacksEaten || 0, userRaw.stats?.totalSnacksEaten || 0),
+        },
+      };
+    } else {
+      baseData = userRaw || localBackup || DEFAULT_INITIAL_STATE;
+    }
+
     const reconstructed = reconstructGameSaveData(baseData, pureMasterNyans);
 
     // Inject shared master data (asobi, ouen, kounichan)
@@ -790,6 +833,14 @@ export async function saveOnUserAction(
 ): Promise<void> {
   const activeUid = getActiveUserId() || 'default';
   saveLocalBackup(saveData, activeUid);
+  
+  // 優位な進捗変更があれば10日分スナップショットに自動記録（1日以上前の日は最新1件のみ）
+  try {
+    saveSnapshotIfAdvantageous(activeUid, saveData);
+  } catch (err) {
+    console.warn('[SnapshotService] auto-snapshot error:', err);
+  }
+
   await saveUserSaveToPostgrest(activeUid, saveData).then((res) => {
     if (res?.success) {
       recordCloudSyncTime();
@@ -805,6 +856,13 @@ export async function saveOnAppExit(
 ): Promise<void> {
   const activeUid = getActiveUserId() || 'default';
   saveLocalBackup(saveData, activeUid);
+
+  try {
+    saveSnapshotIfAdvantageous(activeUid, saveData, 'アプリ終了時セーブ');
+  } catch (err) {
+    console.warn('[SnapshotService] exit-snapshot error:', err);
+  }
+
   await saveUserSaveToPostgrest(activeUid, saveData).then((res) => {
     if (res?.success) {
       recordCloudSyncTime();
