@@ -79,7 +79,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
   const [copiedJson, setCopiedJson] = useState(false);
 
   // Inspector & Modal States
-  const [selectedUser, setSelectedUser] = useState<UserDetailData | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'overview' | 'nyans' | 'tickets' | 'diary' | 'inventory' | 'snapshots' | 'json'>('overview');
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [newUserIdInput, setNewUserIdInput] = useState('');
@@ -88,31 +88,30 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
   const activeUserId = getActiveUserId();
 
-  // Load all users directly from database and active save
+  // Load all users directly from database and active save (No dependency on selectedUser to prevent infinite loops)
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
     setStatusMessage(null);
     try {
       const data = await fetchAllRegisteredUsers(characters, true, saveData);
       setUsers(data);
-      // If a user detail modal is open, refresh its data
-      if (selectedUser) {
-        const refreshed = data.find((u) => u.userId === selectedUser.userId);
-        if (refreshed) {
-          setSelectedUser(refreshed);
-        }
-      }
     } catch (err: any) {
       console.error('Error loading users:', err);
       setStatusMessage({ type: 'error', text: 'ユーザー一覧の読み込みに失敗しました' });
     } finally {
       setIsLoading(false);
     }
-  }, [characters, selectedUser, saveData]);
+  }, [characters, saveData]);
 
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  // Derive selectedUser from users array and selectedUserId to eliminate loop and stale reference issues
+  const selectedUser = useMemo(() => {
+    if (!selectedUserId) return null;
+    return users.find((u) => u.userId === selectedUserId) || null;
+  }, [users, selectedUserId]);
 
   // Filtered users by search query (strictly excluding system metadata IDs)
   const filteredUsers = useMemo(() => {
@@ -205,8 +204,8 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
           if (res.success) {
             confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
             setStatusMessage({ type: 'success', text: `ユーザー「${userToDelete.userId}」を正常に削除しました` });
-            if (selectedUser?.userId === userToDelete.userId) {
-              setSelectedUser(null);
+            if (selectedUserId === userToDelete.userId) {
+              setSelectedUserId(null);
             }
             if (userToDelete.isCurrent) {
               // Reset current user to default
@@ -728,7 +727,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                     )}
                     <button
                       onClick={() => {
-                        setSelectedUser(user);
+                        setSelectedUserId(user.userId);
                         setDetailTab('overview');
                       }}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#EFECE4] hover:bg-[#E2DDD0] text-[#3E3833] text-xs font-bold transition border border-[#D5CEBF]"
@@ -799,7 +798,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                 </div>
               </div>
               <button
-                onClick={() => setSelectedUser(null)}
+                onClick={() => setSelectedUserId(null)}
                 className="p-1.5 rounded-xl hover:bg-[#DCD6C8] text-[#5A524A] transition"
               >
                 <X className="w-5 h-5" />
@@ -1352,7 +1351,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                   <button
                     onClick={() => {
                       handleSwitchToUser(selectedUser.userId);
-                      setSelectedUser(null);
+                      setSelectedUserId(null);
                     }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3E7B68] hover:bg-[#346757] text-white text-xs font-black shadow-sm transition"
                   >
@@ -1361,7 +1360,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                   </button>
                 )}
                 <button
-                  onClick={() => setSelectedUser(null)}
+                  onClick={() => setSelectedUserId(null)}
                   className="px-4 py-2 rounded-xl bg-[#EFECE4] hover:bg-[#E4DFD3] text-[#3E3833] text-xs font-bold border border-[#D5CEBF] transition"
                 >
                   閉じる

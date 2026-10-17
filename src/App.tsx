@@ -284,6 +284,7 @@ export default function App() {
   const [showGaraponModal, setShowGaraponModal] = useState<boolean>(false);
   const [showInitialBonusModal, setShowInitialBonusModal] = useState<boolean>(false);
   const [showYumiGiftModal, setShowYumiGiftModal] = useState<boolean>(false);
+  const [hasDismissedYumiGift, setHasDismissedYumiGift] = useState<boolean>(false);
   const [initialBonusInfo, setInitialBonusInfo] = useState<{
     discoveredCount: number;
     bonusAmount: number;
@@ -727,7 +728,7 @@ export default function App() {
 
   // Check and trigger Yumi Special Gift Modal (1,000pt Apology & Gratitude)
   useEffect(() => {
-    if (!isInitialSyncCompleted || showInitialBonusModal) return;
+    if (!isInitialSyncCompleted || showInitialBonusModal || hasDismissedYumiGift) return;
     const activeUid = getActiveUserId() || 'default';
     if (activeUid === 'yumi') {
       const alreadyClaimed = hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_APOLOGY);
@@ -735,7 +736,7 @@ export default function App() {
         setShowYumiGiftModal(true);
       }
     }
-  }, [isInitialSyncCompleted, showInitialBonusModal, saveData.rewards]);
+  }, [isInitialSyncCompleted, showInitialBonusModal, hasDismissedYumiGift, saveData.rewards]);
 
   // Handle Yumi Special Gift Claim (+1,000pt)
   const handleClaimYumiSpecialGift = (openGarapon: boolean) => {
@@ -2220,7 +2221,10 @@ export default function App() {
             {/* Yumi Unclaimed Special Gift Quick Button */}
             {currentUserId === 'yumi' && !hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_APOLOGY) && (
               <button
-                onClick={() => setShowYumiGiftModal(true)}
+                onClick={() => {
+                  setHasDismissedYumiGift(false);
+                  setShowYumiGiftModal(true);
+                }}
                 className="relative flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-black transition sketch-card-subtle bg-gradient-to-r from-[#FEF3C7] to-[#FDE68A] hover:from-[#FDE68A] hover:to-[#FCD34D] text-[#92400E] border-2 border-[#D97706] shadow-sm animate-bounce shrink-0 cursor-pointer"
                 title="由美さんへのお礼とお詫び特別プレゼント（1,000pt）が届いています！タップして受け取る"
               >
@@ -2789,7 +2793,10 @@ export default function App() {
           recipientName="由美"
           pointsAmount={YUMI_APOLOGY_POINTS}
           onClaim={handleClaimYumiSpecialGift}
-          onClose={() => setShowYumiGiftModal(false)}
+          onClose={() => {
+            setShowYumiGiftModal(false);
+            setHasDismissedYumiGift(true);
+          }}
         />
       )}
 
