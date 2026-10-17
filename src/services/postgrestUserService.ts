@@ -79,6 +79,13 @@ export async function saveUserSaveToPostgrest(
     }
   }
 
+  // Load snapshots to persist to Synology PostgreSQL alongside the user save
+  let localSnapshots: any[] = [];
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(`kenchiko_snapshots_${cleanId}`) : null;
+    if (raw) localSnapshots = JSON.parse(raw);
+  } catch {}
+
   const payload = {
     user_id: cleanId,
     version: saveData.version || 1,
@@ -90,6 +97,7 @@ export async function saveUserSaveToPostgrest(
     diary: saveData.diary || [],
     raw_save: {
       kenchiko: saveData.kenchiko || {},
+      snapshots: (saveData as any).snapshots || (localSnapshots.length > 0 ? localSnapshots : undefined),
       lastSaved: Date.now(),
     },
   };
@@ -176,4 +184,63 @@ export async function deleteUserFromPostgrest(userId: string): Promise<{ success
     console.error(`[Synology] Error deleting user ${userId}:`, err);
     return { success: false, error: err?.message || String(err) };
   }
+}
+
+/**
+ * Save user snapshots directly into Synology PostgreSQL (user_saves.raw_save.snapshots)
+ */
+export async function saveSnapshotsToCloudDb(
+  userId: string,
+  snapshots: any[]
+): Promise<boolean> {
+  if (!isPostgrestEnabled() || !userId || !Array.isArray(snapshots)) return false;
+  const baseUrl = getPostgrestBaseUrl();
+  const cleanId = encodeURIComponent(userId.trim().toLowerCase());
+
+  try {
+    const current = await fetchUserSaveFromPostgrest(userId);
+    if (!current) return false;
+
+    const updatedRawSave = {
+      ...(current.raw_save || {}),
+      snapshots,
+      lastSaved: Date.now(),
+    };
+
+    const res = await fetch(`${baseUrl}/user_saves?user_id=eq.${cleanId}`, {
+      method: 'PATCH',
+      headers: getPostgrestHeaders({
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      }),
+      body: JSON.stringify({
+        raw_save: updatedRawSave,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    if (res.ok) {
+      console.log(`[Synology] 📸 スナップショット ${snapshots.length}件をSynology PostgreSQLに永続化しました`);
+      return true;
+    }
+  } catch (err) {
+    console.warn(`[Synology] Error saving snapshots to cloud DB for ${userId}:`, err);
+  }
+  return false;
+}
+
+/**
+ * Fetch snapshots directly from Synology PostgreSQL (user_saves.raw_save.snapshots)
+ */
+export async function fetchSnapshotsFromCloudDb(userId: string): Promise<any[] | null> {
+  if (!isPostgrestEnabled() || !userId) return null;
+  try {
+    const record = await fetchUserSaveFromPostgrest(userId);
+    if (record && record.raw_save && Array.isArray(record.raw_save.snapshots)) {
+      return record.raw_save.snapshots;
+    }
+  } catch (err) {
+    console.warn(`[Synology] Error fetching snapshots from cloud DB for ${userId}:`, err);
+  }
+  return null;
 }

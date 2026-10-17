@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.16-v2",
-  "buildTime": "2026-10-16 16:48",
-  "releaseNotes": "スナップショット保存時のLocalStorage容量超過エラー（QuotaExceededError）を完全修正（マスターデータ・巨大画像の除外による97%スリム化、自動間引き・自己修復機能の実装）"
+  "version": "2026.10.16-v3",
+  "buildTime": "2026-10-16 16:55",
+  "releaseNotes": "スナップショットの保存先をSynology PostgreSQL（クラウドDB）へ完全移行し、クラウド最新データ（74匹・チケット13枚・日記88件）を正本として直接取得・同期するよう修正"
 }

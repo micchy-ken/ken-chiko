@@ -8,7 +8,11 @@
 import { GameSaveData, NyanCharacter, UserNyanProgress, RewardTicket, DiaryEntry, GiftItem } from '../types';
 import { extractProgressMap, mergeUserProgressSafely } from '../utils/dataSeparation';
 import { mergeRewardStates, deduplicateDiary } from './cloudSync';
-import { saveUserSaveToPostgrest } from './postgrestUserService';
+import {
+  saveUserSaveToPostgrest,
+  saveSnapshotsToCloudDb,
+  fetchSnapshotsFromCloudDb,
+} from './postgrestUserService';
 
 export interface SnapshotMetrics {
   discoveredCount: number;
@@ -350,6 +354,12 @@ function saveSnapshotsToStorage(userId: string, snapshots: GameSaveSnapshot[]) {
   // すべてのスナップショットを極小化
   const minified = snapshots.map(compressSnapshot);
 
+  // 1. クラウドDB (Synology PostgreSQL: user_saves.raw_save.snapshots) へ確実に永続化！
+  saveSnapshotsToCloudDb(userId, minified).catch((e) => {
+    console.warn(`[SnapshotService] Cloud DB snapshot sync notice for ${userId}:`, e);
+  });
+
+  // 2. ローカルストレージにもオフラインキャッシュとして保存
   let candidates = minified;
   while (candidates.length > 0) {
     try {
@@ -699,29 +709,42 @@ export function ensureInitialSnapshot(
 }
 
 /**
- * サーバー側で提供される公式の過去シードスナップショットを取り込む
+ * ユーザーのスナップショット一覧を取得（クラウドDBを正本として優先フェッチ）
  */
-export async function hydrateSeedSnapshots(userId: string): Promise<boolean> {
-  if (!userId || typeof window === 'undefined') return false;
+export async function fetchSnapshotsForUser(
+  userId: string,
+  fallbackSave?: GameSaveData
+): Promise<GameSaveSnapshot[]> {
+  if (!userId) return [];
+
+  // 1. まずクラウドDB (Synology PostgreSQL) から最新のスナップショット履歴を取得
   try {
-    const res = await fetch('/legacy_snapshots_seed.json');
-    if (!res.ok) return false;
-    const seedData = await res.json();
-    const userSeeds: GameSaveSnapshot[] = seedData[userId];
-    if (Array.isArray(userSeeds) && userSeeds.length > 0) {
-      const existing = getSnapshotsForUser(userId);
-      const existingIds = new Set(existing.map((s) => s.id));
-      const newItems = userSeeds.filter((s) => !existingIds.has(s.id));
-      if (newItems.length > 0) {
-        const merged = pruneSnapshots([...newItems, ...existing], getLocalDateString());
-        saveSnapshotsToStorage(userId, merged);
-        return true;
-      }
+    const cloudSnaps = await fetchSnapshotsFromCloudDb(userId);
+    if (Array.isArray(cloudSnaps) && cloudSnaps.length > 0) {
+      const minified = cloudSnaps.map(compressSnapshot);
+      // ローカルストレージも最新クラウドで同期更新
+      saveSnapshotsToStorage(userId, minified);
+      return minified;
     }
-  } catch (e) {
-    // optional seed, ignore network failure
+  } catch (err) {
+    console.warn(`[SnapshotService] Cloud snapshot fetch warning for ${userId}:`, err);
   }
-  return false;
+
+  // 2. クラウドDBにまだ履歴がない場合、ローカルストレージを確認
+  const localList = getSnapshotsForUser(userId);
+  if (localList.length > 0) {
+    // ローカルにあればクラウドDBへ初回アップロード
+    saveSnapshotsToCloudDb(userId, localList).catch(() => {});
+    return localList;
+  }
+
+  // 3. どちらにもない場合は、最新セーブデータ fallbackSave から初回スナップショットを生成してクラウドDBへ保存
+  if (fallbackSave) {
+    const created = saveSnapshotIfAdvantageous(userId, fallbackSave, '初回状態記録（最新セーブ）');
+    if (created) return [created];
+  }
+
+  return [];
 }
 
 /**

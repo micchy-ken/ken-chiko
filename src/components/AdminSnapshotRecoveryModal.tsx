@@ -44,10 +44,14 @@ import {
   getLocalTimeString,
   pruneSnapshots,
   extractSaveMetrics,
-  hydrateSeedSnapshots,
+  fetchSnapshotsForUser,
   minifySaveForSnapshot,
 } from '../services/snapshotService';
-import { saveUserSaveToPostgrest } from '../services/postgrestUserService';
+import {
+  saveUserSaveToPostgrest,
+  fetchUserSaveFromPostgrest,
+} from '../services/postgrestUserService';
+import { mergeRewardStates, deduplicateDiary } from '../services/cloudSync';
 import confetti from '../utils/confetti';
 
 interface AdminSnapshotRecoveryModalProps {
@@ -90,23 +94,40 @@ export const AdminSnapshotRecoveryModal: React.FC<AdminSnapshotRecoveryModalProp
   // 今日の日付文字列
   const todayStr = useMemo(() => getLocalDateString(), []);
 
-  // スナップショット一覧の読み込み（初回初期化 & シード取り込み含む）
+  // スナップショット一覧の読み込み（クラウドDB優先フェッチ）
   const loadSnapshots = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. 初回スナップショット（現在データ・ローカルバックアップ）の確保
-      ensureInitialSnapshot(userId, currentSaveData, characters);
-      // 2. サーバー側シードスナップショットがあれば非同期でマージ取り込み
-      await hydrateSeedSnapshots(userId);
-      // 3. 最新一覧をステートにセット
-      const list = getSnapshotsForUser(userId);
+      // 1. クラウドDB (Synology PostgreSQL) から最新レコードを直接フェッチ
+      const cloudRecord = await fetchUserSaveFromPostgrest(userId);
+      let activeSave = currentSaveData;
+      if (cloudRecord) {
+        // クラウドDBの最新進捗から完全なセーブデータ構造を復元
+        const cloudProgress = cloudRecord.nyan_progress || {};
+        activeSave = {
+          ...currentSaveData,
+          version: cloudRecord.version || currentSaveData.version,
+          diary: cloudRecord.diary || currentSaveData.diary,
+          rewards: cloudRecord.rewards || currentSaveData.rewards,
+          stats: cloudRecord.stats || currentSaveData.stats,
+          inventory: cloudRecord.inventory || currentSaveData.inventory,
+          nyanProgress: cloudProgress,
+          kenchiko: cloudRecord.raw_save?.kenchiko || currentSaveData.kenchiko,
+        };
+      }
+
+      // 2. クラウドDBを正本としてスナップショット一覧を取得（なければ最新クラウドセーブから自動記録）
+      const list = await fetchSnapshotsForUser(userId, activeSave);
       setSnapshots(list);
     } catch (e) {
-      console.error('Error loading snapshots:', e);
+      console.error('Error loading snapshots from cloud DB:', e);
+      // フォールバック: ローカルストレージ
+      const list = getSnapshotsForUser(userId);
+      setSnapshots(list);
     } finally {
       setIsLoading(false);
     }
-  }, [userId, currentSaveData, characters]);
+  }, [userId, currentSaveData]);
 
   useEffect(() => {
     loadSnapshots();
@@ -267,9 +288,31 @@ export const AdminSnapshotRecoveryModal: React.FC<AdminSnapshotRecoveryModalProp
     setIsRestoring(true);
     setActionMessage(null);
     try {
-      // 1. ローカルデータと安全マージ
+      // 1. 最新のクラウド進捗を取得してローカルデータと統合
+      let baseSave = currentSaveData;
+      try {
+        const cloudRecord = await fetchUserSaveFromPostgrest(userId);
+        if (cloudRecord) {
+          baseSave = {
+            ...currentSaveData,
+            diary: deduplicateDiary([...(cloudRecord.diary || []), ...(currentSaveData.diary || [])]),
+            rewards: mergeRewardStates(currentSaveData.rewards, cloudRecord.rewards),
+            nyanProgress: { ...(cloudRecord.nyan_progress || {}), ...(currentSaveData.nyanProgress || {}) },
+            stats: {
+              totalTrips: Math.max(currentSaveData.stats?.totalTrips || 0, cloudRecord.stats?.totalTrips || 0),
+              totalEncounters: Math.max(currentSaveData.stats?.totalEncounters || 0, cloudRecord.stats?.totalEncounters || 0),
+              totalNapMinutes: Math.max(currentSaveData.stats?.totalNapMinutes || 0, cloudRecord.stats?.totalNapMinutes || 0),
+              totalSnacksEaten: Math.max(currentSaveData.stats?.totalSnacksEaten || 0, cloudRecord.stats?.totalSnacksEaten || 0),
+            },
+          };
+        }
+      } catch (cloudErr) {
+        console.warn('Could not fetch cloud save during restore preparation:', cloudErr);
+      }
+
+      // 2. ローカルデータ・クラウドデータと安全マージ
       const { mergedSave, diffSummary } = restoreSnapshotWithLocalMerge(
-        currentSaveData,
+        baseSave,
         snap.saveData,
         characters
       );
