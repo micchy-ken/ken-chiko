@@ -365,6 +365,48 @@ export function markTicketAsUsed(
 export const GIFT_ID_YUMI_APOLOGY = 'gift_yumi_apology_1000pt_202610';
 export const YUMI_APOLOGY_POINTS = 1000;
 
+export const GIFT_ID_YUMI_BIRTHDAY_2026 = 'gift_yumi_birthday_karuchieratan_5tkt_20261101';
+export const YUMI_BIRTHDAY_TICKETS_COUNT = 5;
+
+/**
+ * 日本時間 (JST: UTC+9) での現在日時情報を取得する
+ * ブラウザやサーバーのタイムゾーンに関係なく、厳密に日本時間を基準にして判定する。
+ */
+export function getJSTDateInfo(timestamp: number = Date.now()): {
+  year: number;
+  month: number; // 1-12
+  day: number;
+  hour: number;
+  minute: number;
+  dateStr: string; // "YYYY-MM-DD"
+  isYumiBirthdayTriggerTime: boolean; // 日本時間の2026年11月1日 00:00 以降
+} {
+  // JST は UTC+9時間 (9 * 3600 * 1000 ms)
+  const jstDate = new Date(timestamp + 9 * 60 * 60 * 1000);
+  const year = jstDate.getUTCFullYear();
+  const month = jstDate.getUTCMonth() + 1;
+  const day = jstDate.getUTCDate();
+  const hour = jstDate.getUTCHours();
+  const minute = jstDate.getUTCMinutes();
+  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  // 2026年11月1日 (JST) 00:00 以降であればトリガー条件を満たす
+  // （当日以降の初回ログインで必ず受け取れる設計）
+  const isYumiBirthdayTriggerTime =
+    year > 2026 ||
+    (year === 2026 && (month > 11 || (month === 11 && day >= 1)));
+
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    dateStr,
+    isYumiBirthdayTriggerTime,
+  };
+}
+
 /**
  * 特定の特別プレゼントが既に受け取り済みか確認する
  */
@@ -400,4 +442,45 @@ export function claimSpecialGift(
   };
 
   return { success: true, updatedState };
+}
+
+/**
+ * 由美さんのバースデー特別プレゼント（カルチェラタンのケーキ・洋菓子引換券 5枚）を付与する
+ */
+export function claimBirthdayKaruchieratanTickets(
+  current: UserRewardState | undefined,
+  giftId: string = GIFT_ID_YUMI_BIRTHDAY_2026,
+  ticketCount: number = YUMI_BIRTHDAY_TICKETS_COUNT
+): { success: boolean; updatedState: UserRewardState; newTickets: RewardTicket[] } {
+  const state: UserRewardState = current ? { ...current } : createInitialRewardState();
+  const claimedList = state.claimedSpecialGiftIds || [];
+
+  if (claimedList.includes(giftId)) {
+    return { success: false, updatedState: state, newTickets: [] };
+  }
+
+  const now = Date.now();
+  const newTickets: RewardTicket[] = [];
+  const def = TICKET_DEFINITIONS.karuchieratan;
+
+  for (let i = 0; i < ticketCount; i++) {
+    newTickets.push({
+      id: `tkt_krc_bday_${now}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+      type: 'karuchieratan',
+      title: def.title,
+      description: '🎂 由美さんお誕生日記念！カルチェラタンのケーキ・お菓子が買ってもらえるよ！🍰',
+      rarity: 'gold',
+      obtainedAt: now + i,
+      isUsed: false,
+    });
+  }
+
+  const updatedState: UserRewardState = {
+    ...state,
+    tickets: [...newTickets, ...(state.tickets || [])],
+    claimedSpecialGiftIds: [...claimedList, giftId],
+    lastUpdated: now,
+  };
+
+  return { success: true, updatedState, newTickets };
 }

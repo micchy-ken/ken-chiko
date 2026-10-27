@@ -72,6 +72,7 @@ import { OuenModal } from './components/OuenModal';
 import { GaraponModal } from './components/GaraponModal';
 import { InitialBonusModal } from './components/InitialBonusModal';
 import { SpecialGiftModal } from './components/SpecialGiftModal';
+import { BirthdaySurpriseModal } from './components/BirthdaySurpriseModal';
 import { UserRewardState } from './types/rewards';
 import {
   claimDailyPetPoints,
@@ -81,8 +82,12 @@ import {
   createInitialRewardState,
   GIFT_ID_YUMI_APOLOGY,
   YUMI_APOLOGY_POINTS,
+  GIFT_ID_YUMI_BIRTHDAY_2026,
+  YUMI_BIRTHDAY_TICKETS_COUNT,
+  getJSTDateInfo,
   hasClaimedSpecialGift,
   claimSpecialGift,
+  claimBirthdayKaruchieratanTickets,
 } from './services/rewardService';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
@@ -285,11 +290,24 @@ export default function App() {
   const [showInitialBonusModal, setShowInitialBonusModal] = useState<boolean>(false);
   const [showYumiGiftModal, setShowYumiGiftModal] = useState<boolean>(false);
   const [hasDismissedYumiGift, setHasDismissedYumiGift] = useState<boolean>(false);
+  const [showYumiBirthdayModal, setShowYumiBirthdayModal] = useState<boolean>(false);
+  const [hasDismissedYumiBirthday, setHasDismissedYumiBirthday] = useState<boolean>(false);
+  const [isPreviewYumiBirthday, setIsPreviewYumiBirthday] = useState<boolean>(false);
   const [initialBonusInfo, setInitialBonusInfo] = useState<{
     discoveredCount: number;
     bonusAmount: number;
   } | null>(null);
   const [rewardToastMessage, setRewardToastMessage] = useState<string | null>(null);
+
+  // Listener for admin preview of Yumi Birthday Modal
+  useEffect(() => {
+    const handlePreviewBirthday = () => {
+      setIsPreviewYumiBirthday(true);
+      setShowYumiBirthdayModal(true);
+    };
+    window.addEventListener('kenchiko-preview-yumi-birthday', handlePreviewBirthday);
+    return () => window.removeEventListener('kenchiko-preview-yumi-birthday', handlePreviewBirthday);
+  }, []);
 
   // Auto-dismiss reward toast message after 4 seconds
   useEffect(() => {
@@ -758,6 +776,70 @@ export default function App() {
     }
     try {
       confetti({ particleCount: 80, spread: 100, origin: { y: 0.5 } });
+    } catch {}
+  };
+
+  // Check and trigger Yumi Birthday Surprise Modal (Nov 1st JST onwards, Karuchieratan Tickets x5)
+  useEffect(() => {
+    if (!isInitialSyncCompleted || showInitialBonusModal || hasDismissedYumiBirthday) return;
+    const activeUid = getActiveUserId() || 'default';
+    if (activeUid === 'yumi') {
+      const jstInfo = getJSTDateInfo();
+      // 厳密に日本時間（JST）の2026年11月1日 00:00 以降に発動
+      if (jstInfo.isYumiBirthdayTriggerTime) {
+        const alreadyClaimed = hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_BIRTHDAY_2026);
+        if (!alreadyClaimed) {
+          setShowYumiBirthdayModal(true);
+        }
+      }
+    }
+  }, [isInitialSyncCompleted, showInitialBonusModal, hasDismissedYumiBirthday, saveData.rewards]);
+
+  // Handle Yumi Birthday Surprise Claim (Karuchieratan Tickets x5 + Anniversary Diary)
+  const handleClaimYumiBirthday = () => {
+    if (isPreviewYumiBirthday) {
+      setShowYumiBirthdayModal(false);
+      setIsPreviewYumiBirthday(false);
+      setRewardToastMessage('🎂 プレビュー確認完了（チケットは消費されません）');
+      return;
+    }
+
+    setSaveData((prev) => {
+      const res = claimBirthdayKaruchieratanTickets(
+        prev.rewards,
+        GIFT_ID_YUMI_BIRTHDAY_2026,
+        YUMI_BIRTHDAY_TICKETS_COUNT
+      );
+
+      // 特別なバースデー記念おもいで絵日記を追加
+      const birthdayDiaryEntry: DiaryEntry = {
+        id: `diary_bday_yumi_20261101_${Date.now()}`,
+        dateFormatted: '11/1',
+        timestamp: Date.now(),
+        locationName: 'おうち / お誕生日パーティールーム',
+        activityTitle: 'ゆみさまー！はぴばすでい🎉🎂',
+        nyanId: null,
+        nyanName: 'けんちこ & みんな',
+        itemUsed: null,
+        text: 'ゆみさまー！はぴばすでい🎉 今日は由美様の特別なお誕生日！これからもずーっとずーっとずーっといっしょねー！しゅきぃぃぃ❤❤❤t カルチェラタンのケーキ引換券を5枚プレゼント！いつも本当にありがとう、素敵な1年になりますように🐾🍰',
+      };
+
+      const updatedDiary = [birthdayDiaryEntry, ...(prev.diary || [])];
+
+      const nextData: GameSaveData = {
+        ...prev,
+        rewards: res.updatedState,
+        diary: updatedDiary,
+        lastSaved: Date.now(),
+      };
+      saveOnUserAction(nextData, true);
+      return nextData;
+    });
+
+    setShowYumiBirthdayModal(false);
+    setRewardToastMessage('🎂 由美さんお誕生日おめでとうございます！カルチェラタン引換券5枚をお届けしました🍰✨');
+    try {
+      confetti({ particleCount: 100, spread: 120, origin: { y: 0.5 } });
     } catch {}
   };
 
@@ -2234,6 +2316,25 @@ export default function App() {
                 </span>
               </button>
             )}
+
+            {/* Yumi Birthday Special Gift Quick Button (Nov 1st JST onwards) */}
+            {currentUserId === 'yumi' &&
+              getJSTDateInfo().isYumiBirthdayTriggerTime &&
+              !hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_BIRTHDAY_2026) && (
+                <button
+                  onClick={() => {
+                    setHasDismissedYumiBirthday(false);
+                    setShowYumiBirthdayModal(true);
+                  }}
+                  className="relative flex items-center justify-center gap-1.5 px-2.5 sm:px-3.5 py-2 text-xs font-black transition sketch-card-subtle bg-gradient-to-r from-[#FDE047] via-[#F59E0B] to-[#EF4444] text-white border-2 border-[#B45309] shadow-md animate-bounce shrink-0 cursor-pointer"
+                  title="由美さんお誕生日おめでとうございます！カルチェラタン引換券5枚をお受け取りください🎂"
+                >
+                  <span className="text-sm">🎂</span>
+                  <span className="font-handwriting text-xs sm:text-sm font-black whitespace-nowrap">
+                    お誕生日プレゼント (🍰×5)
+                  </span>
+                </button>
+              )}
           </div>
 
           {/* Top-Right Status Lamps / Badges */}
@@ -2797,6 +2898,21 @@ export default function App() {
             setShowYumiGiftModal(false);
             setHasDismissedYumiGift(true);
           }}
+        />
+      )}
+
+      {/* Yumi Birthday Special Surprise Modal (Nov 1st JST) */}
+      {showYumiBirthdayModal && (
+        <BirthdaySurpriseModal
+          isOpen={showYumiBirthdayModal}
+          recipientName="由美様"
+          onClaim={handleClaimYumiBirthday}
+          onClose={() => {
+            setShowYumiBirthdayModal(false);
+            setHasDismissedYumiBirthday(true);
+            setIsPreviewYumiBirthday(false);
+          }}
+          isPreview={isPreviewYumiBirthday}
         />
       )}
 

@@ -1120,6 +1120,38 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                       </div>
                     )}
 
+                    {/* Birthday Surprise Status & Preview (yumi) */}
+                    {selectedUser.userId === 'yumi' && (
+                      <div className="p-3 bg-gradient-to-r from-[#FFFBEB] via-[#FEF3C7] to-[#FED7AA] rounded-xl border border-[#F59E0B] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 font-black text-[#92400E]">
+                            <span className="text-base">🎂</span>
+                            <span>11/1 お誕生日特別プレゼント（カルチェラタン引換券5枚）</span>
+                          </div>
+                          <div className="text-[11px] text-[#78350F]">
+                            本番発動条件: <strong>2026年11月1日 00:00 (日本時間 JST)</strong> 以降の初回ログイン
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-white border border-[#D97706] text-[#B45309] shadow-xs">
+                            {selectedUser.rewards?.claimedSpecialGiftIds?.includes('gift_yumi_birthday_karuchieratan_5tkt_20261101')
+                              ? '✅ 受取済み'
+                              : '⏳ 11/1 JSTに自動発動'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.dispatchEvent(new CustomEvent('kenchiko-preview-yumi-birthday'));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black transition shadow-xs cursor-pointer"
+                            title="本番前に特別な誕生日サプライズ演出を画面上でプレビュー確認します"
+                          >
+                            ▶ 演出プレビュー
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                       <div className="p-2.5 bg-white rounded-xl border border-[#FDE68A]">
                         <div className="text-[10px] text-[#92400E]">🍰 かるちぇらたん</div>
