@@ -186,10 +186,6 @@ export const BirthdaySurpriseModal: React.FC<BirthdaySurpriseModalProps> = ({
                     ) : (
                       <span className="text-5xl">🐱</span>
                     )}
-                    {/* Birthday Party Cone Hat */}
-                    <span className="absolute -top-4 -right-1.5 text-3xl rotate-12 drop-shadow-md animate-bounce">
-                      🥳
-                    </span>
                     {/* Glowing Candle Cake */}
                     <span className="absolute -bottom-2.5 -left-2.5 text-3xl animate-pulse drop-shadow-md">
                       🎂
@@ -204,9 +200,6 @@ export const BirthdaySurpriseModal: React.FC<BirthdaySurpriseModalProps> = ({
                   </p>
                   <p className="font-bold text-[#EA580C] text-xs sm:text-sm leading-snug">
                     「これからもずーっとずーっとずーっといっしょねー！しゅきぃぃぃ❤❤❤t」
-                  </p>
-                  <p className="text-[12px] text-[#78350F] pt-0.5">
-                    大好きなカルチェラタンのケーキをたくさん食べて、甘くて幸せいっぱいの素敵な1年にしてね🍰✨
                   </p>
                 </div>
               </div>

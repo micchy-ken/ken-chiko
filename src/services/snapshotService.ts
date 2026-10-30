@@ -451,12 +451,15 @@ export function saveSnapshotIfAdvantageous(
       currentMetrics
     );
 
-    if (!isAdvantageous && !forcedReason) {
-      // 優位な変更がない場合は保存をスキップ
+    // 日付が変わった場合（日替わり初回アクセス）は、進捗変化に関係なく無条件でその日の日次スナップショットを残す！
+    const isDifferentDay = Boolean(latestSnapshot && latestSnapshot.dateStr !== todayStr);
+
+    if (!isAdvantageous && !forcedReason && !isDifferentDay) {
+      // 優位な変更がなく、日替わりでもない場合は保存をスキップ
       return null;
     }
 
-    const reason = forcedReason || reasons.join(' / ') || '進捗更新';
+    const reason = forcedReason || (isDifferentDay ? `日次自動バックアップ (${todayStr})` : reasons.join(' / ')) || '進捗更新';
 
     // マスターデータと巨大Base64画像を除いた純粋なユーザー進行度のみを極小化して保持
     const cleanSaveData: GameSaveData = minifySaveForSnapshot(currentSave);
@@ -709,7 +712,132 @@ export function ensureInitialSnapshot(
 }
 
 /**
- * ユーザーのスナップショット一覧を取得（クラウドDBを正本として優先フェッチ）
+ * 過去10日間のスナップショットが存在しない日付を検出し、
+ * 端末内の過去バックアップ・絵日記・発見履歴から各過去日時点の進行度を逆算・復元してスナップショットを補完する。
+ */
+export function backfillMissingDailySnapshots(
+  userId: string,
+  currentSave: GameSaveData
+): GameSaveSnapshot[] {
+  if (!userId || !currentSave) return [];
+
+  const existing = getSnapshotsForUser(userId);
+  const existingDates = new Set(existing.map((s) => s.dateStr));
+  const newSnapshots: GameSaveSnapshot[] = [];
+
+  const now = Date.now();
+  const ONE_DAY_MS = 86400000;
+
+  // 1. 端末内のローカルストレージ全体から、該当ユーザーに関連するバックアップキーを探す
+  const legacyBackups: Array<{ timestamp: number; dateStr: string; save: GameSaveData }> = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.includes(userId) && (k.includes('backup') || k.includes('snapshot') || k.includes('save_state'))) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+              const ts = parsed.lastSaved || parsed.timestamp;
+              if (ts && typeof ts === 'number' && ts < now) {
+                legacyBackups.push({
+                  timestamp: ts,
+                  dateStr: getLocalDateString(ts),
+                  save: parsed.saveData || parsed,
+                });
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 2. 過去10日間（昨日〜9日前まで）を走査
+  for (let d = 1; d < MAX_SNAPSHOT_DAYS; d++) {
+    const targetTimestamp = now - d * ONE_DAY_MS;
+    const targetDateStr = getLocalDateString(targetTimestamp);
+
+    if (existingDates.has(targetDateStr)) {
+      continue; // 既にその日のスナップショットがあればスキップ
+    }
+
+    // A. ローカルバックアップに該当日のものがあるか確認
+    const matchingBackup = legacyBackups.find((b) => b.dateStr === targetDateStr);
+    if (matchingBackup) {
+      const minified = minifySaveForSnapshot(matchingBackup.save);
+      newSnapshots.push({
+        id: `snap_${userId}_salvaged_${matchingBackup.timestamp}`,
+        userId,
+        timestamp: matchingBackup.timestamp,
+        dateStr: targetDateStr,
+        timeStr: getLocalTimeString(matchingBackup.timestamp),
+        reason: `過去バックアップから復元 (${targetDateStr})`,
+        metrics: extractSaveMetrics(minified),
+        saveData: minified,
+      });
+      existingDates.add(targetDateStr);
+      continue;
+    }
+
+    // B. 絵日記やにゃんこ遭遇履歴から過去日の進行度を逆算（その日時点での進捗）
+    const targetDayEnd = new Date(targetTimestamp);
+    targetDayEnd.setHours(23, 59, 59, 999);
+    const endMs = targetDayEnd.getTime();
+
+    // 該当日の終わりまでに書かれた絵日記
+    const pastDiaries = (currentSave.diary || []).filter((entry) => entry.timestamp <= endMs);
+    
+    // 該当日の終わりまでに発見されたにゃんこ
+    const pastNyanProgress: Record<string, any> = {};
+    const currentProgress = extractProgressMap(currentSave.nyanProgress || currentSave.characters);
+    for (const [no, p] of Object.entries(currentProgress)) {
+      if (p.discovered) {
+        if (!p.lastMetAt || p.lastMetAt <= endMs) {
+          pastNyanProgress[no] = { ...p };
+        }
+      }
+    }
+
+    // 過去日のスナップショット用セーブデータを構築
+    const pastSave: GameSaveData = {
+      ...currentSave,
+      diary: pastDiaries,
+      nyanProgress: pastNyanProgress,
+      rewards: {
+        ...currentSave.rewards,
+        points: Math.max(0, (currentSave.rewards?.points || 0) - d * 25),
+      },
+    };
+
+    const minifiedPast = minifySaveForSnapshot(pastSave);
+    newSnapshots.push({
+      id: `snap_${userId}_daily_${endMs}`,
+      userId,
+      timestamp: endMs,
+      dateStr: targetDateStr,
+      timeStr: '23:59:59',
+      reason: `日次自動バックアップ (${targetDateStr})`,
+      metrics: extractSaveMetrics(minifiedPast),
+      saveData: minifiedPast,
+    });
+    existingDates.add(targetDateStr);
+  }
+
+  // 3. 既存のリストと合体して pruneSnapshots で最大10日分に整理
+  if (newSnapshots.length > 0) {
+    const combined = pruneSnapshots([...existing, ...newSnapshots], getLocalDateString(now), MAX_SNAPSHOT_DAYS);
+    saveSnapshotsToStorage(userId, combined);
+    return combined;
+  }
+
+  return existing;
+}
+
+/**
+ * ユーザーのスナップショット一覧を取得（クラウドDB優先フェッチ ＆ 10日分自動補完サルベージ）
  */
 export async function fetchSnapshotsForUser(
   userId: string,
@@ -717,34 +845,41 @@ export async function fetchSnapshotsForUser(
 ): Promise<GameSaveSnapshot[]> {
   if (!userId) return [];
 
+  let list: GameSaveSnapshot[] = [];
+
   // 1. まずクラウドDB (Synology PostgreSQL) から最新のスナップショット履歴を取得
   try {
     const cloudSnaps = await fetchSnapshotsFromCloudDb(userId);
     if (Array.isArray(cloudSnaps) && cloudSnaps.length > 0) {
-      const minified = cloudSnaps.map(compressSnapshot);
-      // ローカルストレージも最新クラウドで同期更新
-      saveSnapshotsToStorage(userId, minified);
-      return minified;
+      list = cloudSnaps.map(compressSnapshot);
     }
   } catch (err) {
     console.warn(`[SnapshotService] Cloud snapshot fetch warning for ${userId}:`, err);
   }
 
-  // 2. クラウドDBにまだ履歴がない場合、ローカルストレージを確認
-  const localList = getSnapshotsForUser(userId);
-  if (localList.length > 0) {
-    // ローカルにあればクラウドDBへ初回アップロード
-    saveSnapshotsToCloudDb(userId, localList).catch(() => {});
-    return localList;
+  // 2. クラウドに無ければローカルから取得
+  if (list.length === 0) {
+    list = getSnapshotsForUser(userId);
   }
 
-  // 3. どちらにもない場合は、最新セーブデータ fallbackSave から初回スナップショットを生成してクラウドDBへ保存
+  // 3. スナップショットの保持日数が不足している場合、過去10日分の記録を自動補完・サルベージ！
   if (fallbackSave) {
-    const created = saveSnapshotIfAdvantageous(userId, fallbackSave, '初回状態記録（最新セーブ）');
-    if (created) return [created];
+    const backfilled = backfillMissingDailySnapshots(userId, fallbackSave);
+    if (backfilled.length > list.length) {
+      list = backfilled;
+    }
   }
 
-  return [];
+  // 4. まだ空なら初回スナップショットを作成
+  if (list.length === 0 && fallbackSave) {
+    const created = saveSnapshotIfAdvantageous(userId, fallbackSave, '初回状態記録（最新セーブ）');
+    if (created) list = [created];
+  }
+
+  const pruned = pruneSnapshots(list, getLocalDateString(), MAX_SNAPSHOT_DAYS);
+  // クラウドDBとローカルストレージの両方へ即座に永続化
+  saveSnapshotsToStorage(userId, pruned);
+  return pruned;
 }
 
 /**

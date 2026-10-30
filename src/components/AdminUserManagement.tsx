@@ -1143,6 +1143,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              setSelectedUserId(null);
                               window.dispatchEvent(new CustomEvent('kenchiko-preview-yumi-birthday'));
                             }}
                             className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black transition shadow-xs cursor-pointer flex items-center gap-1"
@@ -1153,7 +1154,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              setShowBirthdayPreviewModal(true);
+                              window.dispatchEvent(new CustomEvent('kenchiko-preview-yumi-birthday', { detail: { directModal: true } }));
                             }}
                             className="px-2 py-1 rounded-lg bg-white hover:bg-[#FAF8F5] text-[#92400E] border border-[#F59E0B] text-[10px] font-bold transition shadow-xs cursor-pointer"
                             title="プレゼントボックスモーダルを直接プレビューします"

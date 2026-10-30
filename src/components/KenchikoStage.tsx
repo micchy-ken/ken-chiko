@@ -75,6 +75,9 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
 
   // バースデープロローグ演出用のセリフ上書きステート
   const [birthdayMonologue, setBirthdayMonologue] = useState<string | null>(null);
+  const handleMonologueChange = React.useCallback((text: string) => {
+    setBirthdayMonologue(text);
+  }, []);
 
   // RPG / Novel style monologue paging for mobile screens
   const [monologuePage, setMonologuePage] = useState(0);
@@ -516,7 +519,7 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
             isActive={isBirthdayEventActive}
             characters={characters}
             onOpenBirthdayModal={onOpenBirthdayModal}
-            onMonologueChange={(text) => setBirthdayMonologue(text)}
+            onMonologueChange={handleMonologueChange}
           />
         )}
 

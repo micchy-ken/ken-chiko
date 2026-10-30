@@ -303,9 +303,12 @@ export default function App() {
   // Listener for admin preview of Yumi Birthday Modal (Stage Prologue & Modal)
   useEffect(() => {
     const handlePreviewBirthday = (e: any) => {
+      // ログイン中のユーザーは一切変更せず、演出プレビューフラグのみをONにする
       setIsPreviewYumiBirthday(true);
-      setActiveTab('stage');
+      setIsStandaloneAdmin(false);
       setShowSyncModal(false);
+      setActiveTab('stage');
+
       if (e?.detail?.directModal) {
         setShowYumiBirthdayModal(true);
       }
@@ -471,6 +474,15 @@ export default function App() {
         setActiveTab(tabParam);
       }
 
+      // Birthday preview trigger via URL params (?preview=birthday, ?bday=1, ?preview=1)
+      const previewParam = params.get('preview');
+      const bdayParam = params.get('bday');
+      const isBirthdayPreviewUrl =
+        previewParam === 'birthday' ||
+        previewParam === '1' ||
+        bdayParam === '1' ||
+        bdayParam === 'true';
+
       // Development / Admin console direct navigation
       // Triggers: ?dev=true, ?admin=true, ?admin=1, ?admin=asobi, ?modal=admin, ?mode=admin, ?tab=admin, ?tab=sync
       const isDevTrigger =
@@ -485,7 +497,13 @@ export default function App() {
         tabParam === 'dev' ||
         tabParam === 'sync';
 
-      if (isDevTrigger) {
+      if (isBirthdayPreviewUrl) {
+        // ログイン中のアカウント（LocalStorage）は一切変更せず、演出プレビューのみを起動する
+        setIsPreviewYumiBirthday(true);
+        setActiveTab('stage');
+        setIsStandaloneAdmin(false);
+        setShowSyncModal(false);
+      } else if (isDevTrigger) {
         if (adminParam && validAdminTabs.includes(adminParam as AdminTab)) {
           setAdminInitialTab(adminParam as AdminTab);
         } else if (subtabParam && validAdminTabs.includes(subtabParam as AdminTab)) {
@@ -2151,7 +2169,7 @@ export default function App() {
 
   // Default User Screen: ONLY Centered Kenchiko Illustration (Game completely stopped)
   // No game screen or stage is rendered in the background!
-  if (isDefaultUser) {
+  if (isDefaultUser && !isPreviewYumiBirthday) {
     return (
       <div className="min-h-screen bg-[#F4F1EA] text-[#3E3833] flex flex-col font-['Zen_Maru_Gothic','M_PLUS_Rounded_1c',sans-serif]">
         <PencilSketchFilters />
@@ -2332,38 +2350,21 @@ export default function App() {
                 </span>
               </button>
             )}
-
-            {/* Yumi Birthday Special Gift Quick Button (Nov 1st JST onwards) */}
-            {currentUserId === 'yumi' &&
-              getJSTDateInfo().isYumiBirthdayTriggerTime &&
-              !hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_BIRTHDAY_2026) && (
-                <button
-                  onClick={() => {
-                    setHasDismissedYumiBirthday(false);
-                    setShowYumiBirthdayModal(true);
-                  }}
-                  className="relative flex items-center justify-center gap-1.5 px-2.5 sm:px-3.5 py-2 text-xs font-black transition sketch-card-subtle bg-gradient-to-r from-[#FDE047] via-[#F59E0B] to-[#EF4444] text-white border-2 border-[#B45309] shadow-md animate-bounce shrink-0 cursor-pointer"
-                  title="由美さんお誕生日おめでとうございます！カルチェラタン引換券5枚をお受け取りください🎂"
-                >
-                  <span className="text-sm">🎂</span>
-                  <span className="font-handwriting text-xs sm:text-sm font-black whitespace-nowrap">
-                    お誕生日プレゼント (🍰×5)
-                  </span>
-                </button>
-              )}
           </div>
 
           {/* Top-Right Status Lamps / Badges */}
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Subtle Current Username Indicator (Desktop only) */}
+            {/* Current Username Indicator & Quick Switch */}
             {currentUserId && (
-              <div
-                className="hidden md:flex items-center gap-1 px-2 py-1 sketch-tag bg-[#FAF8F4] text-[#4A433D] text-[11px] font-bold border border-[#DDD7C8]"
-                title={`ログイン中のユーザー: ${currentUserId}`}
+              <button
+                onClick={() => setShowUserSettingsModal(true)}
+                className="flex items-center gap-1 px-2.5 py-1 sketch-tag bg-[#FAF8F4] hover:bg-white text-[#4A433D] text-[11px] font-bold border border-[#DDD7C8] shadow-2xs transition active:scale-95 cursor-pointer"
+                title={`ログイン中のユーザー: @${currentUserId}（タップしてユーザー切り替え・設定）`}
               >
                 <User className="w-3 h-3 text-[#487560]" />
-                <span className="font-mono text-[11px] text-[#4A433D]">{currentUserId}</span>
-              </div>
+                <span className="font-mono text-[11px] text-[#4A433D]">@{currentUserId}</span>
+              </button>
             )}
 
             {/* Connection Status Lamp Indicator (Only shown when offline) */}
