@@ -55,6 +55,7 @@ import { NyanIllustration } from './NyanIllustration';
 import { getAssetUrl } from '../utils/assetPath';
 import confetti from '../utils/confetti';
 import { AdminSnapshotRecoveryModal } from './AdminSnapshotRecoveryModal';
+import { BirthdaySurpriseModal } from './BirthdaySurpriseModal';
 import { DEFAULT_INITIAL_STATE } from '../services/storage';
 
 interface AdminUserManagementProps {
@@ -85,6 +86,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
   const [newUserIdInput, setNewUserIdInput] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [snapshotRecoveryUserId, setSnapshotRecoveryUserId] = useState<string | null>(null);
+  const [showBirthdayPreviewModal, setShowBirthdayPreviewModal] = useState<boolean>(false);
 
   const activeUserId = getActiveUserId();
 
@@ -1132,7 +1134,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                             本番発動条件: <strong>2026年11月1日 00:00 (日本時間 JST)</strong> 以降の初回ログイン
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
                           <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-white border border-[#D97706] text-[#B45309] shadow-xs">
                             {selectedUser.rewards?.claimedSpecialGiftIds?.includes('gift_yumi_birthday_karuchieratan_5tkt_20261101')
                               ? '✅ 受取済み'
@@ -1143,10 +1145,20 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                             onClick={() => {
                               window.dispatchEvent(new CustomEvent('kenchiko-preview-yumi-birthday'));
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black transition shadow-xs cursor-pointer"
-                            title="本番前に特別な誕生日サプライズ演出を画面上でプレビュー確認します"
+                            className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black transition shadow-xs cursor-pointer flex items-center gap-1"
+                            title="ステージ上で「あのね、あのね」→にゃんこ登場→箱タップの流れをプレビューします"
                           >
-                            ▶ 演出プレビュー
+                            <span>▶ ステージ演出プレビュー</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowBirthdayPreviewModal(true);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-white hover:bg-[#FAF8F5] text-[#92400E] border border-[#F59E0B] text-[10px] font-bold transition shadow-xs cursor-pointer"
+                            title="プレゼントボックスモーダルを直接プレビューします"
+                          >
+                            <span>🎁 モーダル直接確認</span>
                           </button>
                         </div>
                       </div>
@@ -1510,6 +1522,23 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
             loadUsers();
           }}
           openConfirm={openConfirm}
+        />
+      )}
+
+      {/* Admin Birthday Surprise Modal Preview Direct Trigger */}
+      {showBirthdayPreviewModal && (
+        <BirthdaySurpriseModal
+          isOpen={showBirthdayPreviewModal}
+          recipientName="由美様"
+          kenchikoImageUrl={
+            selectedUser?.kenchiko?.customImageUrl ||
+            saveData?.kenchiko?.customImageUrl ||
+            characters.find((c) => c.no === 1 || c.name.includes('けんち'))?.customImageUrl ||
+            getAssetUrl('images/kihon-nyan-transparent.png')
+          }
+          onClaim={() => setShowBirthdayPreviewModal(false)}
+          onClose={() => setShowBirthdayPreviewModal(false)}
+          isPreview={true}
         />
       )}
     </div>

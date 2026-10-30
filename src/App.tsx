@@ -91,6 +91,7 @@ import {
 } from './services/rewardService';
 import { INITIAL_OUEN_CATEGORIES, INITIAL_OUEN_LIST, mergeOuenCategories, mergeOuenList } from './data/defaultOuen';
 import { PencilSketchFilters } from './utils/pencilFilters';
+import { getAssetUrl } from './utils/assetPath';
 import { saveLocalKenchikoImage, loadLocalKenchikoImage } from './services/imageCompression';
 import { getActiveUserId, setActiveUserId } from './services/userService';
 import { cleanupAndMigrateAllSnapshots } from './services/snapshotService';
@@ -299,11 +300,15 @@ export default function App() {
   } | null>(null);
   const [rewardToastMessage, setRewardToastMessage] = useState<string | null>(null);
 
-  // Listener for admin preview of Yumi Birthday Modal
+  // Listener for admin preview of Yumi Birthday Modal (Stage Prologue & Modal)
   useEffect(() => {
-    const handlePreviewBirthday = () => {
+    const handlePreviewBirthday = (e: any) => {
       setIsPreviewYumiBirthday(true);
-      setShowYumiBirthdayModal(true);
+      setActiveTab('stage');
+      setShowSyncModal(false);
+      if (e?.detail?.directModal) {
+        setShowYumiBirthdayModal(true);
+      }
     };
     window.addEventListener('kenchiko-preview-yumi-birthday', handlePreviewBirthday);
     return () => window.removeEventListener('kenchiko-preview-yumi-birthday', handlePreviewBirthday);
@@ -779,21 +784,32 @@ export default function App() {
     } catch {}
   };
 
-  // Check and trigger Yumi Birthday Surprise Modal (Nov 1st JST onwards, Karuchieratan Tickets x5)
-  useEffect(() => {
-    if (!isInitialSyncCompleted || showInitialBonusModal || hasDismissedYumiBirthday) return;
+  // 11/1の誕生日特別イベント（ステージプロローグ演出）がアクティブかどうか
+  const isBirthdayEventActive = useMemo(() => {
+    // 1. URLパラメータまたは管理者プレビュー中
+    if (isPreviewYumiBirthday) return true;
+    if (typeof window !== 'undefined') {
+      if (
+        window.location.search.includes('preview=birthday') ||
+        window.location.search.includes('bday=1') ||
+        window.location.search.includes('preview=1')
+      ) {
+        return true;
+      }
+    }
+
+    // 2. 本番（日本時間11/1以降 & yumi様 & 未受取）
     const activeUid = getActiveUserId() || 'default';
     if (activeUid === 'yumi') {
       const jstInfo = getJSTDateInfo();
-      // 厳密に日本時間（JST）の2026年11月1日 00:00 以降に発動
       if (jstInfo.isYumiBirthdayTriggerTime) {
         const alreadyClaimed = hasClaimedSpecialGift(saveData.rewards, GIFT_ID_YUMI_BIRTHDAY_2026);
-        if (!alreadyClaimed) {
-          setShowYumiBirthdayModal(true);
-        }
+        return !alreadyClaimed;
       }
     }
-  }, [isInitialSyncCompleted, showInitialBonusModal, hasDismissedYumiBirthday, saveData.rewards]);
+
+    return false;
+  }, [isPreviewYumiBirthday, saveData.rewards]);
 
   // Handle Yumi Birthday Surprise Claim (Karuchieratan Tickets x5 + Anniversary Diary)
   const handleClaimYumiBirthday = () => {
@@ -2537,6 +2553,8 @@ export default function App() {
               remainingTimeSec={remainingTimeSec}
               timeSpeed={timeSpeed}
               kounichanSettings={saveData.kounichan}
+              isBirthdayEventActive={isBirthdayEventActive}
+              onOpenBirthdayModal={() => setShowYumiBirthdayModal(true)}
               onClaimKounichanGift={handleClaimKounichanGift}
               onUpdateKounichanStats={handleUpdateKounichanStats}
               onPet={handlePetKenchiko}
@@ -2906,6 +2924,12 @@ export default function App() {
         <BirthdaySurpriseModal
           isOpen={showYumiBirthdayModal}
           recipientName="由美様"
+          kenchikoImageUrl={
+            saveData.kenchiko?.customImageUrl ||
+            loadLocalKenchikoImage() ||
+            saveData.characters?.find((c) => c.no === 1 || c.name.includes('けんち'))?.customImageUrl ||
+            getAssetUrl('images/kihon-nyan-transparent.png')
+          }
           onClaim={handleClaimYumiBirthday}
           onClose={() => {
             setShowYumiBirthdayModal(false);

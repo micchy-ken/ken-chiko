@@ -10,11 +10,13 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Heart, Gift, Award, Calendar, ChevronRight, X, Cake } from 'lucide-react';
 import { RewardTicket } from '../types/rewards';
+import { getAssetUrl, handleImageError } from '../utils/assetPath';
 import confetti from '../utils/confetti';
 
 interface BirthdaySurpriseModalProps {
   isOpen: boolean;
-  recipientName: string;
+  recipientName?: string;
+  kenchikoImageUrl?: string;
   onClaim: () => void;
   onClose: () => void;
   isPreview?: boolean;
@@ -23,6 +25,7 @@ interface BirthdaySurpriseModalProps {
 export const BirthdaySurpriseModal: React.FC<BirthdaySurpriseModalProps> = ({
   isOpen,
   recipientName = '由美様',
+  kenchikoImageUrl,
   onClaim,
   onClose,
   isPreview = false,
@@ -30,9 +33,11 @@ export const BirthdaySurpriseModal: React.FC<BirthdaySurpriseModalProps> = ({
   const [phase, setPhase] = useState<'box' | 'celebrate'>('box');
   const [ticketAnimIndex, setTicketAnimIndex] = useState<number>(0);
 
-  // 初回表示時に紙吹雪
+  // 初回表示時に紙吹雪およびフェーズのリセット
   useEffect(() => {
     if (isOpen) {
+      setPhase('box');
+      setTicketAnimIndex(0);
       try {
         confetti({ particleCount: 40, spread: 70, origin: { y: 0.6 } });
       } catch {}
@@ -170,14 +175,23 @@ export const BirthdaySurpriseModal: React.FC<BirthdaySurpriseModalProps> = ({
               {/* Kenchiko with Birthday Party Hat & Cake */}
               <div className="relative p-4 bg-gradient-to-br from-[#FFFBEB] via-[#FEF3C7] to-[#FDE68A] rounded-2xl border-2 border-[#F59E0B] shadow-inner space-y-3">
                 <div className="relative inline-flex items-center justify-center">
-                  <div className="w-20 h-20 rounded-full bg-white border-3 border-[#D97706] flex items-center justify-center shadow-md relative overflow-visible">
-                    <span className="text-4xl">🐱</span>
+                  <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border-4 border-[#D97706] p-1 flex items-center justify-center shadow-lg relative overflow-visible bg-gradient-to-b from-[#FFFBEB] to-[#FEF3C7]">
+                    {kenchikoImageUrl ? (
+                      <img
+                        src={getAssetUrl(kenchikoImageUrl)}
+                        alt="けんちこ"
+                        onError={(e) => handleImageError(e, 'images/kihon-nyan-transparent.png')}
+                        className="w-full h-full object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.15)] pointer-events-none select-none rounded-full"
+                      />
+                    ) : (
+                      <span className="text-5xl">🐱</span>
+                    )}
                     {/* Birthday Party Cone Hat */}
-                    <span className="absolute -top-3.5 -right-1 text-2xl rotate-12">
+                    <span className="absolute -top-4 -right-1.5 text-3xl rotate-12 drop-shadow-md animate-bounce">
                       🥳
                     </span>
                     {/* Glowing Candle Cake */}
-                    <span className="absolute -bottom-2 -left-2 text-2xl animate-bounce">
+                    <span className="absolute -bottom-2.5 -left-2.5 text-3xl animate-pulse drop-shadow-md">
                       🎂
                     </span>
                   </div>

@@ -8,6 +8,7 @@ import { LocationIllustration } from './LocationIllustration';
 import { TransitVehicleView } from './TransitVehicleView';
 import { KounichanCrossStage } from './kounichan/KounichanCrossStage';
 import { KounichanSettings } from '../types/kounichan';
+import { BirthdayStageEvent } from './BirthdayStageEvent';
 import { splitDialogueIntoPages, getDialogueFontSizeClass } from '../utils/textPaging';
 import {
   MapPin,
@@ -31,6 +32,8 @@ interface KenchikoStageProps {
   remainingTimeSec: number;
   timeSpeed: number;
   kounichanSettings?: KounichanSettings;
+  isBirthdayEventActive?: boolean;
+  onOpenBirthdayModal?: () => void;
   onClaimKounichanGift?: (type: 'points' | 'cat', cat?: NyanCharacter) => void;
   onUpdateKounichanStats?: (updater: (prev: KounichanSettings['stats']) => KounichanSettings['stats']) => void;
   onPet: () => void;
@@ -52,6 +55,8 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   remainingTimeSec,
   timeSpeed,
   kounichanSettings,
+  isBirthdayEventActive = false,
+  onOpenBirthdayModal,
   onClaimKounichanGift,
   onUpdateKounichanStats,
   onPet,
@@ -68,24 +73,35 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
   const [pettingEffect, setPettingEffect] = useState(false);
   const petTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // バースデープロローグ演出用のセリフ上書きステート
+  const [birthdayMonologue, setBirthdayMonologue] = useState<string | null>(null);
+
   // RPG / Novel style monologue paging for mobile screens
   const [monologuePage, setMonologuePage] = useState(0);
 
+  // 有効なつぶやきテキスト（誕生日イベント中はプロローグセリフを優先）
+  const activeMonologueText = useMemo(() => {
+    if (isBirthdayEventActive && birthdayMonologue) {
+      return birthdayMonologue;
+    }
+    return kenchiko.monologue || '';
+  }, [isBirthdayEventActive, birthdayMonologue, kenchiko.monologue]);
+
   // Break monologue into 28-36 char pages suitable for smartphone speech bubbles
   const monologuePages = useMemo(() => {
-    return splitDialogueIntoPages(kenchiko.monologue || '', 34);
-  }, [kenchiko.monologue]);
+    return splitDialogueIntoPages(activeMonologueText, 34);
+  }, [activeMonologueText]);
 
   const isMultiPage = monologuePages.length > 1;
   const hasNextPage = monologuePage < monologuePages.length - 1;
   const hasPrevPage = monologuePage > 0;
-  const currentPageText = monologuePages[monologuePage] || kenchiko.monologue || '';
+  const currentPageText = monologuePages[monologuePage] || activeMonologueText;
   const fontSizeClass = getDialogueFontSizeClass(currentPageText.length);
 
   // Reset page to 0 whenever monologue content updates
   useEffect(() => {
     setMonologuePage(0);
-  }, [kenchiko.monologue]);
+  }, [activeMonologueText]);
 
   const handleMonologueBoxClick = () => {
     if (hasNextPage) {
@@ -494,19 +510,31 @@ export const KenchikoStage: React.FC<KenchikoStageProps> = ({
           )}
         </div>
 
-        {/* Kouni-chan on Vehicle Crossing the Stage (when no companion cat is present) */}
-        <KounichanCrossStage
-          settings={kounichanSettings}
-          isCompanionPresent={!!companionNyan}
-          isTransit={kenchiko.currentActivity === 'transit'}
-          undiscoveredCats={characters.filter((c) => !c.discovered)}
-          onClaimGift={(type, cat) => {
-            if (onClaimKounichanGift) {
-              onClaimKounichanGift(type, cat);
-            }
-          }}
-          onUpdateStats={onUpdateKounichanStats}
-        />
+        {/* Birthday Prologue Event: Walking Cat with Gift Box (Nov 1st) */}
+        {isBirthdayEventActive && onOpenBirthdayModal && (
+          <BirthdayStageEvent
+            isActive={isBirthdayEventActive}
+            characters={characters}
+            onOpenBirthdayModal={onOpenBirthdayModal}
+            onMonologueChange={(text) => setBirthdayMonologue(text)}
+          />
+        )}
+
+        {/* Kouni-chan on Vehicle Crossing the Stage (when no companion cat is present and not birthday event) */}
+        {!isBirthdayEventActive && (
+          <KounichanCrossStage
+            settings={kounichanSettings}
+            isCompanionPresent={!!companionNyan}
+            isTransit={kenchiko.currentActivity === 'transit'}
+            undiscoveredCats={characters.filter((c) => !c.discovered)}
+            onClaimGift={(type, cat) => {
+              if (onClaimKounichanGift) {
+                onClaimKounichanGift(type, cat);
+              }
+            }}
+            onUpdateStats={onUpdateKounichanStats}
+          />
+        )}
 
         {/* Activity Progress Bar Bottom (Pencil Line Progress) */}
         <div className="relative z-10 w-full max-w-lg mt-2 bg-[#FFFDF9] text-[#2E2824] sketch-card-subtle px-4 py-2.5">
